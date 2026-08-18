@@ -13,7 +13,8 @@ target_include_directories(LumaEditor
     PRIVATE
         ${CMAKE_SOURCE_DIR}/Editor/panels
         ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/include
-        ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src)
+        ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src
+        ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
 
 target_link_libraries(LumaEditor
     PRIVATE Luma::Core Luma::Math Luma::Platform Luma::RenderVulkan Luma::Slate

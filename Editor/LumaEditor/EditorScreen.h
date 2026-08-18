@@ -49,6 +49,7 @@ public:
     // Persists the latest rendered editor frame as the project-browser card
     // preview. The renderer must still be alive when this is called.
     void CaptureProjectPreview();
+    void FinalizeProjectPreview();
 
     Slate::Rect ViewportRect() const { return m_viewportPanel.Rect(); }
     void SetViewportTexture(TextureHandle texture) {

@@ -449,6 +449,7 @@ int main(int argc, char** argv) {
     }
 
     renderer->WaitIdle();
+    if (editor) editor->FinalizeProjectPreview();
     editor.reset();
     renderer.reset();
     window.reset();

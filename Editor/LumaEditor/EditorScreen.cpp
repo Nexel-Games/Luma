@@ -21,6 +21,18 @@
 #include "Luma/Scene/Components.h"
 #include "Luma/Scene/SceneSerializer.h"
 #include "Luma/Renderer/DeferredShadingRenderer.h"
+#include "Luma/Slate/Image.h"
+
+#define STB_IMAGE_WRITE_STATIC
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4505)
+#endif
+#include "stb_image_write.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace Luma {
 using Slate::Align;
@@ -159,7 +171,47 @@ void EditorScreen::CaptureProjectPreview() {
                       ec.message());
         return;
     }
-    m_renderer->CaptureFrame((dir / "ScenePreview.png").string());
+    m_renderer->CaptureFrame((dir / "ScenePreview.full.png").string());
+}
+
+void EditorScreen::FinalizeProjectPreview() {
+    if (!m_project) return;
+    const std::filesystem::path dir =
+        m_project->IntermediateDir() / "Thumbnails";
+    const std::filesystem::path fullPath = dir / "ScenePreview.full.png";
+    const std::filesystem::path previewPath = dir / "ScenePreview.png";
+
+    u32 sourceWidth = 0;
+    u32 sourceHeight = 0;
+    std::vector<u8> pixels;
+    if (!Slate::LoadImagePixels(fullPath.string(), sourceWidth, sourceHeight,
+                                pixels)) {
+        return;
+    }
+
+    const Rect viewport = m_viewportPanel.Rect();
+    const u32 x = std::min<u32>(sourceWidth, static_cast<u32>(
+        std::max(0.0f, viewport.x)));
+    const u32 y = std::min<u32>(sourceHeight, static_cast<u32>(
+        std::max(0.0f, viewport.y)));
+    const u32 width = std::min<u32>(sourceWidth - x, static_cast<u32>(
+        std::max(1.0f, viewport.w)));
+    const u32 height = std::min<u32>(sourceHeight - y, static_cast<u32>(
+        std::max(1.0f, viewport.h)));
+    if (width == 0 || height == 0) return;
+
+    std::vector<u8> cropped(static_cast<usize>(width) * height * 4);
+    for (u32 row = 0; row < height; ++row) {
+        const u8* source = pixels.data() +
+            (static_cast<usize>(y + row) * sourceWidth + x) * 4;
+        u8* destination = cropped.data() + static_cast<usize>(row) * width * 4;
+        std::memcpy(destination, source, static_cast<usize>(width) * 4);
+    }
+    stbi_write_png(previewPath.string().c_str(), static_cast<int>(width),
+                   static_cast<int>(height), 4, cropped.data(),
+                   static_cast<int>(width) * 4);
+    std::error_code ec;
+    std::filesystem::remove(fullPath, ec);
 }
 
 void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
