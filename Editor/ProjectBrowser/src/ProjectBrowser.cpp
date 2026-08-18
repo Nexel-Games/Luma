@@ -235,9 +235,6 @@ void ProjectBrowser::DrawYourProjects(Slate::Context& ui, const Rect& content,
     const usize rowCount = (m_projects.size() + static_cast<usize>(columns) - 1) /
                            static_cast<usize>(columns);
     const f32 contentHeight = static_cast<f32>(rowCount) * (cardH + gap) - gap;
-    const u64 scrollId = Slate::Context::ID("project-grid");
-    m_projectScroll = ui.VerticalScroll(scrollId, gridRect, contentHeight,
-                                         m_projectScroll);
     ui.PushClip(content);
 
     for (usize i = 0; i < m_projects.size(); ++i) {
@@ -280,7 +277,9 @@ void ProjectBrowser::DrawYourProjects(Slate::Context& ui, const Rect& content,
     ui.PopClip();
     // Paint the scrollbar after the cards so it remains visible above the
     // clipped card grid.
-    ui.VerticalScroll(scrollId, content, contentHeight, m_projectScroll);
+    m_projectScroll = ui.VerticalScroll(Slate::Context::ID("project-grid"),
+                                         content, contentHeight,
+                                         m_projectScroll);
 }
 
 void ProjectBrowser::DrawAbout(Slate::Context& ui, const Rect& content) {
