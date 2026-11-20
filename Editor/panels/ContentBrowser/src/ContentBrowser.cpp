@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 #include <optional>
 #include <sstream>
 
@@ -146,15 +148,22 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
     // breadcrumb box. The whole pill highlights on hover and depresses on
     // press, both driven by Animate so the transitions are smooth (not
     // instant).
-    const Slate::Color kImportOrange = Slate::Color::RGB(255, 140, 0);
+    const Slate::Color kImportOrange = t.accent;
     const Slate::Color kImportRest = t.surface3;
     const Slate::Color kImportHover = kImportOrange;
     constexpr f32 kImportIconSide = 16.0f;
     constexpr f32 kImportPadX = 8.0f;
     const Slate::Font& uiF = ui.uiFont();
     Vec2 importTextSize = uiF.Measure("Import");
-    f32 importW = kImportIconSide + 6.0f + importTextSize.x +
-                  kImportPadX * 2.0f;
+    const f32 importFullW = kImportIconSide + 6.0f + importTextSize.x +
+                            kImportPadX * 2.0f;
+    // Responsive toolbar: when the panel is too narrow for the labelled
+    // pill plus a usable search bar, Import collapses to an icon button.
+    constexpr f32 kMinSearchW = 150.0f;
+    const bool compactImport =
+        rect.w < 40.0f + importFullW + 8.0f + kMinSearchW + 26.0f + 10.0f;
+    f32 importW = compactImport ? kImportIconSide + kImportPadX * 2.0f
+                                : importFullW;
     Rect importR{rect.x + 40.0f, rect.y + 6.0f, importW, kBarH};
     u64 importId = Slate::Context::ID("cb.import");
     {
@@ -205,16 +214,22 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
         // Cancel LabelIn's internal space.lg padding so the glyph sits
         // snug against the icon rather than drifting right.
         Slate::Color labelRest = t.text;
-        Slate::Color labelHover = Slate::Color::RGB(20, 30, 24);
+        Slate::Color labelHover = t.menu.highlightText;
         constexpr f32 kLabelGap = 4.0f;
         f32 labelX = drawR.x + kImportPadX + kImportIconSide + kLabelGap -
                      t.space.lg;
-        ui.LabelIn({labelX, drawR.y, importTextSize.x + t.space.lg * 2.0f,
-                    drawR.h},
-                   "Import", Slate::Mix(labelRest, labelHover, hoverT),
-                   Align::Left);
+        if (!compactImport) {
+            ui.LabelIn({labelX, drawR.y, importTextSize.x + t.space.lg * 2.0f,
+                        drawR.h},
+                       "Import", Slate::Mix(labelRest, labelHover, hoverT),
+                       Align::Left);
+        }
         (void)clicked;
     }
+    ui.Tooltip(Slate::Context::ID("tip.cb.reload"), reloadR,
+               "Refresh\nRescan the project's content from disk.");
+    ui.Tooltip(Slate::Context::ID("tip.cb.import"), importR,
+               "Import\nCopy files from disk into the current folder.");
     constexpr f32 kImportGap = 8.0f;
     f32 contentStartX = importR.Right() + kImportGap;
 
@@ -230,8 +245,8 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
     f32 toggleX = barRight - kToggleW;
     // Keep the search bar a fixed, Unreal-style width (not the full
     // toolbar); right-align it against the filter toggle.
-    f32 barW = std::min(kBarMaxW, toggleX - contentStartX);
-    if (barW < 120.0f) barW = 120.0f;
+    // Never overlap the Import button: the bar takes what is left (capped).
+    f32 barW = std::max(48.0f, std::min(kBarMaxW, toggleX - kSepW - contentStartX));
     f32 barX = toggleX - kSepW - barW;
     Rect barR{barX, rect.y + 6.0f, barW, kBarH};
     Rect textR{barR.x, barR.y, barR.w - kToggleW - kSepW, barR.h};
@@ -257,13 +272,18 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
         ui.PanelRoundedBordered(toggleR.Inset(2.0f, 2.0f), t.surface3, t.outline,
                                 t.radius.sm, t.border.hairline);
     }
-    if (ui.Selectable(Slate::Context::ID("cb.filter.toggle"), toggleR, "",
-                      m_filterMenuOpen, Icon::None)) {
-        m_filterMenuOpen = !m_filterMenuOpen;
+    const u64 filterId = Slate::Context::ID("cb.filter.toggle");
+    const bool filterOpen = ui.IsMenuOpen(filterId);
+    if (ui.Selectable(filterId, toggleR, "", filterOpen, Icon::None)) {
+        Slate::MenuOptions mo;
+        mo.minWidth = 200.0f;
+        ui.OpenMenuBelow(filterId, toggleR, BuildFilterMenu(), mo);
     }
+    ui.Tooltip(Slate::Context::ID("tip.cb.filter"), toggleR,
+               "Filter by Type\nShow only one kind of asset.");
     // Draw the chevron on top (icon-only button).
-    Slate::Icon chev = m_filterMenuOpen ? Slate::Icon::ChevronUp
-                                       : Slate::Icon::ChevronDown;
+    Slate::Icon chev = filterOpen ? Slate::Icon::ChevronUp
+                                  : Slate::Icon::ChevronDown;
     Slate::DrawIcon(ui,
                     {toggleR.x + (kToggleW - 12.0f) * 0.5f,
                      toggleR.y + (kBarH - 12.0f) * 0.5f, 12.0f, 12.0f},
@@ -381,97 +401,6 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
     }
     ui.PopClip();
 
-    // Drop-down: deferred to after the panes are drawn (see Draw) so it
-    // overlays the tree / grid instead of being painted over by them.
-    m_filterAnchor = toggleR;
-}
-
-void ContentBrowserPanel::DrawFilterMenu(Slate::Context& ui,
-                                        const Slate::Rect& anchor) {
-    Slate::Theme& t = ui.theme();
-
-    // Items: All clears the filter; the rest pick a single AssetType. The
-    // order mirrors the brief (Mesh / 3D model, Material, Texture, Scene,
-    // Shaders, Audios) with All first so it's a one-click reset.
-    struct Item {
-        const char* label;
-        std::optional<AssetType> type;  // nullopt = All
-        Slate::Icon icon;
-    };
-    const Item kItems[] = {
-        {"All", std::nullopt, Slate::Icon::Dot},
-        {"Mesh (3D model)", AssetType::Mesh, Slate::Icon::Cube},
-        {"Material", AssetType::Material, Slate::Icon::Sphere},
-        {"Texture", AssetType::Texture, Slate::Icon::Image},
-        {"Scene", AssetType::Scene, Slate::Icon::Plane},
-        {"Shaders", AssetType::Shader, Slate::Icon::Plane},
-        {"Audios", AssetType::Sound, Slate::Icon::Play},
-    };
-
-    // Layout: anchor-width menu below the toggle, each row the same height
-    // as the search bar so the rows feel like the bar's siblings.
-    constexpr f32 kMenuRowH = 24.0f;
-    constexpr f32 kPadX = 10.0f;
-    const Slate::Font& f = ui.uiFont();
-    f32 maxW = anchor.w;
-    for (const Item& it : kItems) {
-        f32 w = f.Measure(it.label).x + kPadX * 2.0f + 24.0f;  // icon+check
-        if (w > maxW) maxW = w;
-    }
-    f32 menuW = std::max(maxW, anchor.w);
-    f32 menuH = kMenuRowH * static_cast<f32>(std::size(kItems));
-    Rect menuR{anchor.x + anchor.w - menuW,
-               anchor.Bottom() + 2.0f, menuW, menuH};
-
-    // Outside-click dismisses (press outside both the menu and the toggle
-    // that opened it).
-    if (ui.mousePressed(0) && !menuR.Contains(ui.mouse()) &&
-        !anchor.Contains(ui.mouse())) {
-        m_filterMenuOpen = false;
-    }
-
-    // Popup panel: rounded fill + outline (no shadow — the public Context
-    // API doesn't expose the shadow draw call, and the surface contrast
-    // against the toolbar is enough separation).
-    ui.PanelRoundedBordered(menuR, t.surface4, t.outline, t.radius.md,
-                            t.border.hairline);
-
-    for (usize i = 0; i < std::size(kItems); ++i) {
-        const Item& it = kItems[i];
-        Rect row{menuR.x, menuR.y + kMenuRowH * static_cast<f32>(i),
-                 menuR.w, kMenuRowH};
-        bool isActive =
-            (!m_typeFilter.has_value() && !it.type.has_value()) ||
-            (m_typeFilter.has_value() && it.type.has_value() &&
-             m_typeFilter.value() == it.type.value());
-        // Selectable handles hover fill + click detection. We pass the
-        // selected state for the active row's emphasis and draw the
-        // checkmark / icon / label on top.
-        u64 rowId = Slate::Context::ID("cb.filter.item") ^ static_cast<u64>(i);
-        if (ui.Selectable(rowId, row, "", isActive, Slate::Icon::None)) {
-            m_typeFilter = it.type;
-            m_filterMenuOpen = false;
-        }
-        // Checkmark (left) for the active row.
-        if (isActive) {
-            Slate::DrawIcon(ui,
-                            {row.x + 8.0f, row.y + (kMenuRowH - 12.0f) * 0.5f,
-                             12.0f, 12.0f},
-                            Slate::Icon::Check, t.selectionText);
-        }
-        // Leading icon (asset type glyph).
-        Slate::DrawIcon(ui,
-                        {row.x + 24.0f, row.y + (kMenuRowH - 14.0f) * 0.5f,
-                         14.0f, 14.0f},
-                        it.icon, isActive ? t.selectionText : t.text);
-        // Label.
-        Vec2 ts = f.Measure(it.label);
-        ui.LabelIn({row.x + 44.0f, row.y + (kMenuRowH - ts.y) * 0.5f,
-                    row.w - 52.0f, kMenuRowH},
-                   it.label,
-                    isActive ? t.selectionText : t.text,
-                     Slate::Align::Left);
-    }
 }
 
 void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
@@ -489,12 +418,6 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
 
     auto entries = CurrentEntries();
     
-    // Diagnostic: confirm DrawGridPane is being called with assets
-    static int gridDrawCount = 0;
-    if (++gridDrawCount % 60 == 0) {  // Log every 60 frames to avoid spam
-        LUMA_LOG_DEBUG("ContentBrowser", "DrawGridPane() called with {} entries, renderer={}", 
-                       entries.size(), m_renderer != nullptr);
-    }
 
     if (entries.empty()) {
         ui.LabelIn({rect.x, rect.y + 12.0f, rect.w, 22.0f},
@@ -560,41 +483,52 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         u64 cardId = Slate::Context::ID(
             (a->packagePath.string() + "|card").c_str());
 
-        bool hover = card.Contains(ui.mouse());
+        bool hover = card.Contains(ui.mouse()) && rect.Contains(ui.mouse());
         if (hover) ui.RequestCursor(Luma::CursorShape::Hand);
+        if (hover && ui.mousePressed(1)) {
+            m_contextTarget = a->id;
+            if (!a->IsFolder()) m_selected = a->id;
+        }
 
-        // Smooth transition: hoverT (0..1) fades card chrome in/out.
-        // Use a fast custom speed so the bg/border/shadow disappear
-        // quickly when the cursor leaves (no lingering highlight).
-        f32 hoverT = ui.Animate(cardId ^ 0xC0FFEEull, hover, 36.0f);
-
-        // Click toggles selection: clicking the already-selected asset
-        // clears it, clicking another selects it. The highlight is purely
-        // hover-driven — nothing persists when the cursor leaves.
         bool selected = (m_selected == a->id);
-        if (ui.Selectable(cardId, card, "", false, Icon::None)) {
+
+        // Card-body click: single-click selects the asset or enters
+        // the folder. If already selected AND the name row is the
+        // target, skip the Selectable response so that click falls
+        // through to the rename TextField.
+        Rect nameRProbe{card.x + 4.0f, card.y + kThumbH + 2.0f,
+                        card.w - 8.0f, 14.0f};
+        bool onNameRow = nameRProbe.Contains(ui.mouse());
+        bool allowCard = !(selected && onNameRow);
+        if (ui.Selectable(cardId, card, "", false, Icon::None) && allowCard) {
             if (a->IsFolder()) {
                 m_currentFolder = a->packagePath;
+                m_selected = a->id;
             } else {
                 m_selected = (selected ? AssetId{} : a->id);
             }
         }
-        // Double-click a non-folder asset to activate (open) it — the
-        // signal EditorScreen uses to launch the Material Editor for .lmat.
-        if (!a->IsFolder() && hover && ui.mouseDoubleClicked(0)) {
-            m_activated = a->id;
+        // Double-click on any selected tile opens folder or starts inline
+        // rename on an asset.
+        if (selected && hover && ui.mouseDoubleClicked(0)) {
+            if (a->IsFolder()) {
+                m_currentFolder = a->packagePath;
+            } else {
+                m_renaming = a->id;
+                m_renameBuf = a->assetName;
+                m_activated = a->id;
+            }
+            m_selected = AssetId{};
         }
-        (void)selected;  // kept for the toggle logic above
+        (void)selected;
 
-        // Only paint card chrome (bg, border, shadow, thumb frame) when
-        // hoverT > 0 for folders; assets always show background.
+        // Card chrome is instantaneous: bg/border/shadow appear and
+        // disappear with hover — no Animate, no lingering highlight.
         bool isFolder = a->IsFolder();
-        if (!isFolder || hoverT > 0.0f) {
-            f32 shadowAlpha = isFolder ? 0.45f * hoverT : 0.45f;
-            ui.drawList().AddRectShadow(card, t.radius.md, shadowAlpha, 3.0f);
+        if (!isFolder || hover) {
+            ui.drawList().AddRectShadow(card, t.radius.md, 0.45f, 3.0f);
             ui.PanelRounded(card, kCardHover, t.radius.md);
-            // Orange border only on hover
-            if (hoverT > 0.0f) {
+            if (hover) {
                 ui.PanelRoundedBordered(card, kCardHover, kBorderHover,
                                         t.radius.md, t.border.hairline);
             } else {
@@ -604,10 +538,10 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         }
 
         // Thumbnail strip (top portion of the card). Slightly darker so
-        // the icon reads as framed inside the card. Fades in with hover for folders.
+        // the icon reads as framed inside the card.
         Rect thumb{card.x + 4.0f, card.y + 4.0f, card.w - 8.0f,
                    kThumbH - 4.0f};
-        if (!isFolder || hoverT > 0.0f) {
+        if (!isFolder || hover) {
             ui.PanelRounded(thumb, Slate::Darken(kCardHover, 0.30f),
                             t.radius.sm);
         }
@@ -643,13 +577,36 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             }
         }
 
-        // Asset name (1 line, centered). Always visible.
+        // Asset name / rename + type row.
         f32 nameX = card.x + 4.0f;
         f32 nameY = card.y + kThumbH + 2.0f;
         f32 nameW = card.w - 8.0f;
-        ui.LabelIn({nameX, nameY, nameW, 14.0f}, a->assetName, t.text,
-                   Align::Center);
-
+        Rect nameR{nameX, nameY, nameW, 14.0f};
+        bool renamingThis = (m_renaming == a->id);
+        if (renamingThis) {
+            std::string buf = m_renameBuf;
+            const u64 renameId = Slate::Context::ID(
+                (a->packagePath.string() + "|rename").c_str());
+            if (m_renameFocusPending) {
+                ui.FocusField(renameId, buf.size());
+                m_renameFocusPending = false;
+            }
+            if (ui.TextField(renameId, nameR, buf, "")) {
+                m_renameBuf = buf;
+            }
+            if (ui.enterPressed()) {
+                CommitRename(*a);
+                m_renaming = AssetId{};
+            } else if (ui.keyEscape()) {
+                CancelRename();
+                m_renaming = AssetId{};
+            } else if (ui.mouseReleased(0) && !nameR.Contains(ui.mouse())) {
+                CommitRename(*a);
+                m_renaming = AssetId{};
+            }
+        } else {
+            ui.LabelIn(nameR, a->assetName, t.text, Align::Center);
+        }
         // Asset type (smaller, dimmer, centered at bottom). Skipped for folders.
         if (!isFolder) {
             std::string_view typeName = AssetTypeName(a->type);
@@ -738,12 +695,6 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                                PanelContext& ctx) {
     Slate::Theme& t = ui.theme();
     
-    // Diagnostic: confirm Draw is being called
-    static int drawCount = 0;
-    if (++drawCount % 60 == 0) {  // Log every 60 frames to avoid spam
-        LUMA_LOG_DEBUG("ContentBrowser", "Draw() called (frame {}), registry={}, renderer={}", 
-                       drawCount, m_registry != nullptr, ctx.renderer != nullptr);
-    }
     
     if (!m_registry) {
         // Registry not wired yet — show a hint and return.
@@ -753,19 +704,8 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                    Align::Center);
         return;
     }
-    m_bodyRect = body;
-    // Right-click anywhere in the body area opens (or re-anchors) the Create
-    // menu at the cursor. Only fires when no other popup is already open.
-    if (ui.mousePressed(1) && body.Contains(ui.mouse()) &&
-        !m_filterMenuOpen) {
-        m_contextMenuOpen = true;
-        m_contextMenuOpenedThisFrame = true;
-        m_contextMenuPos = ui.mouse();
-        m_contextSearch.clear();
-        m_contextHover = -1;
-        m_contextFocus = -1;
-        m_contextSubmenu = -1;
-    }
+    m_contextTarget = AssetId{};
+    m_hovered = body.Contains(ui.rawMouse());
     Rect toolbar{body.x, body.y, body.w, kToolbarH};
     f32 bodyTop = toolbar.Bottom();
     // The content-browser body sits on a slightly lighter surface so the
@@ -780,6 +720,12 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     // inside the left half; the grid fills the right half with the same
     // margin.
     Rect treeSplit{}, gridSplit{};
+    // Keep the folder tree readable in narrow docks: at least ~120px (but
+    // never more than 45% of the browser) whatever ratio was dragged to.
+    if (bodyArea.w > 0.0f) {
+        const f32 minRatio = std::min(0.45f, 120.0f / bodyArea.w);
+        m_treeRatio = std::max(m_treeRatio, minRatio);
+    }
     ui.SplitterV(Slate::Context::ID("cb.splitter"), bodyArea, m_treeRatio,
                  treeSplit, gridSplit, 1.0f);
     constexpr f32 kTreeMargin = 3.0f;
@@ -800,625 +746,248 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     }
     DrawGridPane(ui, gridPane, ctx);
 
-    // Filter drop-down overlays the body panes — drawn last so the tree /
-    // grid (which paint solid backgrounds) don't cover it.
-    if (m_filterMenuOpen) {
-        DrawFilterMenu(ui, m_filterAnchor);
-    }
-}
-
-void ContentBrowserPanel::DrawFloatingMenu(Slate::Context& ui,
-                                           PanelContext& ctx) {
-    if (!m_contextMenuOpen) return;
-    DrawCreateMenu(ui, ctx, m_contextMenuOpenedThisFrame);
-}
-
-void ContentBrowserPanel::DrawCreateMenu(Slate::Context& ui,
-                                         PanelContext& ctx,
-                                         bool openedThisFrame) {
-    if (!m_contextMenuOpen) return;
-    Slate::Theme& t = ui.theme();
-
-    // Unreal Content-Browser menu: search on top, a GET section (import),
-    // a CREATE section (folder / material quick creates), then a categorized
-    // list whose rows open a submenu beside them on hover — the Material row
-    // lists the material kinds the engine can actually produce. Only kinds
-    // with a real create path exist today; more (Material Instance, Material
-    // Function, ...) slot into the category's items as the engine grows.
-    const f32 kMenuW = 200.0f;
-    const f32 kSubW = 180.0f;
-    const f32 kRowH = t.menu.rowH;
-    const f32 kHeaderH = t.menu.headerH;
-    const f32 kHeaderGap = t.space.md;
-    const f32 pad = 6.0f;
-
-    // --- Menu data ---------------------------------------------------------
-    struct GetItem {
-        const char* label;
-    };
-    static const GetItem getItems[] = {{"Import to Current Folder"}};
-    constexpr int kGetCount =
-        static_cast<int>(sizeof(getItems) / sizeof(getItems[0]));
-
-    struct CreateItem {
-        const char* label;
-        Slate::Icon icon;
-    };
-    static const CreateItem createItems[] = {
-        {"New Folder", Slate::Icon::Folder},
-        {"Material", Slate::Icon::Sphere},
-    };
-    constexpr int kCreateCount =
-        static_cast<int>(sizeof(createItems) / sizeof(createItems[0]));
-
-    struct CatItem {
-        const char* label;
-        Slate::Icon icon;
-    };
-    struct Category {
-        const char* label;
-        Slate::Icon icon;
-        const CatItem* items;
-        int count;
-    };
-    static const CatItem matItems[] = {{"Material", Slate::Icon::Sphere}};
-    static const Category categories[] = {
-        {"Material", Slate::Icon::Sphere, matItems,
-         static_cast<int>(sizeof(matItems) / sizeof(matItems[0]))},
-    };
-    constexpr int kCatCount =
-        static_cast<int>(sizeof(categories) / sizeof(categories[0]));
-
-    // --- Search filter (case-insensitive substring on labels) -------------
-    auto lower = [](std::string s) {
-        for (char& c : s) {
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        return s;
-    };
-    std::string needle = lower(m_contextSearch);
-    auto matches = [&needle, &lower](const char* label) {
-        if (needle.empty()) return true;
-        return lower(std::string(label)).find(needle) != std::string::npos;
-    };
-
-    bool getVis[kGetCount] = {};
-    int getVisCount = 0;
-    for (int i = 0; i < kGetCount; ++i) {
-        getVis[i] = matches(getItems[i].label);
-        if (getVis[i]) ++getVisCount;
-    }
-    bool createVis[kCreateCount] = {};
-    int createVisCount = 0;
-    for (int i = 0; i < kCreateCount; ++i) {
-        createVis[i] = matches(createItems[i].label);
-        if (createVis[i]) ++createVisCount;
-    }
-    bool catVis[kCatCount] = {};
-    bool itemVis[kCatCount][4] = {};
-    int subVis[kCatCount] = {};
-    bool anyItemMatch[kCatCount] = {};
-    int catVisCount = 0;
-    for (int c = 0; c < kCatCount; ++c) {
-        const Category& cat = categories[c];
-        if (matches(cat.label)) catVis[c] = true;
-        for (int i = 0; i < cat.count; ++i) {
-            if (matches(cat.items[i].label)) {
-                itemVis[c][i] = true;
-                anyItemMatch[c] = true;
-                ++subVis[c];
-                catVis[c] = true;
-            }
-        }
-        if (catVis[c]) ++catVisCount;
-    }
-    const int visCount = getVisCount + createVisCount + catVisCount;
-
-    // Escape: clear the filter first, then dismiss the menu.
-    if (ui.keyEscape()) {
-        if (!m_contextSearch.empty()) {
-            m_contextSearch.clear();
-            m_contextFocus = -1;
+    // Right-click: the asset under the cursor gets its asset menu; empty
+    // grid / tree space gets the folder ("Add") menu, like Unreal's Content
+    // Browser. The menu host draws it above every panel.
+    if (ui.mousePressed(1) && bodyArea.Contains(ui.mouse())) {
+        const AssetData* target =
+            m_contextTarget.IsValid() ? m_registry->Lookup(m_contextTarget) : nullptr;
+        if (target) {
+            ui.OpenMenu(Slate::Context::ID("cb.assetmenu"), ui.mouse(),
+                        BuildAssetMenu(*target, ctx));
         } else {
-            m_contextMenuOpen = false;
-            m_contextSubmenu = -1;
-            m_contextSearch.clear();
-            m_contextFocus = -1;
-            m_contextHover = -1;
-            m_pressedCreateRow = 0;
-            return;
+            Slate::MenuOptions mo;
+            mo.searchable = true;
+            mo.searchHint = "Search actions";
+            ui.OpenMenu(Slate::Context::ID("cb.foldermenu"), ui.mouse(),
+                        BuildFolderMenu(ctx), mo);
         }
     }
 
-    // --- Layout & placement ----------------------------------------------
-    f32 contentH = t.menu.searchH + pad;
-    if (visCount > 0) {
-        if (getVisCount > 0) {
-            contentH += t.menu.sectionGap + kHeaderH + kHeaderGap +
-                        static_cast<f32>(getVisCount) * kRowH;
-        }
-        if (createVisCount > 0) {
-            contentH += t.menu.sectionGap + kHeaderH + kHeaderGap +
-                        static_cast<f32>(createVisCount) * kRowH;
-        }
-        if (catVisCount > 0) {
-            contentH += t.menu.sectionGap +
-                        static_cast<f32>(catVisCount) * kRowH;
-        }
+    // F2 renames the selected asset while the pointer is over the browser.
+    if (ui.keyPressed(291) && body.Contains(ui.mouse()) && !ui.textFieldFocused() &&
+        m_selected.IsValid() && !m_renaming.IsValid()) {
+        if (const AssetData* sel = m_registry->Lookup(m_selected)) BeginRename(*sel);
+    }
+}
+
+std::filesystem::path ContentBrowserPanel::TargetFolder() const {
+    std::filesystem::path target = m_currentFolder;
+    if (target.empty() && m_registry && !m_registry->Roots().empty()) {
+        target = m_registry->Roots().front();
+    }
+    return target;
+}
+
+void ContentBrowserPanel::CreateFolder() {
+    const std::filesystem::path base = TargetFolder();
+    if (base.empty()) return;
+    std::filesystem::path folder = base / "NewFolder";
+    int n = 1;
+    std::error_code ec;
+    while (std::filesystem::exists(folder, ec)) {
+        folder = base / ("NewFolder " + std::to_string(n++));
+    }
+    if (std::filesystem::create_directories(folder, ec) && !ec) {
+        if (m_registry) m_registry->Scan();
+        NavigateTo(folder);
+        LUMA_USER_INFO("Content", "Created folder '{}'", folder.filename().string());
     } else {
-        contentH += kRowH;  // "No matches" row
+        LUMA_USER_ERROR("Content", "Could not create folder '{}': {}",
+                       folder.string(), ec.message());
     }
+}
 
-    f32 mx = m_contextMenuPos.x;
-    f32 my = m_contextMenuPos.y;
-    // Clamp to the panel body so the menu never overflows it.
-    if (mx + kMenuW > m_bodyRect.Right()) mx = m_bodyRect.Right() - kMenuW - 4.0f;
-    if (my + contentH > m_bodyRect.Bottom()) my = m_bodyRect.Bottom() - contentH - 4.0f;
-    if (mx < m_bodyRect.x) mx = m_bodyRect.x + 4.0f;
-    if (my < m_bodyRect.y) my = m_bodyRect.y + 4.0f;
-    Rect main{mx - pad, my - pad, kMenuW + pad * 2.0f, contentH + pad * 2.0f};
+void ContentBrowserPanel::BeginRename(const AssetData& asset) {
+    m_renaming = asset.id;
+    m_renameBuf = asset.assetName;
+    m_renameFocusPending = true;
+}
 
-    // Row references + y positions in draw order (GET, CREATE, categories).
-    // Section == 0 (GET index), 1 (CREATE index), 2 (category index).
-    struct RowRef {
-        int section;
-        int idx;
+std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFilterMenu() {
+    struct Item {
+        const char* label;
+        std::optional<AssetType> type;  // nullopt = All
+        Slate::Icon icon;
     };
-    std::vector<RowRef> topRefs;
-    std::vector<f32> topYs;
+    static const Item kItems[] = {
+        {"All Assets", std::nullopt, Slate::Icon::None},
+        {"Mesh (3D model)", AssetType::Mesh, Slate::Icon::Cube},
+        {"Material", AssetType::Material, Slate::Icon::Sphere},
+        {"Texture", AssetType::Texture, Slate::Icon::Image},
+        {"Scene", AssetType::Scene, Slate::Icon::Plane},
+        {"Shader", AssetType::Shader, Slate::Icon::Plane},
+        {"Audio", AssetType::Sound, Slate::Icon::Play},
+    };
+    Slate::MenuBuilder b;
+    b.BeginSection("Filter by Type");
+    for (const Item& it : kItems) {
+        Slate::MenuEntryOptions o;
+        o.checked = (m_typeFilter == it.type);
+        const std::optional<AssetType> type = it.type;
+        b.AddEntry(it.label, it.icon, [this, type] { m_typeFilter = type; }, o);
+        if (!it.type.has_value()) b.AddSeparator();
+    }
+    return b.Build();
+}
+
+std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext& ctx) {
+    using Slate::Icon;
+    const std::filesystem::path folder = TargetFolder();
+    Slate::MenuBuilder b;
+
+    b.BeginSection("Get");
     {
-        f32 ly = my + pad + t.menu.searchH + pad;
-        if (getVisCount > 0) {
-            ly += t.menu.sectionGap + kHeaderH + kHeaderGap;
-            for (int i = 0; i < kGetCount; ++i) {
-                if (!getVis[i]) continue;
-                topRefs.push_back({0, i});
-                topYs.push_back(ly);
-                ly += kRowH;
-            }
-        }
-        if (createVisCount > 0) {
-            ly += t.menu.sectionGap + kHeaderH + kHeaderGap;
-            for (int i = 0; i < kCreateCount; ++i) {
-                if (!createVis[i]) continue;
-                topRefs.push_back({1, i});
-                topYs.push_back(ly);
-                ly += kRowH;
-            }
-        }
-        if (catVisCount > 0) {
-            ly += t.menu.sectionGap;
-            for (int c = 0; c < kCatCount; ++c) {
-                if (!catVis[c]) continue;
-                topRefs.push_back({2, c});
-                topYs.push_back(ly);
-                ly += kRowH;
-            }
-        }
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onImportAssets) && !folder.empty();
+        o.tooltip = "Copy files from disk into this folder.";
+        auto import = ctx.onImportAssets;
+        b.AddEntry("Import to Current Folder...",
+                   Slate::MenuIcon::Texture(m_texImport, Icon::Plus),
+                   [import, folder] {
+                       if (import) import(folder);
+                   },
+                   o);
     }
-    const int topCount = static_cast<int>(topRefs.size());
 
-    // --- Submenu rect (flush beside the main menu, never over it) ---------
-    auto subRectFor = [&](int cat, f32& outSx, f32& outSy,
-                          f32& outH) -> bool {
-        if (cat < 0 || !catVis[cat] || subVis[cat] == 0) return false;
-        f32 rowY = -1.0f;
-        for (usize k = 0; k < topRefs.size(); ++k) {
-            if (topRefs[k].section == 2 && topRefs[k].idx == cat) {
-                rowY = topYs[k];
-                break;
-            }
-        }
-        if (rowY < 0.0f) return false;
-        // Submenu content: BASIC header + matching items.
-        outH = pad * 2.0f + t.menu.sectionGap + kHeaderH + kHeaderGap +
-               static_cast<f32>(subVis[cat]) * kRowH;
-        outSy = rowY;
-        if (outSy + outH > m_bodyRect.Bottom()) {
-            outSy = m_bodyRect.Bottom() - outH - 4.0f;
-        }
-        // Always sit flush beside the main menu — never render over it.
-        outSx = mx + kMenuW;
-        if (outSx + kSubW > m_bodyRect.Right()) {
-            f32 clamped = m_bodyRect.Right() - kSubW - 4.0f;
-            if (clamped > outSx) outSx = clamped;
-        }
-        return true;
-    };
-
-    int openCat = m_contextSubmenu;
-    if (openCat >= 0 && (!catVis[openCat] || subVis[openCat] == 0)) {
-        openCat = -1;
-    }
-    // Hover opens the hovered category's submenu; moving into the submenu (or
-    // an active search) keeps it; hovering dead space closes it.
-    int hov = -1;
-    for (int k = 0; k < topCount; ++k) {
-        if (topRefs[static_cast<usize>(k)].section == 2 &&
-            Rect{mx, topYs[static_cast<usize>(k)], kMenuW, kRowH}
-                .Contains(ui.mouse())) {
-            hov = topRefs[static_cast<usize>(k)].idx;
-            break;
-        }
+    b.BeginSection("Create");
+    {
+        Slate::MenuEntryOptions o;
+        o.enabled = !folder.empty();
+        o.tooltip = "Create an empty folder here and open it.";
+        b.AddEntry("New Folder", Icon::Folder, [this] { CreateFolder(); }, o);
     }
     {
-        f32 sx, sy, h;
-        bool subShown = subRectFor(openCat, sx, sy, h) &&
-                        Rect{sx - pad, sy - pad, kSubW + pad * 2.0f,
-                             h + pad * 2.0f}
-                            .Contains(ui.mouse());
-        if (hov >= 0) {
-            m_contextSubmenu = subVis[hov] > 0 ? hov : -1;
-        } else if (!subShown) {
-            if (!needle.empty()) {
-                // Search: keep the current submenu, or auto-open the first
-                // category with matching items so the hit is visible.
-                if (m_contextSubmenu < 0 || !catVis[m_contextSubmenu] ||
-                    subVis[m_contextSubmenu] == 0) {
-                    m_contextSubmenu = -1;
-                    for (int c = 0; c < kCatCount; ++c) {
-                        if (catVis[c] && anyItemMatch[c]) {
-                            m_contextSubmenu = c;
-                            break;
-                        }
-                    }
-                }
-            } else {
-                m_contextSubmenu = -1;
-            }
-        }
-    }
-    openCat = m_contextSubmenu;
-    if (openCat >= 0 && (!catVis[openCat] || subVis[openCat] == 0)) {
-        openCat = -1;
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onCreateScene) && !folder.empty();
+        o.tooltip = "Create an empty scene asset (.lscene) in this folder.";
+        auto create = ctx.onCreateScene;
+        b.AddEntry("Scene", Icon::Plane,
+                   [create, folder] {
+                       if (create) create(folder);
+                   },
+                   o);
     }
 
-    f32 subSx = 0.0f, subSy = 0.0f, subH = 0.0f;
-    bool subValid = subRectFor(openCat, subSx, subSy, subH);
-    Rect sub{0, 0, 0, 0};
-    if (subValid) {
-        sub = {subSx - pad, subSy - pad, kSubW + pad * 2.0f,
-               subH + pad * 2.0f};
+    b.BeginSection("Folder");
+    {
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onRevealInExplorer) && !folder.empty();
+        o.tooltip = "Open this folder in the system file browser.";
+        auto reveal = ctx.onRevealInExplorer;
+        b.AddEntry("Show in Explorer", Icon::FolderOpen,
+                   [reveal, folder] {
+                       if (reveal) reveal(folder);
+                   },
+                   o);
+    }
+    {
+        Slate::MenuEntryOptions o;
+        o.tooltip = "Rescan the project's content from disk.";
+        AssetRegistry* registry = m_registry;
+        b.AddEntry("Refresh", Icon::Refresh,
+                   [registry] {
+                       if (registry) registry->Scan();
+                   },
+                   o);
+    }
+    return b.Build();
+}
+
+std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetData& asset,
+                                                                  PanelContext& ctx) {
+    using Slate::Icon;
+    const AssetId id = asset.id;
+    const std::filesystem::path path = asset.packagePath;
+    const bool isFolder = asset.IsFolder();
+    AssetRegistry* registry = m_registry;
+    Slate::MenuBuilder b;
+
+    b.BeginSection(isFolder ? "Folder" : "Asset");
+    if (isFolder) {
+        b.AddEntry("Open", Icon::FolderOpen, [this, path] { NavigateTo(path); });
+    }
+    {
+        Slate::MenuEntryOptions o;
+        o.shortcut = "F2";
+        b.AddEntry("Rename", Icon::None,
+                   [this, registry, id] {
+                       if (!registry) return;
+                       if (const AssetData* a = registry->Lookup(id)) BeginRename(*a);
+                   },
+                   o);
+    }
+    {
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onDeleteAsset);
+        o.tooltip = isFolder ? "Move this folder and everything in it to the Recycle Bin."
+                             : "Move this file to the Recycle Bin.";
+        auto del = ctx.onDeleteAsset;
+        b.AddEntry("Delete", Icon::Trash,
+                   [this, del, path, id] {
+                       if (!del) return;
+                       if (m_selected == id) m_selected = AssetId{};
+                       m_thumbnailCache.erase(id);
+                       del(path);
+                   },
+                   o);
     }
 
-    // --- Keyboard navigation ---------------------------------------------
-    const int flatCount = topCount + (subValid ? subVis[openCat] : 0);
-    if (ui.keyDown() && flatCount > 0) {
-        m_contextFocus = m_contextFocus < 0
-                             ? 0
-                             : std::min(m_contextFocus + 1, flatCount - 1);
+    b.BeginSection("Explore");
+    {
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onRevealInExplorer);
+        o.tooltip = "Show this item in the system file browser.";
+        auto reveal = ctx.onRevealInExplorer;
+        b.AddEntry("Show in Explorer", Icon::FolderOpen,
+                   [reveal, path] {
+                       if (reveal) reveal(path);
+                   },
+                   o);
     }
-    if (ui.keyUp() && flatCount > 0) {
-        m_contextFocus = m_contextFocus < 0
-                             ? flatCount - 1
-                             : std::max(m_contextFocus - 1, 0);
-    }
-    // Caret keys belong to the search box while it's focused.
-    if (!ui.textFieldFocused()) {
-        if (ui.keyHome() && flatCount > 0) m_contextFocus = 0;
-        if (ui.keyEnd() && flatCount > 0) m_contextFocus = flatCount - 1;
-        if (ui.keyRight() && m_contextFocus >= 0 &&
-            m_contextFocus < topCount) {
-            const RowRef& rr = topRefs[static_cast<usize>(m_contextFocus)];
-            if (rr.section == 2 && subVis[rr.idx] > 0) {
-                m_contextSubmenu = rr.idx;
-            }
-        }
-        if (ui.keyLeft() && m_contextFocus >= topCount && openCat >= 0) {
-            // Close the submenu and return focus to the parent row.
-            for (int k = 0; k < topCount; ++k) {
-                const RowRef& rr = topRefs[static_cast<usize>(k)];
-                if (rr.section == 2 && rr.idx == openCat) {
-                    m_contextSubmenu = -1;
-                    m_contextFocus = k;
-                    break;
-                }
-            }
-        }
-    }
-    if (m_contextFocus >= flatCount) {
-        m_contextFocus = flatCount > 0 ? flatCount - 1 : -1;
+    return b.Build();
+}
+
+u64 ContentBrowserPanel::NowMs() noexcept {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(
+               steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void ContentBrowserPanel::CommitRename(const AssetData& a) {
+    std::string newName = m_renameBuf;
+    if (newName.empty() || newName == a.assetName) {
+        m_renaming = AssetId{};
+        return;
     }
 
-    // --- Panel: matches the docked panels' background, 1px outline --------
-    ui.PanelRoundedBordered(main, t.panelBg, t.outline, t.radius.md,
-                            t.border.hairline);
+    namespace fs = std::filesystem;
+    fs::path newPackage = a.packagePath;
+    newPackage = a.packagePath.parent_path() /
+                 fs::path(newName + a.packagePath.extension().string());
+    fs::path oldParent = a.packagePath.parent_path();
 
-    // --- Search box -------------------------------------------------------
-    Rect searchRect{mx + pad, my + pad, kMenuW - pad * 2.0f, t.menu.searchH};
-    const u64 searchId = Slate::Context::ID("cb.create.search");
-    bool changed = ui.SearchBox(searchId, searchRect, m_contextSearch,
-                                m_texSearchGlass, "Start typing to search");
-    if (changed) {
-        m_contextHover = -1;
-        m_contextFocus = 0;  // re-filter: jump to the first match
-    }
-    // Auto-focus the search box the frame the menu opens.
-    if (openedThisFrame) {
-        ui.FocusField(searchId);
+    try {
+        fs::rename(a.packagePath, newPackage);
+    } catch (const std::filesystem::filesystem_error& e) {
+        LUMA_USER_ERROR("Content", "Could not rename '{}' to '{}': {}",
+                        a.assetName, newName, e.what());
+        m_renaming = AssetId{};
+        return;
     }
 
-    auto closeMenu = [&] {
-        m_contextMenuOpen = false;
-        m_contextSubmenu = -1;
-        m_contextSearch.clear();
-        m_contextFocus = -1;
-        m_contextHover = -1;
-        m_pressedCreateRow = 0;
-    };
-
-    // Actions (share the folder-resolution logic with the grid navigation).
-    auto targetFolder = [&]() -> std::filesystem::path {
-        std::filesystem::path target = m_currentFolder;
-        if (target.empty() && m_registry && !m_registry->Roots().empty()) {
-            target = m_registry->Roots().front();
-        }
-        return target;
-    };
-    auto createFolder = [&] {
-        std::filesystem::path folder = targetFolder() / "NewFolder";
-        int n = 1;
-        std::error_code ec;
-        while (std::filesystem::exists(folder, ec)) {
-            folder = targetFolder() / ("NewFolder " + std::to_string(n++));
-        }
-        if (std::filesystem::create_directories(folder, ec) || !ec) {
-            if (m_registry) m_registry->Scan();
-            NavigateTo(folder);
-        }
-    };
-    auto createMaterial = [&] {
-        if (ctx.onCreateMaterial) {
-            std::filesystem::path created =
-                ctx.onCreateMaterial(targetFolder());
-            if (!created.empty() && m_registry) {
-                m_registry->Scan();
-                // Select + activate the new asset so the Material Editor
-                // opens on it (Unreal-style: create opens).
-                if (const AssetData* ad = m_registry->LookupByPath(created)) {
-                    m_selected = ad->id;
-                    m_activated = ad->id;
-                }
-            }
-        }
-    };
-    auto importInto = [&] {
-        if (ctx.onImportAssets) ctx.onImportAssets(targetFolder());
-    };
-
-    // --- Section headers + rows ------------------------------------------
-    f32 y = my + pad + t.menu.searchH + pad;
-    int flatIdx = 0;
-
-    if (getVisCount > 0) {
-        y += t.menu.sectionGap;
-        ui.MenuSectionHeader({mx, y, kMenuW, kHeaderH}, "GET");
-        y += kHeaderH + kHeaderGap;
-        for (int i = 0; i < kGetCount; ++i) {
-            if (!getVis[i]) continue;
-            Rect row{mx, y, kMenuW, kRowH};
-            const u64 rowId = Slate::Context::ID("cb.create.get") ^
-                              static_cast<u64>(i);
-            bool hovered = row.Contains(ui.mouse());
-            if (hovered) {
-                ui.RequestCursor(Luma::CursorShape::Hand);
-                m_contextHover = flatIdx;
-            }
-            if (hovered && ui.mousePressed(0)) m_pressedCreateRow = rowId;
-            bool clicked = false;
-            if (m_pressedCreateRow == rowId && ui.mouseReleased(0)) {
-                if (hovered) clicked = true;
-                m_pressedCreateRow = 0;
-            }
-            bool focused = flatIdx == m_contextFocus;
-            if (focused && ui.enterPressed()) clicked = true;
-            bool highlighted = hovered || focused;
-            if (highlighted) {
-                ui.drawList().AddRectFilledRounded(
-                    row, t.menu.highlightFill, t.radius.sm);
-                if (focused) {
-                    ui.drawList().AddRectFilled(
-                        {row.x, row.y + 3.0f, 2.5f, row.h - 6.0f}, t.accent);
-                }
-            }
-            const f32 kIconS = 16.0f;
-            Rect iconRect{row.x + t.menu.iconInset,
-                          row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
-            const Slate::Color tint =
-                highlighted ? t.menu.highlightText : t.text;
-            if (m_texImport) {
-                ui.Image(m_texImport, iconRect, tint);
-            } else {
-                Slate::DrawIcon(ui, iconRect, Icon::Refresh, tint);
-            }
-            ui.Label({row.x + t.menu.iconInset + kIconS + t.space.sm,
-                      row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                     getItems[i].label, tint);
-            if (clicked) {
-                importInto();
-                closeMenu();
-                return;
-            }
-            y += kRowH;
-            ++flatIdx;
-        }
+    LUMA_USER_INFO("Content", "Renamed '{}' to '{}'", a.assetName, newName);
+    if (m_registry) {
+        m_registry->RemoveUnder(oldParent);
+        m_registry->RefreshPath(newPackage);
     }
+    m_thumbnailCache.erase(a.id);
+    m_renaming = AssetId{};
+}
 
-    if (createVisCount > 0) {
-        y += t.menu.sectionGap;
-        ui.MenuSectionHeader({mx, y, kMenuW, kHeaderH}, "CREATE");
-        y += kHeaderH + kHeaderGap;
-        for (int i = 0; i < kCreateCount; ++i) {
-            if (!createVis[i]) continue;
-            const CreateItem& it = createItems[i];
-            Rect row{mx, y, kMenuW, kRowH};
-            const u64 rowId = Slate::Context::ID(it.label) ^ 0xC0CE1F5Eull;
-            bool hovered = row.Contains(ui.mouse());
-            if (hovered) {
-                ui.RequestCursor(Luma::CursorShape::Hand);
-                m_contextHover = flatIdx;
-            }
-            if (hovered && ui.mousePressed(0)) m_pressedCreateRow = rowId;
-            bool clicked = false;
-            if (m_pressedCreateRow == rowId && ui.mouseReleased(0)) {
-                if (hovered) clicked = true;
-                m_pressedCreateRow = 0;
-            }
-            bool focused = flatIdx == m_contextFocus;
-            if (focused && ui.enterPressed()) clicked = true;
-            bool highlighted = hovered || focused;
-            if (highlighted) {
-                ui.drawList().AddRectFilledRounded(
-                    row, t.menu.highlightFill, t.radius.sm);
-                if (focused) {
-                    ui.drawList().AddRectFilled(
-                        {row.x, row.y + 3.0f, 2.5f, row.h - 6.0f}, t.accent);
-                }
-            }
-            const f32 kIconS = 16.0f;
-            Rect iconRect{row.x + t.menu.iconInset,
-                          row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
-            const Slate::Color tint =
-                highlighted ? t.menu.highlightText : t.text;
-            Slate::DrawIcon(ui, iconRect, it.icon, tint);
-            ui.Label({row.x + t.menu.iconInset + kIconS + t.space.sm,
-                      row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                     it.label, tint);
-            if (clicked) {
-                if (i == 0) {
-                    createFolder();
-                } else {
-                    createMaterial();
-                }
-                closeMenu();
-                return;
-            }
-            y += kRowH;
-            ++flatIdx;
-        }
-    }
-
-    if (catVisCount > 0) {
-        y += t.menu.sectionGap;
-        for (int c = 0; c < kCatCount; ++c) {
-            if (!catVis[c]) continue;
-            const Category& cat = categories[c];
-            Rect row{mx, y, kMenuW, kRowH};
-            const u64 rowId = Slate::Context::ID("cb.create.cat") ^
-                              static_cast<u64>(c);
-            bool hovered = row.Contains(ui.mouse());
-            if (hovered) {
-                ui.RequestCursor(Luma::CursorShape::Hand);
-                m_contextHover = flatIdx;
-            }
-            if (hovered && ui.mousePressed(0)) m_pressedCreateRow = rowId;
-            bool clicked = false;
-            if (m_pressedCreateRow == rowId && ui.mouseReleased(0)) {
-                if (hovered) clicked = true;
-                m_pressedCreateRow = 0;
-            }
-            bool focused = flatIdx == m_contextFocus;
-            if (focused && ui.enterPressed()) clicked = true;
-            bool highlighted = hovered || focused || (c == openCat);
-            if (highlighted) {
-                ui.drawList().AddRectFilledRounded(
-                    row, t.menu.highlightFill, t.radius.sm);
-                if (focused) {
-                    ui.drawList().AddRectFilled(
-                        {row.x, row.y + 3.0f, 2.5f, row.h - 6.0f}, t.accent);
-                }
-            }
-            const f32 kIconS = 16.0f;
-            Rect iconRect{row.x + t.menu.iconInset,
-                          row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
-            const Slate::Color tint =
-                highlighted ? t.menu.highlightText : t.text;
-            Slate::DrawIcon(ui, iconRect, cat.icon, tint);
-            // Submenu chevron on the row's right edge.
-            Slate::DrawIcon(ui, {row.Right() - 22.0f,
-                                 row.y + (row.h - 16.0f) * 0.5f, 16.0f,
-                                 16.0f},
-                            Icon::ChevronRight, tint);
-            ui.Label({row.x + t.menu.iconInset + kIconS + t.space.sm,
-                      row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                     cat.label, tint);
-            if (clicked && subVis[c] > 0) m_contextSubmenu = c;
-            y += kRowH;
-            ++flatIdx;
-        }
-    }
-
-    if (visCount == 0) {
-        Rect row{mx, y, kMenuW, kRowH};
-        ui.Label({mx + t.space.lg,
-                  row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                 "No matches", t.textDim);
-    }
-
-    // --- Submenu (open category's items) ----------------------------------
-    if (subValid) {
-        const Category& cat = categories[openCat];
-        ui.PanelRoundedBordered(sub, t.panelBg, t.outline, t.radius.md,
-                                t.border.hairline);
-        f32 y2 = subSy;
-        y2 += t.menu.sectionGap;
-        ui.MenuSectionHeader({subSx, y2, kSubW, kHeaderH}, "BASIC");
-        y2 += kHeaderH + kHeaderGap;
-        for (int i = 0; i < cat.count; ++i) {
-            if (!itemVis[openCat][i]) continue;
-            const CatItem& it = cat.items[i];
-            Rect row{subSx, y2, kSubW, kRowH};
-            const u64 rowId =
-                (Slate::Context::ID(it.label) ^ 0x51AB1Eull) +
-                static_cast<u64>(openCat) * 7919ull;
-            bool hovered = row.Contains(ui.mouse());
-            if (hovered) {
-                ui.RequestCursor(Luma::CursorShape::Hand);
-                m_contextHover = flatIdx;
-            }
-            if (hovered && ui.mousePressed(0)) m_pressedCreateRow = rowId;
-            bool clicked = false;
-            if (m_pressedCreateRow == rowId && ui.mouseReleased(0)) {
-                if (hovered) clicked = true;
-                m_pressedCreateRow = 0;
-            }
-            bool focused = flatIdx == m_contextFocus;
-            if (focused && ui.enterPressed()) clicked = true;
-            bool highlighted = hovered || focused;
-            if (highlighted) {
-                ui.drawList().AddRectFilledRounded(
-                    row, t.menu.highlightFill, t.radius.sm);
-                if (focused) {
-                    ui.drawList().AddRectFilled(
-                        {row.x, row.y + 3.0f, 2.5f, row.h - 6.0f}, t.accent);
-                }
-            }
-            const f32 kIconS = 16.0f;
-            Rect iconRect{row.x + t.menu.iconInset,
-                          row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
-            const Slate::Color tint =
-                highlighted ? t.menu.highlightText : t.text;
-            Slate::DrawIcon(ui, iconRect, it.icon, tint);
-            ui.Label({row.x + t.menu.iconInset + kIconS + t.space.sm,
-                      row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                     it.label, tint);
-            if (clicked) {
-                createMaterial();
-                closeMenu();
-                return;
-            }
-            y2 += kRowH;
-            ++flatIdx;
-        }
-    }
-
-    // --- Outside-click / Escape closes ------------------------------------
-    if (!openedThisFrame && ui.mousePressed(0) &&
-        !main.Contains(ui.mouse()) && !sub.Contains(ui.mouse())) {
-        closeMenu();
-    }
-    if (!ui.isMouseDown(0)) m_pressedCreateRow = 0;
-    m_contextMenuOpenedThisFrame = false;
+void ContentBrowserPanel::CancelRename() noexcept {
+    m_renaming = AssetId{};
 }
 
 }  // namespace Luma::Editor::Panels

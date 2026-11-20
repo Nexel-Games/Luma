@@ -307,21 +307,28 @@ TEST_CASE("TrackingAllocator is thread-safe under concurrent alloc/free",
     std::vector<std::thread> threads;
     std::vector<void*> ptrs;
     std::mutex ptrsMu;
+    // Catch2 assertions are not thread-safe (concurrent REQUIREs corrupt its
+    // output-redirect state and abort the run), so workers only count
+    // failures; the main thread asserts after join.
+    std::atomic<int> nullAllocs{0};
 
     for (int t = 0; t < kThreads; ++t) {
         threads.emplace_back([&, t]() {
+            (void)t;
             const AllocationSite site{"thread_test.cpp", "thread_fn", 1, "ThreadTag"};
             for (int i = 0; i < kIters; ++i) {
                 void* p = Alloc(GlobalTracking(), 32, 16, site);
-                REQUIRE(p != nullptr);
-                {
-                    std::lock_guard<std::mutex> lock(ptrsMu);
-                    ptrs.push_back(p);
+                if (p == nullptr) {
+                    nullAllocs.fetch_add(1, std::memory_order_relaxed);
+                    continue;
                 }
+                std::lock_guard<std::mutex> lock(ptrsMu);
+                ptrs.push_back(p);
             }
         });
     }
     for (auto& th : threads) th.join();
+    REQUIRE(nullAllocs.load() == 0);
 
     TagStats s = GlobalTracking().StatsFor("ThreadTag");
     REQUIRE(s.currentCount == static_cast<usize>(kThreads * kIters));

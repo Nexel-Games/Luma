@@ -34,19 +34,38 @@ struct BorderWidths {
 struct Motion {
     f32 hover = 14.0f, press = 22.0f, popup = 18.0f;  // per-second lerp factors
 };
-// Popup-menu tokens (World Outliner create menu, context menus). Rows share
-// the menu surface (surface4); hover/focus fills sit one step lower on the
-// surface ramp so they read as raised interaction states against it.
+// Popup-menu tokens (Slate::MenuHost — every context menu / picker). Metrics
+// follow Unreal's Starship menu style: flat full-width rows, 12px label
+// padding, tiny letter-spaced section headings, hairline separators.
 struct Menu {
-    f32 rowH = 24.0f;       // menu row height
-    f32 headerH = 20.0f;    // section header height
-    f32 iconInset = 8.0f;   // leading icon inset from the row's left edge
-    f32 searchH = 24.0f;    // search-box height
-    f32 sectionGap = 12.0f; // vertical gap before a section header
-    Color hoverFill;        // row hover (darker than the surface4 menu bg)
-    Color focusFill;        // keyboard-focus row (slightly lighter than hover)
-    // Unreal-style selected-row highlight (saturated accent fill + light
-    // text), used by hovered/open/keyboard-focused menu rows.
+    f32 rowH = 24.0f;        // entry row height
+    f32 headerH = 20.0f;     // legacy section header height (menu-bar etc.)
+    f32 headingH = 26.0f;    // section heading row height
+    f32 separatorH = 9.0f;   // separator row height (1px line + padding)
+    f32 iconInset = 8.0f;    // leading icon inset from the row's left edge
+    f32 padX = 12.0f;        // label / heading left padding
+    f32 padY = 4.0f;         // top/bottom padding inside the menu panel
+    f32 iconSize = 16.0f;    // leading icon box
+    f32 searchH = 26.0f;     // search-box height
+    f32 sectionGap = 12.0f;  // vertical gap before a section header (legacy)
+    f32 minWidth = 220.0f;   // root menu minimum width
+    f32 subMinWidth = 180.0f;// submenu minimum width
+    f32 radius = 4.0f;       // panel corner radius
+    f32 headingTracking = 1.2f;  // extra px between heading glyphs
+    f32 submenuDelay = 0.14f;    // hover-intent delay before switching (s)
+    f32 tooltipDelay = 0.55f;    // hover delay before an entry tooltip (s)
+    f32 tooltipMaxW = 300.0f;    // tooltip wrap width
+
+    Color background;       // menu panel fill (Starship "Dropdown")
+    Color outline;          // 1px panel border (Starship "DropdownOutline")
+    Color separator;        // hairline between sections
+    Color headingText;      // section heading text
+    Color shortcutText;     // right-aligned key hint
+    Color iconTint;         // resting icon tint
+    Color hoverFill;        // open-submenu parent row / menu-bar hover
+    Color focusFill;        // keyboard-focus row (legacy panels)
+    // Hovered / focused row: saturated accent fill + white text (Starship
+    // "Menu.Button" hovered = Primary).
     Color highlightFill;
     Color highlightText;
 };
@@ -108,6 +127,8 @@ struct Theme {
     Color surface2;  // headers / raised
     Color surface3;  // controls / buttons
     Color surface4;  // overlays / menus / popups
+    Color recessed;  // inset wells (tree panes, list backgrounds)
+    Color tabWell;   // dock tab strip behind the tabs
 
     // -- Semantic colors --
     Color separator;      // flush-panel dividers (dark hairline)

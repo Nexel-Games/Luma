@@ -1,0 +1,78 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Sky light capture, step 3: GGX specular prefiltering, one roughness per mip
+// (Unreal's roughness<->mip mapping; see ComputeReflectionCaptureMipFromRoughness).
+// Filtered importance sampling: each GGX sample reads the *mipped* source cube
+// at a level matched to the sample's solid angle, so 64 samples are clean.
+
+#include "skylight_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform samplerCube srcCube;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2DArray outMip;
+
+float D_GGX(float a2, float NoH) {
+    float d = (NoH * a2 - NoH) * NoH + 1.0;
+    return a2 / (SL_PI * d * d);
+}
+
+void main() {
+    uvec3 id = gl_GlobalInvocationID;
+    if (id.x >= uint(pc.size) || id.y >= uint(pc.size)) return;
+    vec3 N = TexelDirection(id, pc.size);
+
+    // Mip 0 is the mirror-like level: copy the sky as-is.
+    if (pc.mip == 0) {
+        imageStore(outMip, ivec3(id), vec4(textureLod(srcCube, N, 0.0).rgb, 1.0));
+        return;
+    }
+
+    const uint NUM_SAMPLES = 64u;
+    float srcSize = float(1 << (pc.numMips - 1));
+    float solidAngleTexel = 4.0 * SL_PI / (6.0 * srcSize * srcSize) * 2.0;
+    float maxLod = float(pc.numMips - 1);
+    mat3 toWorld = TangentBasis(N);
+    vec3 filtered = vec3(0.0);
+    float weight = 0.0;
+
+    if (pc.roughness > 0.99) {
+        // At roughness 1 GGX is near-constant: use a cosine distribution.
+        for (uint i = 0u; i < NUM_SAMPLES; ++i) {
+            vec2 E = Hammersley(i, NUM_SAMPLES);
+            float phi = 2.0 * SL_PI * E.x;
+            float cosT = sqrt(1.0 - E.y);
+            float sinT = sqrt(E.y);
+            vec3 L = vec3(sinT * cos(phi), sinT * sin(phi), cosT);
+            float pdf = L.z / SL_PI;
+            float solidAngleSample = 1.0 / (float(NUM_SAMPLES) * max(pdf, 1e-6));
+            float lod = clamp(0.5 * log2(solidAngleSample / solidAngleTexel), 0.0, maxLod);
+            filtered += textureLod(srcCube, toWorld * L, lod).rgb;
+        }
+        filtered /= float(NUM_SAMPLES);
+    } else {
+        float a = pc.roughness * pc.roughness;  // GGX alpha
+        float a2 = a * a;
+        for (uint i = 0u; i < NUM_SAMPLES; ++i) {
+            vec2 E = Hammersley(i, NUM_SAMPLES);
+            E.y *= 0.995;
+            // GGX half-vector sample around +Z, reflected into L (N = V = R).
+            float phi = 2.0 * SL_PI * E.x;
+            float cosT = sqrt((1.0 - E.y) / (1.0 + (a2 - 1.0) * E.y));
+            float sinT = sqrt(1.0 - cosT * cosT);
+            vec3 H = vec3(sinT * cos(phi), sinT * sin(phi), cosT);
+            vec3 L = 2.0 * H.z * H - vec3(0.0, 0.0, 1.0);
+            float NoL = L.z;
+            if (NoL > 0.0) {
+                float pdf = D_GGX(a2, H.z) * 0.25;
+                float solidAngleSample = 1.0 / (float(NUM_SAMPLES) * max(pdf, 1e-6));
+                float lod = clamp(0.5 * log2(solidAngleSample / solidAngleTexel), 0.0, maxLod);
+                filtered += textureLod(srcCube, toWorld * L, lod).rgb * NoL;
+                weight += NoL;
+            }
+        }
+        filtered /= max(weight, 1e-6);
+    }
+    imageStore(outMip, ivec3(id), vec4(max(filtered, vec3(0.0)), 1.0));
+}

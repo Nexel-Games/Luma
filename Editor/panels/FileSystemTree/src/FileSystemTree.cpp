@@ -54,7 +54,7 @@ void FileSystemTreePanel::Draw(Slate::Context& ui, const Slate::Rect& body) {
     Slate::Rect treeRect{body.x, body.y + kHeaderHeight, body.w, body.h - kHeaderHeight};
 
     // Draw darker background for tree content area
-    ui.Panel(treeRect, Slate::Color::RGB(15, 15, 15));
+    ui.Panel(treeRect, ui.theme().recessed);
 
     ui.PushClip(treeRect);
     

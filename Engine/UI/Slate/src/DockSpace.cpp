@@ -46,8 +46,8 @@ void DrawDockPod(Context& ctx, const Rect& btn, DockDir dir, const Theme& t,
 }  // namespace
 
 void DockSpace::AddPanel(const std::string& id, const std::string& title,
-                         PanelDrawer drawer) {
-    m_panels[id] = PanelInfo{title, std::move(drawer)};
+                         PanelDrawer drawer, TextureHandle icon) {
+    m_panels[id] = PanelInfo{title, std::move(drawer), icon};
 }
 
 void DockSpace::DockRoot(const std::string& id) {
@@ -206,29 +206,45 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
     Theme& t = ctx.theme();
     Rect rect = n->rect;
     ctx.Panel(rect, t.panelBg);
-    // Tab bar with a subtle vertical gradient for depth.
-    ctx.GradientRect({rect.x, rect.y, rect.w, kTabBarH},
-                     Color::RGB(44, 48, 57), Color::RGB(32, 35, 42));
+    // Starship tab well: a deep strip the tabs sit in; the active tab takes
+    // the panel color (so it reads as part of the panel below it) with an
+    // accent line along its top edge.
+    ctx.Panel({rect.x, rect.y, rect.w, kTabBarH}, t.tabWell);
+    ctx.Panel({rect.x, rect.y + kTabBarH, rect.w, 1.0f}, t.panelBorder);
 
     // Tabs.
-    f32 tx = rect.x;
+    f32 tx = rect.x + 2.0f;
     for (int i = 0; i < static_cast<int>(n->tabs.size()); ++i) {
         const std::string& id = n->tabs[static_cast<usize>(i)];
         auto it = m_panels.find(id);
         std::string title = it != m_panels.end() ? it->second.title : id;
-        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f;
-        Rect tab{tx, rect.y, tabW, kTabBarH};
+        const TextureHandle tabIcon = it != m_panels.end() ? it->second.icon : 0;
+        constexpr f32 kTabIcon = 14.0f;
+        const f32 iconSpace = tabIcon ? kTabIcon + 6.0f : 0.0f;
+        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f + iconSpace;
+        Rect tab{tx, rect.y + 3.0f, tabW, kTabBarH - 3.0f};
         bool active = (i == n->active);
         bool hovered = tab.Contains(ctx.mouse());
         if (active) {
-            ctx.Panel(tab, t.panelBg);
-            ctx.Panel({tab.x, tab.Bottom() - 2.0f, tab.w, 2.0f}, t.accent);
+            // Extend 1px down over the strip's bottom hairline so the tab
+            // and the panel body join seamlessly.
+            ctx.PanelRounded({tab.x, tab.y, tab.w, tab.h + 4.0f}, t.panelBg,
+                             t.radius.sm);
+            ctx.Panel({tab.x, tab.Bottom() - 1.0f, tab.w, 3.0f}, t.panelBg);
+            ctx.Panel({tab.x + 1.0f, tab.y, tab.w - 2.0f, 2.0f}, t.accent);
         } else if (hovered) {
-            ctx.Panel(tab, t.buttonHover);
+            ctx.PanelRounded({tab.x, tab.y, tab.w, tab.h - 1.0f}, t.surface2,
+                             t.radius.sm);
         }
         // Center the title across the full tab width so long panel names like
         // "World Outliner" don't visually drift to the right edge.
-        ctx.Heading({tab.x, tab.y, tabW, kTabBarH}, title,
+        if (tabIcon) {
+            ctx.Image(tabIcon,
+                      {tab.x + 12.0f, tab.y + (tab.h - kTabIcon) * 0.5f + 1.0f, kTabIcon,
+                       kTabIcon},
+                      active ? t.text : t.textDim);
+        }
+        ctx.Heading({tab.x + iconSpace, tab.y + 1.0f, tabW - iconSpace, tab.h}, title,
                     active ? t.text : t.textDim);
         if (hovered) {
             if (ctx.mousePressed(0)) {
@@ -239,9 +255,8 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
             }
             ctx.RequestCursor(CursorShape::Hand);
         }
-        tx += tabW;
+        tx += tabW + 1.0f;
     }
-    ctx.Panel({rect.x, rect.y + kTabBarH, rect.w, 1.0f}, t.panelBorder);
 
     // Content.
     Rect content{rect.x, rect.y + kTabBarH + 1.0f, rect.w,
@@ -363,12 +378,12 @@ void DockSpace::Draw(Context& ctx, const Rect& area) {
             // Preview highlight + pending dock. Edge pods win when hovered.
             if (edgeHover) {
                 Rect zr = edgeZone(area, edgeDir, 0.28f);
-                ctx.Panel(zr, Color::RGBA(56, 150, 255, 78));
+                ctx.Panel(zr, t.accent.WithAlpha(64));
                 ctx.PanelBordered(zr, Color::RGBA(0, 0, 0, 0), t.accent, 2.0f);
                 m_pending = PendingDock{true, m_dragPanel, nullptr, edgeDir, true};
             } else if (leafHover) {
                 Rect zr = ZoneRect(target->rect, hoverDir);
-                ctx.Panel(zr, Color::RGBA(56, 150, 255, 66));
+                ctx.Panel(zr, t.accent.WithAlpha(52));
                 ctx.PanelBordered(zr, Color::RGBA(0, 0, 0, 0), t.accent, 2.0f);
                 m_pending =
                     PendingDock{true, m_dragPanel, target, hoverDir, false};
@@ -385,11 +400,11 @@ void DockSpace::Draw(Context& ctx, const Rect& area) {
                 f32 cy = target->rect.y + target->rect.h * 0.5f;
                 Rect glow{cx - span - 10.0f, cy - span - 10.0f,
                           2 * span + 20.0f, 2 * span + 20.0f};
-                ctx.PanelRounded(glow, Color::RGBA(30, 120, 240, 46), 18.0f);
+                ctx.PanelRounded(glow, t.accent.WithAlpha(36), 18.0f);
                 Rect plate{cx - span - 4.0f, cy - span - 4.0f, 2 * span + 8.0f,
                            2 * span + 8.0f};
-                ctx.PanelRoundedBordered(plate, Color::RGBA(24, 27, 34, 240),
-                                         Color::RGBA(74, 82, 96, 255), 14.0f, 1.0f);
+                ctx.PanelRoundedBordered(plate, t.surface0.WithAlpha(240),
+                                         t.menu.outline, 14.0f, 1.0f);
                 for (const Slot& s : slots) {
                     DrawDockPod(ctx, s.btn, s.dir, t,
                                 leafHover && s.dir == hoverDir);

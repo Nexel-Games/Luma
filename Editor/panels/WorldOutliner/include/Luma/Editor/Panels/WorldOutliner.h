@@ -1,6 +1,8 @@
 #pragma once
 
+#include <functional>
 #include <string>
+#include <vector>
 
 #include "PanelContext.h"
 #include "Luma/Scene/Scene.h"
@@ -19,12 +21,6 @@ namespace Luma::Editor::Panels {
 class WorldOutlinerPanel {
 public:
     void Draw(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx);
-
-    // Draws the open Create GameObject menu as a floating overlay. Called
-    // after the dock (clip stack unwound) so the menu renders on top of the
-    // panels instead of being scissor-clipped to the outliner column. Also
-    // draws the header \"+\" button (the menu's only entry point).
-    void DrawFloatingMenu(Slate::Context& ui, PanelContext& ctx);
 
     // Sets the Create-button texture drawn in the panel header. A zero handle
     // falls back to the procedural plus glyph.
@@ -70,22 +66,19 @@ public:
     void ClearSelection() {}
 
 private:
-    void DrawCreateMenu(Slate::Context& ui, const Slate::Rect& body,
-                        PanelContext& ctx, bool menuOpenedThisFrame);
+    // Unreal "Place Actors" menu (categories as submenus; searchable).
+    std::vector<Slate::MenuEntry> BuildPlaceActorsMenu(PanelContext& ctx);
+    void FillPlaceActors(Slate::MenuBuilder& b,
+                         const std::function<void(CreateActorKind)>& create);
+    // Right-click menu for one entity row.
+    std::vector<Slate::MenuEntry> BuildEntityMenu(Entity e, PanelContext& ctx);
 
-    int m_nextNumber = 1;
-
-    // Create GameObject menu state.
-    bool m_createMenuOpen = false;
-    int m_openSubmenu = -1;  // category index whose submenu is open (-1 = none)
-    f32 m_menuX = 0.0f;
-    f32 m_menuY = 0.0f;
-    std::string m_searchText;   // filters the menu rows in real time
     std::string m_entityFilter; // filters the outliner entity list by name
-    int m_menuFocusIndex = 0;   // keyboard-focused row in the visible list
     u64 m_pressedRow = 0;       // row/button id currently mouse-held
-    Slate::Rect m_bodyRect{0, 0, 0, 0};  // outliner content rect (menu clamping)
-    bool m_menuOpenedThisFrame = false;  // menu opened by this frame's input
+    // Inline rename (F2 / context menu "Rename").
+    Entity m_renaming = kNullEntity;
+    std::string m_renameBuf;
+    bool m_renameFocusPending = false;
     f32 m_listScroll = 0.0f;             // entity-list vertical scroll offset
     TextureHandle m_createButtonIcon = 0;   // header create-button texture
     TextureHandle m_texSearchGlass = 0;     // search-box leading icon texture

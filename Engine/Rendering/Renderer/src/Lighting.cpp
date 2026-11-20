@@ -34,6 +34,7 @@ static VkShaderModule LoadLightingShader(VkDevice device, const std::string& pat
 }
 
 #define MAX_LIGHTS 16
+#define MAX_CASCADES 4
 struct GpuLight {
     Vec4 posType;   // xyz pos, w type
     Vec4 dirRange;  // xyz dir, w range
@@ -43,13 +44,18 @@ struct GpuLight {
 struct LightingUBO {
     Mat4 invViewProj;
     Vec4 camPos;
-    Vec4 sunDir;
-    Vec4 sunColor;
-    Vec4 ambientColor;
-    Vec4 params;        // x=lightCount
+    Vec4 camForward;   // xyz = camera forward (for cascade selection)
+    Vec4 sunDir;       // xyz = direction TO sun
+    Vec4 sunColor;     // rgb, w = intensity
+    Vec4 ambientColor; // rgb, w = intensity
+    Vec4 params;       // x = lightCount, y = sunShadows, z = 1/shadowSize, w = material environment enabled
+    Vec4 shadowParams; // x = softness, y = cascadeCount, z = shadowBias
+    Vec4 cascadeSplits;
+    Mat4 cascadeViewProj[MAX_CASCADES];
+    // AtmosphereParams atmo; // not needed here
     GpuLight lights[MAX_LIGHTS];
 };
-static_assert(sizeof(LightingUBO) <= 2048, "LightingUBO too large");
+static_assert(sizeof(LightingUBO) <= 4096, "LightingUBO too large");
 
 } // namespace
 
@@ -400,6 +406,7 @@ void LightingRenderer::SetLightingUniforms(RHI::RHICommandList* /*cmdList*/) {
     // invViewProj – identity placeholder (caller should supply real matrices)
     ubo.invViewProj = Mat4::Identity();
     ubo.camPos      = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    ubo.camForward  = Vec4(0.0f, 0.0f, -1.0f, 0.0f);
     ubo.sunDir      = Vec4(m_lightingParams.sunDirection.x,
                            m_lightingParams.sunDirection.y,
                            m_lightingParams.sunDirection.z, 0.0f);
@@ -413,7 +420,18 @@ void LightingRenderer::SetLightingUniforms(RHI::RHICommandList* /*cmdList*/) {
                             m_lightingParams.iblIntensity);
 
     u32 lightCount = static_cast<u32>(std::min(m_lights.size(), static_cast<size_t>(MAX_LIGHTS)));
-    ubo.params = Vec4(static_cast<f32>(lightCount), 0.0f, 0.0f, 0.0f);
+    ubo.params = Vec4(static_cast<f32>(lightCount), 
+                      m_lightingParams.sunShadows ? 1.0f : 0.0f, 
+                      m_shadowMapSize > 0 ? 1.0f / static_cast<f32>(m_shadowMapSize) : 0.0f, 
+                      0.0f);
+    ubo.shadowParams = Vec4(m_lightingParams.shadowSoftness,
+                            static_cast<f32>(m_cascadeCount),
+                            m_lightingParams.shadowBias,
+                            0.0f);
+    ubo.cascadeSplits = m_cascadeSplits;
+    for (u32 i = 0; i < m_cascadeCount && i < MAX_CASCADES; ++i) {
+        ubo.cascadeViewProj[i] = m_cascadeViewProj[i];
+    }
     for (u32 i = 0; i < lightCount; ++i) {
         const LightData& ld = m_lights[i];
         ubo.lights[i].posType  = Vec4(ld.position.x, ld.position.y, ld.position.z,
@@ -424,6 +442,18 @@ void LightingRenderer::SetLightingUniforms(RHI::RHICommandList* /*cmdList*/) {
     }
 
     m_lightingUBO->UpdateData(&ubo, sizeof(ubo), 0);
+}
+
+void LightingRenderer::SetCascadeShadowData(const Mat4* cascadeViewProj, u32 cascadeCount, const Vec4& cascadeSplits, u32 shadowMapSize) {
+    if (cascadeViewProj && cascadeCount > 0 && cascadeCount <= 4) {
+        for (u32 i = 0; i < cascadeCount; ++i) {
+            m_cascadeViewProj[i] = cascadeViewProj[i];
+        }
+        m_cascadeSplits = cascadeSplits;
+        m_cascadeCount = cascadeCount;
+        m_shadowMapSize = shadowMapSize;
+        m_hasCascadeData = true;
+    }
 }
 
 // ============================================================================

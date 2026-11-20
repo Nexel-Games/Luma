@@ -45,7 +45,12 @@ void main() {
     vec3 P = vNear + t * (vFar - vNear);
 
     // True depth so cubes etc. occlude the grid.
-    vec4 clip = pc.viewProj * vec4(P, 1.0);
+    // Write depth for a point nudged slightly *behind* the plane (away from
+    // the camera, scaled with distance) so geometry lying exactly on Y=0 -- a
+    // floor/ground plane -- always occludes the grid instead of z-fighting it.
+    vec3 toP = P - u.camPos.xyz;
+    vec3 depthP = P + toP * 1e-3;
+    vec4 clip = pc.viewProj * vec4(depthP, 1.0);
     gl_FragDepth = clip.z / clip.w;
 
     float cell = max(u.params.x, 1e-4);

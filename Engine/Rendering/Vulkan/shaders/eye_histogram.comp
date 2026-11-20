@@ -1,0 +1,39 @@
+#version 450
+
+// Eye adaptation, step 1: 64-bucket histogram of the HDR scene's log2
+// luminance (Unreal PostProcessHistogram). Each invocation meters one pixel of
+// a 2x2 block (a quarter of the frame is plenty for a global average); buckets
+// accumulate in shared memory, then one atomic per bucket per workgroup.
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+const uint BUCKETS = 64u;
+
+layout(set = 0, binding = 0) uniform sampler2D sceneHDR;
+layout(std430, set = 0, binding = 1) buffer Histogram { uint bins[BUCKETS]; } hist;
+
+layout(push_constant) uniform Push {
+    ivec2 size;        // scene size in pixels
+    float histScale;   // bucket position = log2(L) * scale + bias  (0..1)
+    float histBias;
+} pc;
+
+shared uint s_bins[BUCKETS];
+
+void main() {
+    uint li = gl_LocalInvocationIndex;
+    if (li < BUCKETS) s_bins[li] = 0u;
+    barrier();
+
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy) * 2;
+    if (p.x < pc.size.x && p.y < pc.size.y) {
+        vec3 c = texelFetch(sceneHDR, p, 0).rgb;
+        float lum = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-10);
+        float pos = clamp(log2(lum) * pc.histScale + pc.histBias, 0.0, 1.0);
+        uint bucket = min(uint(pos * float(BUCKETS - 1u) + 0.5), BUCKETS - 1u);
+        atomicAdd(s_bins[bucket], 1u);
+    }
+    barrier();
+
+    if (li < BUCKETS && s_bins[li] != 0u) atomicAdd(hist.bins[li], s_bins[li]);
+}

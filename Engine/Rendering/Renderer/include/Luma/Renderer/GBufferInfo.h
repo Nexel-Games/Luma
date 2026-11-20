@@ -178,12 +178,21 @@ private:
     bool InitPipeline();
     void CleanupPipeline();
     
+public:
     struct RhiMesh {
         RHI::RHIBuffer* vertexBuffer = nullptr;
         RHI::RHIBuffer* indexBuffer = nullptr;
         u32 indexCount = 0;
         u32 vertexCount = 0;
     };
+
+    const RhiMesh* GetPrimitive(u32 index) const {
+        return (index < 4) ? &m_primitives[index] : nullptr;
+    }
+    
+    const RhiMesh* GetPrimitives() const { return m_primitives; }
+    
+private:
     
     RhiMesh m_primitives[4];
     std::unordered_map<const Math::Vec3*, RhiMesh> m_customMeshes;

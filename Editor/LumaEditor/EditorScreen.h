@@ -14,11 +14,10 @@
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
-#include "Luma/Editor/Panels/MaterialEditor.h"
 #include "Luma/Editor/Panels/Viewport.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "PanelContext.h"
-#include "Luma/Gizmo/TranslateGizmo.h"
+#include "Luma/Gizmo/TransformGizmo.h"
 #include "Luma/Math/Math.h"
 #include "Luma/Project/Project.h"
 #include "Luma/RHI/Renderer.h"
@@ -55,14 +54,6 @@ public:
     void SetViewportTexture(TextureHandle texture) {
         m_viewportPanel.SetTexture(texture);
     }
-    bool MaterialEditorOpen() const { return m_materialEditor.IsOpen(); }
-    Slate::Rect MaterialViewportRect() const {
-        return m_materialEditor.MaterialViewportRect();
-    }
-    void SetMaterialViewportTexture(TextureHandle texture) {
-        m_materialEditor.SetMaterialViewportTexture(texture);
-    }
-
     void SetToolbarIcons(TextureHandle play, TextureHandle pause,
                          TextureHandle stop) {
         m_iconPlay = play;
@@ -70,6 +61,20 @@ public:
         m_iconStop = stop;
     }
     void SetLogoIcon(TextureHandle logo) { m_iconLogo = logo; }
+
+    // Unreal icon-pack textures (Content/Editor/Icons/ue) used by the panel
+    // tabs, the main toolbar, the Output Log badges and the viewport toolbar.
+    struct IconSet {
+        TextureHandle tabOutliner = 0, tabDetails = 0, tabViewport = 0;
+        TextureHandle tabContent = 0, tabOutputLog = 0;
+        TextureHandle save = 0, error = 0, warning = 0;
+        Editor::Panels::ViewportIcons viewport;
+    };
+    void SetEditorIcons(const IconSet& icons) {
+        m_icons = icons;
+        m_viewportPanel.SetIcons(icons.viewport);
+        m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
+    }
 
     // Handle dropped files from the OS (forwarded to Content Browser)
     void HandleDroppedFiles(const std::vector<std::filesystem::path>& files);
@@ -95,10 +100,13 @@ public:
     // Initialize deferred renderer with RHI device
     void InitializeDeferredRenderer(RHI::RHIDevice* device);
     
-    // Build scene view for deferred renderer
-    Renderer2::DeferredSceneView BuildDeferredSceneView();
-    Renderer2::DeferredSceneView BuildMaterialDeferredSceneView(u32 width,
-                                                                u32 height);
+    // Build scene view for deferred renderer. `width`/`height` are the
+    // current viewport pixel size and drive the projection aspect ratio so
+    // objects keep their proportions when the panel is resized.
+    // `deltaSeconds` = frame time; time-based effects (auto-exposure
+    // adaptation) use it. 0 makes them snap instead of animating.
+    Renderer2::DeferredSceneView BuildDeferredSceneView(u32 width, u32 height,
+                                                        f32 deltaSeconds = 0.0f);
     
     // Editor rendering mode controls
     void SetRenderMode(Renderer2::EditorRenderMode mode);
@@ -161,13 +169,33 @@ private:
     // Spawns a new game object from the World Outliner's Create menu
     // (Empty / primitives / Light > directional, point, spot, tube / Environment).
     void CreateActor(Editor::Panels::CreateActorKind kind);
-    // Creates a new default .lmat material asset in `folder` (empty = content
-    // root). Returns the created path (empty on failure).
-    std::filesystem::path CreateMaterialAsset(
-        const std::filesystem::path& folder);
     void CreateEnvironment();
     bool LoadScene();
     void SaveScene();
+
+    // Entity / asset actions behind the panels' menus (PanelContext hooks).
+    void HandleShortcuts(Slate::Context& ui);
+    // Nearest actor hit by a world ray (bounds of its mesh / a small sphere
+    // for non-mesh actors). kNullEntity when nothing is hit.
+    Entity PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const;
+    // `path` relative to the project folder (for user-facing messages).
+    std::string ProjectRelative(const std::filesystem::path& path) const;
+
+public:
+    // Log history shown by the Output Log (Console) panel.
+    void SetLogHistory(std::shared_ptr<LogBuffer> history) {
+        m_consolePanel.SetSource(std::move(history));
+    }
+
+private:
+    void DuplicateEntity(Entity e);
+    void DeleteEntity(Entity e);
+    void FocusEntity(Entity e);
+    void CreateSceneAsset(const std::filesystem::path& folder);
+    void DeleteAssetPath(const std::filesystem::path& path);
+    void RevealInExplorer(const std::filesystem::path& path);
+    // Main menu bar menus (File / Edit / Assets / Window).
+    std::vector<Slate::MenuEntry> BuildMainMenu(int index);
     void BuildDock();
 
     // ---- Shared state the panels read/write via PanelContext ----------------
@@ -179,13 +207,16 @@ private:
     Entity m_environment = kNullEntity;
     int m_nextNumber = 1;
 
-    TranslateGizmo m_gizmo;
+    TransformGizmo m_gizmo;
     std::vector<SceneInstance> m_instances;
     std::vector<SceneLight> m_lights;
 
-    f32 m_camYaw = 0.9f;
-    f32 m_camPitch = 0.5f;
-    f32 m_camDistance = 12.0f;
+    static constexpr f32 kDefaultCamYaw = 0.9f;
+    static constexpr f32 kDefaultCamPitch = 0.5f;
+    static constexpr f32 kDefaultCamDistance = 12.0f;
+    f32 m_camYaw = kDefaultCamYaw;
+    f32 m_camPitch = kDefaultCamPitch;
+    f32 m_camDistance = kDefaultCamDistance;
     Math::Vec3 m_camTarget{0.0f, 0.0f, 0.0f};
 
     Math::Mat4 m_view = Math::Mat4::Identity();
@@ -207,13 +238,12 @@ private:
     // Cache for extracted vertex positions per asset (asset ID -> vertex positions)
     std::unordered_map<AssetId, std::vector<Math::Vec3>> m_vertexPositionCache;
 
-    bool m_showFileMenu = false;
-    f32 m_fileMenuX = 42.0f;
 
     TextureHandle m_iconPlay = 0;
     TextureHandle m_iconPause = 0;
     TextureHandle m_iconStop = 0;
     TextureHandle m_iconLogo = 0;
+    IconSet m_icons;
 
     // ---- Panels (one per docked pane) ---------------------------------------
     Editor::Panels::WorldOutlinerPanel m_outlinerPanel;
@@ -221,11 +251,6 @@ private:
     Editor::Panels::InspectorPanel m_inspectorPanel;
     Editor::Panels::ConsolePanel m_consolePanel;
     Editor::Panels::ContentBrowserPanel m_contentBrowser;
-    Editor::Panels::MaterialEditorPanel m_materialEditor;
-
-    // Material editor docking: registered at startup, docked lazily the first
-    // time a material is opened so it never takes space when unused.
-    bool m_materialDocked = false;
 
     // Renderer for thumbnail generation
     Luma::Renderer* m_renderer = nullptr;

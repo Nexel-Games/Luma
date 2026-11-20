@@ -94,6 +94,9 @@ struct SceneLight {
     f32 intensity = 6.0f;
     f32 cosInner = 0.94f;  // spot cone (cos of inner half-angle)
     f32 cosOuter = 0.87f;  // spot cone (cos of outer half-angle)
+    // Point/spot distance falloff: 1 / (d^exponent + 1), windowed smoothly to
+    // zero at `range` (2 = physical inverse-square, Unreal-style).
+    f32 falloffExponent = 2.0f;
 
     // --- Sun disk (directional only; drives the sky sun disk) ---
     f32 sunDiskSizeDeg = 1.5f;
@@ -193,10 +196,51 @@ struct GridParams {
 // projection from the fov and the target size, so callers only supply the view.
 // Line data is produced by separate modules (e.g. Luma::Grid, Luma::Gizmo) and
 // handed in here — the renderer stays feature-agnostic.
+// HDR post-processing applied after lighting (renderer-agnostic). The scene
+// builder fills this from the active PostProcessComponent; the defaults are the
+// renderer's look when no post-process volume exists.
+struct PostProcessParams {
+    // Bloom (operates on scene-referred HDR radiance).
+    bool bloomEnabled = true;
+    f32 bloomIntensity = 0.3f;     // mix of the multi-scale bloom into the scene
+    f32 bloomThreshold = 1.0f;     // linear luminance where bloom starts
+    f32 bloomSoftThreshold = 0.5f; // soft-knee width as a fraction of threshold
+    Math::Vec3 bloomTint{1.0f, 1.0f, 1.0f};
+    // Tone mapping. Ids match PostProcessComponent::ToneMapper.
+    enum class ToneMapper : u32 { ACES = 0, Reinhard = 1, AgX = 2, Linear = 3 };
+    ToneMapper toneMapper = ToneMapper::ACES;
+    f32 exposure = 1.0f;           // linear exposure compensation (x2 = +1 EV)
+    // Auto exposure (eye adaptation, Unreal's histogram model): the scene's
+    // outlier-trimmed average luminance is mapped to 18% grey, adapting over
+    // time. On by default, as in Unreal. `exposure` still compensates on top.
+    bool autoExposure = true;
+    f32 autoExposureSpeed = 3.0f;          // adaptation rate (EV-space, per s)
+    f32 autoExposureMinLuminance = 0.03f;  // clamp on the adapted-to average
+    f32 autoExposureMaxLuminance = 16.0f;  //   scene luminance (UE Min/Max Brightness)
+};
+
+// Editor viewport visualization (Unreal "View Mode"). Lit is the final
+// image; the buffer visualizations show one G-buffer channel as-is (no
+// exposure, tone mapping or bloom) so values can be read directly.
+enum class ViewMode : u8 {
+    Lit,
+    Unlit,         // base color only, no lighting (display-referred)
+    LightingOnly,  // lighting on a neutral grey surface
+    BaseColor,     // buffer visualizations ->
+    WorldNormal,
+    Roughness,
+    Metallic,
+};
+inline bool BypassesPostProcess(ViewMode m) {
+    return m == ViewMode::Unlit || m >= ViewMode::BaseColor;
+}
+
 struct SceneView {
     SkyParams sky;
     GridParams grid;
     LightingParams lighting;
+    PostProcessParams postProcess;
+    ViewMode viewMode = ViewMode::Lit;
 
     Math::Mat4 view = Math::Mat4::Identity();
     f32 fovYRadians = 0.9f;

@@ -114,7 +114,7 @@ Luma::Slate::Typography TestTypography() {
 }
 }  // namespace
 
-TEST_CASE("Right-click opens the Create menu; Material invokes onCreateMaterial",
+TEST_CASE("Right-click opens the Create menu; New Folder creates",
           "[contentbrowser]") {
     TempDir dir;
     AssetRegistry r;
@@ -128,15 +128,7 @@ TEST_CASE("Right-click opens the Create menu; Material invokes onCreateMaterial"
     ui.Init(nr, TestTypography());
     PanelContext ctx;
     ctx.assetRegistry = &r;
-
-    std::filesystem::path created;
-    std::filesystem::path requestedFolder;
-    ctx.onCreateMaterial = [&](const std::filesystem::path& folder) {
-        requestedFolder = folder;
-        created = folder / "NewMat.lmat";
-        std::ofstream(created) << "{}";
-        return created;
-    };
+    ctx.onImportAssets = [](const fs::path&) {};  // enables "Import"
 
     Rect body{0, 0, 800, 600};
 
@@ -145,38 +137,27 @@ TEST_CASE("Right-click opens the Create menu; Material invokes onCreateMaterial"
     ui.OnMouseMove(100.0f, 100.0f);
     ui.OnMouseButton(1, true);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
     ui.BeginFrame(800, 600, 0.0166f);
     ui.OnMouseButton(1, false);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
 
-    // Navigate with the keyboard: the flat row order is [GET: Import,
-    // CREATE: New Folder, CREATE: Material, Material category]. Down x3 puts
-    // the focus on "Material", Enter activates it. Keyboard navigation is
-    // layout-independent, so these tests survive menu redesigns.
+    // Flat row order: [GET: Import, CREATE: New Folder]. Down x1 to New Folder.
     auto pressKey = [&](int glfwKey) {
         ui.BeginFrame(800, 600, 0.0166f);
         ui.OnKey(glfwKey, true);
         p.Draw(ui, body, ctx);
-        p.DrawFloatingMenu(ui, ctx);
-        ui.EndFrame();
+            ui.EndFrame();
     };
     constexpr int kKeyDown = 264;   // GLFW_KEY_DOWN
     constexpr int kKeyEnter = 257;  // GLFW_KEY_ENTER
     pressKey(kKeyDown);  // 0: GET > Import
     pressKey(kKeyDown);  // 1: CREATE > New Folder
-    pressKey(kKeyDown);  // 2: CREATE > Material
     pressKey(kKeyEnter);
 
-    // The callback ran with the content root (empty folder -> root) and
-    // returned the created path; the new asset is selected + activated.
-    REQUIRE(!created.empty());
-    REQUIRE(requestedFolder == dir.Path());
-    REQUIRE(p.Selected().IsValid());
-    REQUIRE(p.Activated().IsValid());
+    // New Folder should have been created and the panel navigated into it.
+    REQUIRE(p.CurrentFolder().filename().string().find("NewFolder") != std::string::npos);
 }
 
 TEST_CASE("Right-click menu New Folder creates a folder and navigates",
@@ -193,6 +174,7 @@ TEST_CASE("Right-click menu New Folder creates a folder and navigates",
     ui.Init(nr, TestTypography());
     PanelContext ctx;
     ctx.assetRegistry = &r;
+    ctx.onImportAssets = [](const fs::path&) {};  // enables "Import"
 
     Rect body{0, 0, 800, 600};
 
@@ -201,12 +183,10 @@ TEST_CASE("Right-click menu New Folder creates a folder and navigates",
     ui.OnMouseMove(100.0f, 100.0f);
     ui.OnMouseButton(1, true);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
     ui.BeginFrame(800, 600, 0.0166f);
     ui.OnMouseButton(1, false);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
 
     // Navigate with the keyboard: Down x2 puts the focus on "New Folder",
@@ -215,8 +195,7 @@ TEST_CASE("Right-click menu New Folder creates a folder and navigates",
         ui.BeginFrame(800, 600, 0.0166f);
         ui.OnKey(glfwKey, true);
         p.Draw(ui, body, ctx);
-        p.DrawFloatingMenu(ui, ctx);
-        ui.EndFrame();
+            ui.EndFrame();
     };
     constexpr int kKeyDown = 264;   // GLFW_KEY_DOWN
     constexpr int kKeyEnter = 257;  // GLFW_KEY_ENTER
@@ -250,12 +229,10 @@ TEST_CASE("Right-click menu closes on outside left-click",
     ui.OnMouseMove(100.0f, 100.0f);
     ui.OnMouseButton(1, true);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
     ui.BeginFrame(800, 600, 0.0166f);
     ui.OnMouseButton(1, false);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
 
     // Left-click far away from the menu (e.g. the toolbar row).
@@ -263,12 +240,10 @@ TEST_CASE("Right-click menu closes on outside left-click",
     ui.OnMouseMove(400.0f, 10.0f);
     ui.OnMouseButton(0, true);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
     ui.BeginFrame(800, 600, 0.0166f);
     ui.OnMouseButton(0, false);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
 
     // The menu is gone: another outside click must not crash, and the
@@ -290,6 +265,7 @@ TEST_CASE("Right-click menu GET > Import invokes onImportAssets",
     ui.Init(nr, TestTypography());
     PanelContext ctx;
     ctx.assetRegistry = &r;
+    ctx.onImportAssets = [](const fs::path&) {};  // enables "Import"
 
     std::filesystem::path importedInto;
     ctx.onImportAssets = [&](const std::filesystem::path& folder) {
@@ -303,12 +279,10 @@ TEST_CASE("Right-click menu GET > Import invokes onImportAssets",
     ui.OnMouseMove(100.0f, 100.0f);
     ui.OnMouseButton(1, true);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
     ui.BeginFrame(800, 600, 0.0166f);
     ui.OnMouseButton(1, false);
     p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
     ui.EndFrame();
 
     // Flat row 0 is GET > Import to Current Folder: Down once, then Enter.
@@ -316,8 +290,7 @@ TEST_CASE("Right-click menu GET > Import invokes onImportAssets",
         ui.BeginFrame(800, 600, 0.0166f);
         ui.OnKey(glfwKey, true);
         p.Draw(ui, body, ctx);
-        p.DrawFloatingMenu(ui, ctx);
-        ui.EndFrame();
+            ui.EndFrame();
     };
     constexpr int kKeyDown = 264;   // GLFW_KEY_DOWN
     constexpr int kKeyEnter = 257;  // GLFW_KEY_ENTER
@@ -328,70 +301,4 @@ TEST_CASE("Right-click menu GET > Import invokes onImportAssets",
     REQUIRE(importedInto == dir.Path());
 }
 
-TEST_CASE("Right-click menu Material category opens a submenu that creates",
-          "[contentbrowser]") {
-    TempDir dir;
-    AssetRegistry r;
-    r.AddRoot(dir.Path());
-    r.Scan();
-    ContentBrowserPanel p;
-    p.SetRegistry(&r);
 
-    Context ui;
-    NullRenderer nr;
-    ui.Init(nr, TestTypography());
-    PanelContext ctx;
-    ctx.assetRegistry = &r;
-
-    std::filesystem::path created;
-    ctx.onCreateMaterial = [&](const std::filesystem::path& folder) {
-        created = folder / "SubMat.lmat";
-        std::ofstream(created) << "{}";
-        return created;
-    };
-
-    Rect body{0, 0, 800, 600};
-
-    // Open the menu.
-    ui.BeginFrame(800, 600, 0.0166f);
-    ui.OnMouseMove(100.0f, 100.0f);
-    ui.OnMouseButton(1, true);
-    p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
-    ui.EndFrame();
-    ui.BeginFrame(800, 600, 0.0166f);
-    ui.OnMouseButton(1, false);
-    p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
-    ui.EndFrame();
-
-    // Type "material" into the (auto-focused) search box. This filters the
-    // menu down to CREATE > Material + the Material category, and auto-opens
-    // the category's submenu (search behavior) — no pixel positions needed.
-    ui.BeginFrame(800, 600, 0.0166f);
-    for (char c : std::string("material")) ui.OnText(static_cast<u32>(c));
-    p.Draw(ui, body, ctx);
-    p.DrawFloatingMenu(ui, ctx);
-    ui.EndFrame();
-
-    // After filtering the flat rows are [CREATE > Material, Material cat] and
-    // the submenu item extends the list: Down focuses the category, Down again
-    // the submenu's Material item, Enter creates.
-    auto pressKey = [&](int glfwKey) {
-        ui.BeginFrame(800, 600, 0.0166f);
-        ui.OnKey(glfwKey, true);
-        p.Draw(ui, body, ctx);
-        p.DrawFloatingMenu(ui, ctx);
-        ui.EndFrame();
-    };
-    constexpr int kKeyDown = 264;   // GLFW_KEY_DOWN
-    constexpr int kKeyEnter = 257;  // GLFW_KEY_ENTER
-    pressKey(kKeyDown);  // 0: CREATE > Material
-    pressKey(kKeyDown);  // 1: Material category
-    pressKey(kKeyDown);  // 2: submenu > BASIC > Material
-    pressKey(kKeyEnter);
-
-    // The submenu item created the asset through the same callback path.
-    REQUIRE(fs::exists(created));
-    REQUIRE(p.Activated().IsValid());
-}

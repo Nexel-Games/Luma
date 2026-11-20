@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 #include "Luma/Scene/Components.h"
 
@@ -10,6 +13,169 @@ namespace Luma::Editor::Panels {
 using Slate::Align;
 using Slate::Rect;
 
+namespace {
+
+template <typename C>
+bool Has(const Scene* scene, Entity e) {
+    return scene->IsValid(e) && scene->Registry().all_of<C>(e);
+}
+
+template <typename C>
+void AddIfMissing(Scene* scene, Entity e) {
+    if (scene->IsValid(e) && !scene->Registry().all_of<C>(e)) {
+        scene->Registry().emplace<C>(e);
+    }
+}
+
+// Resets (replaces with a default-constructed value) or removes component C.
+template <typename C>
+void ResetOrRemove(entt::registry& reg, Entity e, bool remove) {
+    if (!reg.all_of<C>(e)) return;
+    if (remove) {
+        reg.remove<C>(e);
+    } else {
+        reg.replace<C>(e, C{});
+    }
+}
+
+}  // namespace
+
+std::vector<Slate::MenuEntry> InspectorPanel::BuildAddComponentMenu(Scene* scene,
+                                                                    Entity e) {
+    using Slate::Icon;
+    const bool hasMesh = Has<MeshRendererComponent>(scene, e);
+    const bool hasCam = Has<CameraComponent>(scene, e);
+    const bool hasLight = Has<LightComponent>(scene, e);
+    const bool hasEnv = Has<EnvironmentComponent>(scene, e);
+    const bool hasPP = Has<PostProcessComponent>(scene, e);
+    bool envElsewhere = false;
+    for (Entity other : scene->Registry().view<EnvironmentComponent>()) {
+        if (other != e) envElsewhere = true;
+    }
+    auto opts = [](bool blocked, std::string tip, std::string reason) {
+        Slate::MenuEntryOptions o;
+        o.enabled = !blocked;
+        o.tooltip = blocked ? std::move(reason) : std::move(tip);
+        return o;
+    };
+    const std::string kOnePer = "Already on this entity (one per entity).";
+
+    Slate::MenuBuilder b;
+    b.BeginSection("Rendering");
+    b.AddEntry("Mesh Renderer", Icon::Cube,
+               [scene, e] { AddIfMissing<MeshRendererComponent>(scene, e); },
+               opts(hasMesh, "Draws a primitive or mesh asset with a PBR material.",
+                    kOnePer));
+    b.AddEntry("Camera", Icon::Camera,
+               [scene, e] { AddIfMissing<CameraComponent>(scene, e); },
+               opts(hasCam,
+                    "A view into the scene. The primary camera drives the game view.",
+                    kOnePer));
+
+    b.BeginSection("Lighting");
+    struct LightDef {
+        const char* name;
+        LightType type;
+        const char* tip;
+    };
+    static const LightDef kLights[] = {
+        {"Directional Light", LightType::Directional,
+         "Infinitely distant sun light; drives the sky and casts cascaded shadows."},
+        {"Point Light", LightType::Point,
+         "Emits in all directions with physical inverse-square falloff."},
+        {"Spot Light", LightType::Spot, "A cone of light with inner and outer angles."},
+        {"Tube Light", LightType::Tube, "A linear emitter of a given length."},
+    };
+    for (const LightDef& l : kLights) {
+        const LightType type = l.type;
+        b.AddEntry(l.name, Icon::Light,
+                   [scene, e, type] {
+                       if (!scene->IsValid(e) ||
+                           scene->Registry().all_of<LightComponent>(e)) {
+                           return;
+                       }
+                       scene->Registry().emplace<LightComponent>(e).type = type;
+                   },
+                   opts(hasLight, l.tip,
+                        "This entity already has a Light (one per entity)."));
+    }
+
+    b.BeginSection("Environment");
+    b.AddEntry("Sky & Environment", Icon::Sphere,
+               [scene, e] { AddIfMissing<EnvironmentComponent>(scene, e); },
+               opts(hasEnv || envElsewhere,
+                    "Physically based sky atmosphere and ambient (sky) lighting.",
+                    hasEnv ? kOnePer
+                           : std::string("The scene already has an Environment "
+                                         "(one per scene).")));
+
+    b.BeginSection("Volumes");
+    b.AddEntry("Post Process Volume", Icon::Eye,
+               [scene, e] { AddIfMissing<PostProcessComponent>(scene, e); },
+               opts(hasPP, "Bloom, exposure, tone mapping and other camera effects.",
+                    kOnePer));
+    return b.Build();
+}
+
+std::vector<Slate::MenuEntry> InspectorPanel::BuildComponentMenu(Scene* scene,
+                                                                 Entity e,
+                                                                 ComponentKind kind) {
+    using Slate::Icon;
+    auto apply = [scene, e, kind](bool remove) {
+        if (!scene->IsValid(e)) return;
+        auto& reg = scene->Registry();
+        switch (kind) {
+            case ComponentKind::Transform:
+                ResetOrRemove<TransformComponent>(reg, e, remove);
+                break;
+            case ComponentKind::MeshRenderer:
+                ResetOrRemove<MeshRendererComponent>(reg, e, remove);
+                break;
+            case ComponentKind::Camera:
+                ResetOrRemove<CameraComponent>(reg, e, remove);
+                break;
+            case ComponentKind::Light:
+                // Reset keeps the light's type (the type is its identity).
+                if (!remove && reg.all_of<LightComponent>(e)) {
+                    LightComponent fresh;
+                    fresh.type = reg.get<LightComponent>(e).type;
+                    reg.replace<LightComponent>(e, fresh);
+                } else {
+                    ResetOrRemove<LightComponent>(reg, e, remove);
+                }
+                break;
+            case ComponentKind::Environment:
+                ResetOrRemove<EnvironmentComponent>(reg, e, remove);
+                break;
+            case ComponentKind::PostProcess:
+                ResetOrRemove<PostProcessComponent>(reg, e, remove);
+                break;
+        }
+    };
+
+    Slate::MenuBuilder b;
+    b.BeginSection("Component");
+    Slate::MenuEntryOptions reset;
+    reset.tooltip = "Restore every property of this component to its default.";
+    b.AddEntry("Reset to Defaults", Icon::Refresh,
+               [this, apply] {
+                   ClosePopups();
+                   apply(false);
+               },
+               reset);
+    Slate::MenuEntryOptions removeOpts;
+    removeOpts.enabled = (kind != ComponentKind::Transform);
+    removeOpts.tooltip = removeOpts.enabled ? "Remove this component from the entity."
+                                            : "Every entity needs a Transform.";
+    b.AddEntry("Remove Component", Icon::Trash,
+               [this, apply] {
+                   ClosePopups();
+                   apply(true);
+               },
+               removeOpts);
+    return b.Build();
+}
+
 void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                           PanelContext& ctx) {
     Slate::Theme& t = ui.theme();
@@ -17,7 +183,6 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     if (!ctx.scene->IsValid(*ctx.selected)) {
         ui.LabelIn({body.x, body.y + 8, body.w, 22}, "  No selection",
                    t.textDim);
-        m_showAddMenu = false;
         return;
     }
     // Selection changed — close popups so they don't target the previous
@@ -32,12 +197,23 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     f32 y = body.y + 12.0f;
     f32 w = body.w - 24.0f;
 
-    ui.Heading({x, y, w - 118.0f, 24}, reg.get<NameComponent>(*ctx.selected).name,
-               t.text);
-    if (ui.Button(Slate::Context::ID("insp.addcomp"),
-                  {body.Right() - 118.0f, y, 106, 24}, "+ Component")) {
-        m_showAddMenu = !m_showAddMenu;
+    // Header: entity name + "Add" component picker (Unreal Details panel).
+    const u64 addId = Slate::Context::ID("insp.addcomp");
+    const Rect addBtn{body.Right() - 84.0f, y, 72.0f, 24.0f};
+    ui.Heading({x, y, addBtn.x - x - 8.0f, 24},
+               reg.get<NameComponent>(*ctx.selected).name, t.text);
+    if (ui.IconTextButton(addId, addBtn, Slate::Icon::Plus, "Add", t.success,
+                          ui.IsMenuOpen(addId))) {
+        Slate::MenuOptions opts;
+        opts.searchable = true;
+        opts.searchHint = "Search components";
+        opts.minWidth = 240.0f;
+        ui.OpenMenuBelow(addId, addBtn,
+                         BuildAddComponentMenu(ctx.scene, *ctx.selected), opts);
     }
+    ui.Tooltip(addId ^ 0x71Full, addBtn,
+               "Add Component\nAttach a new component to the selected actor. "
+               "Right-click a component header to reset or remove it.");
     // The header row (name + + Component) stays pinned; the component
     // content below it scrolls. The content region is clipped so scrolled
     // rows can't overlap the pinned header, and the scrollbar is added at
@@ -47,10 +223,19 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     ui.PushClip(contentRegion);
     y = contentTop - m_scroll;
 
-    auto sectionHeader = [&](const char* label) {
-        ui.GradientRect({body.x, y, body.w, 26}, t.surface3, t.surface2);
-        ui.Panel({body.x, y, 3, 26}, t.accent);
+    // Component category header (Starship Details style): flat header
+    // band, accent tick, and a right-click menu for component actions.
+    auto sectionHeader = [&](const char* label, ComponentKind kind) {
+        const Rect band{body.x, y, body.w, 26};
+        ui.Panel(band, t.surface2);
+        ui.Panel({band.x, band.Bottom() - 1.0f, band.w, 1.0f}, t.separator);
+        ui.Panel({body.x, y, 2, 26}, t.accent);
         ui.Heading({x, y, w, 26}, label, t.text);
+        const u64 menuId = Slate::Context::ID(label) ^ 0x5EC7ull;
+        if (ui.mousePressed(1) && band.Contains(ui.mouse())) {
+            ui.OpenMenu(menuId, ui.mouse(),
+                        BuildComponentMenu(ctx.scene, *ctx.selected, kind));
+        }
         y += 32.0f;
     };
     auto vec3Row = [&](const char* label, u64 id, f32* v) {
@@ -62,6 +247,15 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         ui.LabelIn({x, y, 118, 22}, label, t.textDim);
         ui.DragFloat(id, {x + 118, y, w - 118, 22}, v, 0.02f);
         y += 28.0f;
+    };
+    // Enum property: label + combo box (fits any column width, unlike a
+    // segmented tab row). Returns the (possibly changed) index.
+    auto comboRow = [&](const char* label, u64 id,
+                        const std::vector<std::string>& items, int current) {
+        ui.LabelIn({x, y, 82, 22}, label, t.textDim);
+        int picked = ui.Combo(id, {x + 82, y, w - 82, 22}, items, current);
+        y += 28.0f;
+        return picked;
     };
 
     // --- Color property rows -------------------------------------------------
@@ -95,7 +289,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     };
 
     if (reg.all_of<TransformComponent>(*ctx.selected)) {
-        sectionHeader("Transform");
+        sectionHeader("Transform", ComponentKind::Transform);
         auto& tf = reg.get<TransformComponent>(*ctx.selected);
         vec3Row("Position", Slate::Context::ID("insp.pos"), &tf.position.x);
         vec3Row("Rotation", Slate::Context::ID("insp.rot"),
@@ -104,26 +298,44 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         y += 8.0f;
     }
     if (reg.all_of<MeshRendererComponent>(*ctx.selected)) {
-        sectionHeader("Mesh Renderer");
+        sectionHeader("Mesh Renderer", ComponentKind::MeshRenderer);
         auto& mr = reg.get<MeshRendererComponent>(*ctx.selected);
-        ui.LabelIn({x, y, 82, 22}, "Shape", t.textDim);
-        const char* shapes[4] = {"Cube", "Plane", "Sphere", "Cylinder"};
-        f32 bw = (w - 82.0f) / 4.0f;
-        for (int p = 0; p < 4; ++p) {
-            Rect r{x + 82.0f + bw * static_cast<f32>(p), y, bw - 2.0f, 22};
-            bool sel = static_cast<int>(mr.primitive) == p;
-            if (ui.Tab(Slate::Context::ID(shapes[p]), r, shapes[p], sel)) {
-                mr.primitive = static_cast<MeshPrimitive>(p);
-            }
-        }
-        y += 28.0f;
+        mr.primitive = static_cast<MeshPrimitive>(
+            comboRow("Shape", Slate::Context::ID("insp.shape"),
+                     {"Cube", "Plane", "Sphere", "Cylinder"},
+                     static_cast<int>(mr.primitive)));
         colorRow("Albedo", m_albedoPicker, mr.albedo);
         floatRow("Metallic", Slate::Context::ID("insp.met"), mr.metallic);
         floatRow("Roughness", Slate::Context::ID("insp.rgh"), mr.roughness);
         y += 8.0f;
     }
+    if (reg.all_of<CameraComponent>(*ctx.selected)) {
+        sectionHeader("Camera", ComponentKind::Camera);
+        auto& cam = reg.get<CameraComponent>(*ctx.selected);
+        cam.projection = static_cast<ProjectionType>(
+            comboRow("Projection", Slate::Context::ID("insp.camproj"),
+                     {"Perspective", "Orthographic"},
+                     static_cast<int>(cam.projection)));
+        if (cam.projection == ProjectionType::Perspective) {
+            floatRow("Field of View", Slate::Context::ID("insp.camfov"),
+                     cam.fovYDegrees);
+            cam.fovYDegrees = std::clamp(cam.fovYDegrees, 5.0f, 170.0f);
+        } else {
+            floatRow("Ortho Height", Slate::Context::ID("insp.camortho"),
+                     cam.orthoHeight);
+            cam.orthoHeight = std::max(cam.orthoHeight, 0.01f);
+        }
+        floatRow("Near Clip", Slate::Context::ID("insp.camnear"), cam.nearZ);
+        floatRow("Far Clip", Slate::Context::ID("insp.camfar"), cam.farZ);
+        cam.nearZ = std::max(cam.nearZ, 0.001f);
+        cam.farZ = std::max(cam.farZ, cam.nearZ + 0.01f);
+        ui.Checkbox(Slate::Context::ID("insp.camprimary"), {x, y, 18, 18},
+                    "Primary Camera", cam.primary);
+        y += 26.0f;
+        y += 8.0f;
+    }
     if (reg.all_of<EnvironmentComponent>(*ctx.selected)) {
-        sectionHeader("Environment");
+        sectionHeader("Environment", ComponentKind::Environment);
         auto& env = reg.get<EnvironmentComponent>(*ctx.selected);
 
         colorRow("Sky Tint", m_skyTintPicker, env.skyTint);
@@ -169,19 +381,12 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         y += 8.0f;
     }
     if (reg.all_of<LightComponent>(*ctx.selected)) {
-        sectionHeader("Light");
+        sectionHeader("Light", ComponentKind::Light);
         auto& lc = reg.get<LightComponent>(*ctx.selected);
-        ui.LabelIn({x, y, 82, 22}, "Type", t.textDim);
-        const char* types[4] = {"Directional", "Point", "Spot", "Tube"};
-        f32 bw = (w - 82.0f) / 4.0f;
-        for (int p = 0; p < 4; ++p) {
-            Rect r{x + 82.0f + bw * static_cast<f32>(p), y, bw - 2.0f, 22};
-            bool sel = static_cast<int>(lc.type) == p;
-            if (ui.Tab(Slate::Context::ID(types[p]), r, types[p], sel)) {
-                lc.type = static_cast<LightType>(p);
-            }
-        }
-        y += 28.0f;
+        lc.type = static_cast<LightType>(
+            comboRow("Type", Slate::Context::ID("insp.ltype"),
+                     {"Directional", "Point", "Spot", "Tube"},
+                     static_cast<int>(lc.type)));
         colorRow("Color", m_lightColorPicker, lc.color);
         floatRow("Intensity", Slate::Context::ID("insp.lint"), lc.intensity);
         if (lc.type == LightType::Directional) {
@@ -236,8 +441,124 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             lc.cascadeCount = static_cast<i32>(cascades);
             floatRow("Shadow Distance", Slate::Context::ID("insp.ldist"),
                      lc.shadowDistance);
-            floatRow("Split Lambda", Slate::Context::ID("insp.llambda"),
-                     lc.cascadeSplitLambda);
+            floatRow("Split Lambda", Slate::Context::ID("insp.llambda"),            lc.cascadeSplitLambda);
+        }
+        y += 8.0f;
+    }
+    if (reg.all_of<PostProcessComponent>(*ctx.selected)) {
+        sectionHeader("Post Process Volume", ComponentKind::PostProcess);
+        auto& pp = reg.get<PostProcessComponent>(*ctx.selected);
+        ui.Checkbox(Slate::Context::ID("insp.ppenabled"), {x, y, 18, 18},
+                    "Enabled", pp.enabled);
+        y += 26.0f;
+
+        // --- Bloom ---
+        ui.LabelIn({x, y, w, 20}, "Bloom", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.bloom"), {x + 16, y, 18, 18},
+                    "Enabled", pp.bloomEnabled);
+        y += 26.0f;
+        floatRow("Intensity", Slate::Context::ID("insp.pp.bint"), pp.bloomIntensity);
+        floatRow("Threshold", Slate::Context::ID("insp.pp.bthr"), pp.bloomThreshold);
+        y += 4.0f;
+
+        // --- Tone Mapping ---
+        ui.LabelIn({x, y, w, 20}, "Tone Mapping", t.accent);
+        y += 24.0f;
+        pp.toneMapper = static_cast<PostProcessComponent::ToneMapper>(
+            comboRow("Tone Mapper", Slate::Context::ID("insp.pp.tone"),
+                     {"ACES", "Reinhard", "AgX", "Linear"},
+                     static_cast<int>(pp.toneMapper)));
+        floatRow("Exposure", Slate::Context::ID("insp.pp.exp"), pp.exposure);
+        ui.Checkbox(Slate::Context::ID("insp.pp.autoexp"), {x + 16, y, 18, 18},
+                    "Auto Exposure", pp.autoExposure);
+        y += 26.0f;
+        if (pp.autoExposure) {
+            floatRow("Speed", Slate::Context::ID("insp.pp.aespd"), pp.autoExposureSpeed);
+            floatRow("Min Brightness", Slate::Context::ID("insp.pp.aemin"), pp.autoExposureMin);
+            floatRow("Max Brightness", Slate::Context::ID("insp.pp.aemax"), pp.autoExposureMax);
+        }
+
+        // --- Ambient Occlusion ---
+        ui.LabelIn({x, y, w, 20}, "Ambient Occlusion", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.ssao"), {x + 16, y, 18, 18},
+                    "SSAO", pp.ssaoEnabled);
+        y += 26.0f;
+        if (pp.ssaoEnabled) {
+            floatRow("Radius", Slate::Context::ID("insp.pp.srad"), pp.ssaoRadius);
+            floatRow("Intensity", Slate::Context::ID("insp.pp.sint"), pp.ssaoIntensity);
+        }
+        y += 4.0f;
+
+        // --- Screen Space Reflections ---
+        ui.LabelIn({x, y, w, 20}, "Reflections", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.ssr"), {x + 16, y, 18, 18},
+                    "SSR", pp.ssrEnabled);
+        y += 26.0f;
+        if (pp.ssrEnabled) {
+            floatRow("Intensity", Slate::Context::ID("insp.pp.sint2"), pp.ssrIntensity);
+        }
+        y += 4.0f;
+
+        // --- Motion Blur ---
+        ui.LabelIn({x, y, w, 20}, "Motion Blur", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.mb"), {x + 16, y, 18, 18},
+                    "Enabled", pp.motionBlurEnabled);
+        y += 26.0f;
+        if (pp.motionBlurEnabled) {
+            floatRow("Amount", Slate::Context::ID("insp.pp.mbamt"), pp.motionBlurAmount);
+        }
+        y += 4.0f;
+
+        // --- Depth of Field ---
+        ui.LabelIn({x, y, w, 20}, "Depth of Field", t.accent);
+        y += 24.0f;
+        pp.dofMethod = static_cast<PostProcessComponent::DOFMethod>(
+            comboRow("Method", Slate::Context::ID("insp.pp.dof"),
+                     {"Off", "Gaussian", "Circle Bokeh"},
+                     static_cast<int>(pp.dofMethod)));
+        if (pp.dofMethod != PostProcessComponent::DOFMethod::None) {
+            floatRow("Focal Distance", Slate::Context::ID("insp.pp.doffoc"), pp.dofFocalDistance);
+            floatRow("Scale", Slate::Context::ID("insp.pp.dofscale"), pp.dofScale);
+        }
+        y += 4.0f;
+
+        // --- Color Grading ---
+        ui.LabelIn({x, y, w, 20}, "Color Grading", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.cg"), {x + 16, y, 18, 18},
+                    "Enabled", pp.colorGradingEnabled);
+        y += 26.0f;
+        if (pp.colorGradingEnabled) {
+            floatRow("Saturation", Slate::Context::ID("insp.pp.cgsat"), pp.colorGradingSaturation);
+            floatRow("Contrast", Slate::Context::ID("insp.pp.cgcon"), pp.colorGradingContrast);
+            floatRow("Gamma", Slate::Context::ID("insp.pp.cggam"), pp.colorGradingGamma);
+        }
+        y += 4.0f;
+
+        // --- Vignette ---
+        ui.LabelIn({x, y, w, 20}, "Vignette", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.vig"), {x + 16, y, 18, 18},
+                    "Enabled", pp.vignetteEnabled);
+        y += 26.0f;
+        if (pp.vignetteEnabled) {
+            floatRow("Intensity", Slate::Context::ID("insp.pp.vigint"), pp.vignetteIntensity);
+            floatRow("Radius", Slate::Context::ID("insp.pp.vigrad"), pp.vignetteRadius);
+        }
+        y += 4.0f;
+
+        // --- Film Grain ---
+        ui.LabelIn({x, y, w, 20}, "Film Grain", t.accent);
+        y += 24.0f;
+        ui.Checkbox(Slate::Context::ID("insp.pp.fg"), {x + 16, y, 18, 18},
+                    "Enabled", pp.filmGrainEnabled);
+        y += 26.0f;
+        if (pp.filmGrainEnabled) {
+            floatRow("Intensity", Slate::Context::ID("insp.pp.fgint"), pp.filmGrainIntensity);
         }
         y += 8.0f;
     }
@@ -249,48 +570,9 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     f32 contentH = (y - contentTop) + m_scroll;
     m_scroll = ui.VerticalScroll(Slate::Context::ID("insp.scroll"),
                                  contentRegion, contentH, m_scroll);
-
-    if (m_showAddMenu) {
-        bool canMesh = !reg.all_of<MeshRendererComponent>(*ctx.selected);
-        bool canEnv = !reg.all_of<EnvironmentComponent>(*ctx.selected);
-        bool canLight = !reg.all_of<LightComponent>(*ctx.selected);
-        int count = (canMesh ? 1 : 0) + (canEnv ? 1 : 0) +
-                    (canLight ? 1 : 0);
-        f32 mw = 190.0f;
-        f32 mx = body.Right() - mw - 12.0f;
-        f32 my = body.y + 44.0f;
-        f32 rows = static_cast<f32>(count > 0 ? count : 1);
-        ui.PanelRoundedBordered(
-            {mx - 6, my - 6, mw + 12, rows * 28.0f + 12.0f}, t.surface4,
-            t.accent, t.radius.md, t.border.thick);
-        if (canMesh &&
-            ui.Button(Slate::Context::ID("add.mesh"), {mx, my, mw, 24},
-                      "Mesh Renderer")) {
-            reg.emplace<MeshRendererComponent>(*ctx.selected);
-            m_showAddMenu = false;
-        }
-        if (canMesh) my += 28.0f;
-        if (canLight &&
-            ui.Button(Slate::Context::ID("add.light"), {mx, my, mw, 24},
-                      "Light")) {
-            reg.emplace<LightComponent>(*ctx.selected);
-            m_showAddMenu = false;
-        }
-        if (canLight) my += 28.0f;
-        if (canEnv &&
-            ui.Button(Slate::Context::ID("add.env"), {mx, my, mw, 24},
-                      "Environment")) {
-            reg.emplace<EnvironmentComponent>(*ctx.selected);
-            m_showAddMenu = false;
-        }
-        if (count == 0) {
-            ui.LabelIn({mx, my, mw, 24}, "  All components added", t.textDim);
-        }
-    }
 }
 
 void InspectorPanel::ClosePopups() {
-    m_showAddMenu = false;
     m_albedoPicker.Close();
     m_lightColorPicker.Close();
     m_skyTintPicker.Close();

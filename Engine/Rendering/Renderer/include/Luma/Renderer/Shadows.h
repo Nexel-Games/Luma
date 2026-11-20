@@ -8,6 +8,7 @@
 #include "Luma/RHI/RHIResources.h"
 #include "Luma/RHI/Renderer.h"
 #include "Luma/Renderer/Lighting.h"
+#include "Luma/Renderer/GBufferInfo.h"
 
 // Shadow system for deferred shading. Inspired by UE5's shadow system
 // but adapted for Luma's simpler architecture. Provides shadow map
@@ -104,11 +105,20 @@ public:
     // Set shadow map description
     void SetShadowMapDesc(const ShadowMapDesc& desc) { m_shadowMapDesc = desc; }
     
+    // Initialize with device
+    bool Initialize(RHI::RHIDevice* device);
+    
+    // Shutdown
+    void Shutdown();
+    
     // Render shadow map for a light
     void RenderShadowMap(RHI::RHICommandList* cmdList, const LightData& light, const Luma::SceneView& sceneView);
     
     // Render cascaded shadow maps for directional light
     void RenderCascadedShadowMaps(RHI::RHICommandList* cmdList, const LightData& light, const Luma::SceneView& sceneView);
+    
+    // Draw scene instances into the current shadow pass using the bound pipeline
+    void DrawInstances(RHI::RHICommandList* cmdList, const Luma::SceneView& sceneView, const Mat4& cascadeViewProj);
     
     // Render cube shadow map for point light
     void RenderCubeShadowMap(RHI::RHICommandList* cmdList, const LightData& light, const Luma::SceneView& sceneView);
@@ -122,10 +132,46 @@ public:
     // Get cascade matrices
     const vector<Mat4>& GetCascadeViewProjections() const { return m_cascadeViewProjections; }
     
+    // Get cascade split distances
+    const vector<f32>& GetCascadeSplits() const { return m_cascadeSplits; }
+    
+    // Get shadow map DSV views for each cascade
+    const vector<RHI::RHIDepthStencilView*>& GetCascadeDSVs() const { return m_cascadeDSVs; }
+    
+    // Set primitive mesh data from GBufferRenderer (shared, not owned)
+    void SetPrimitiveMeshes(const GBufferRenderer::RhiMesh* primitives) { m_primitives = primitives; }
+    
 private:
     ShadowMap* m_shadowMap = nullptr;
     ShadowMapDesc m_shadowMapDesc;
+    RHI::RHIDevice* m_device = nullptr;
     vector<Mat4> m_cascadeViewProjections;
+    vector<f32> m_cascadeSplits;
+    vector<RHI::RHIDepthStencilView*> m_cascadeDSVs;
+    bool m_initialized = false;
+    
+    // Pipeline state
+    VkPipeline m_pipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_descriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
+    
+    // Shared primitive mesh data (from GBufferRenderer, not owned)
+    const GBufferRenderer::RhiMesh* m_primitives = nullptr;
+    
+    // Shadow UBO
+    struct ShadowUBO {
+        Mat4 viewProj;
+    };
+    RHI::RHIBuffer* m_shadowUBO = nullptr;
+    
+    // Initialize pipeline
+    bool InitPipeline();
+    void CleanupPipeline();
+    
+    // Update shadow UBO for a cascade
+    void UpdateShadowUBO(RHI::RHICommandList* cmdList, const Mat4& viewProj);
     
     // Calculate light view matrix
     Mat4 CalculateLightViewMatrix(const LightData& light);
@@ -135,6 +181,9 @@ private:
     
     // Calculate cascade view-projection matrix
     Mat4 CalculateCascadeViewProjection(const Vec3& lightPos, const Vec3& lightDir, f32 nearPlane, f32 farPlane, const Luma::SceneView& sceneView);
+    
+    // Create DSV views for cascade textures
+    bool CreateCascadeViews();
 };
 
 // ============================================================================

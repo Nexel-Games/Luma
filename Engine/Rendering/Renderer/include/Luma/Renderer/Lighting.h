@@ -82,6 +82,11 @@ struct LightingParameters {
     f32 cascadeSplitLambda = 0.6f;
     u32 cascadeCount = 4;
     
+    // Cascade shadow data (populated by ShadowRenderer)
+    Mat4 cascadeViewProj[4] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
+    Vec4 cascadeSplits = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    u32 shadowMapSize = 2048;
+    
     // Convert from LightingParams
     static LightingParameters FromLightingParams(const Luma::LightingParams& params) {
         LightingParameters data;
@@ -155,6 +160,9 @@ public:
     // Initialize/Shutdown
     bool Initialize(RHI::RHIDevice* device, LightAccumulationBuffer* accumBuffer);
     void Shutdown();
+    
+    // Set cascade shadow data from ShadowRenderer
+    void SetCascadeShadowData(const Mat4* cascadeViewProj, u32 cascadeCount, const Vec4& cascadeSplits, u32 shadowMapSize);
 
 private:
     GBuffer* m_gBuffer = nullptr;
@@ -162,6 +170,13 @@ private:
     RHI::RHIDevice* m_device = nullptr;
     LightingParameters m_lightingParams;
     vector<LightData> m_lights;
+    
+    // Cascade shadow data
+    Mat4 m_cascadeViewProj[4] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
+    Vec4 m_cascadeSplits = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    u32 m_cascadeCount = 0;
+    u32 m_shadowMapSize = 2048;
+    bool m_hasCascadeData = false;
     
     // Vulkan deferred lighting pipeline
     VkPipeline m_pipeline = VK_NULL_HANDLE;

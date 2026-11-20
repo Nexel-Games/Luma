@@ -14,6 +14,9 @@ add_library(LumaRenderVulkan STATIC
     src/Vulkan/Scene/VulkanSceneView.cpp
     src/Vulkan/Sky/VulkanSkyPass.cpp
     src/Vulkan/Grid/VulkanGridPass.cpp
+    src/Vulkan/Overlay/VulkanOverlayLinePass.cpp
+    src/Vulkan/SkyLight/VulkanSkyLight.cpp
+    src/Vulkan/EyeAdaptation/VulkanEyeAdaptation.cpp
     src/Vulkan/VulkanRenderer.cpp
     src/Vulkan/RHI/VulkanRHIResources.cpp
     src/Vulkan/RHI/VulkanRHICommandList.cpp
@@ -37,7 +40,13 @@ set(_luma_spv_outputs)
 foreach(shader ui.vert ui.frag scene.vert scene.frag sky.vert sky.frag
                grid.vert grid.frag line.vert line.frag shadow.vert shadow.frag
                gbuffer.vert gbuffer.frag
-               deferred_lighting.vert deferred_lighting.frag)
+               deferred_lighting.vert deferred_lighting.frag
+               fxaa.frag
+               bloom_downsample.frag bloom_upsample.frag bloom_composite.frag
+               skylight_capture.comp skylight_downsample.comp
+               skylight_filter.comp skylight_sh.comp
+               eye_histogram.comp eye_adapt.comp
+               overlay_line.vert overlay_line.frag)
     add_custom_command(
         OUTPUT ${_luma_shader_out}/${shader}.spv
         COMMAND ${Vulkan_GLSLC_EXECUTABLE} --target-env=vulkan1.3
@@ -46,6 +55,7 @@ foreach(shader ui.vert ui.frag scene.vert scene.frag sky.vert sky.frag
                 -o ${_luma_shader_out}/${shader}.spv
         DEPENDS ${_luma_shader_src}/${shader}
                 ${_luma_shader_src}/sky_atmosphere.glsl
+                ${_luma_shader_src}/skylight_common.glsl
         COMMENT "glslc ${shader}"
         VERBATIM)
     list(APPEND _luma_spv_outputs ${_luma_shader_out}/${shader}.spv)

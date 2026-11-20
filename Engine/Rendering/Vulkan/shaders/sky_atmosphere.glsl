@@ -183,10 +183,11 @@ vec3 SkyAtmosphereScatter(vec3 camPos, vec3 rd, AtmosphereParams p) {
 
 // ---- Full sky rendering -----------------------------------------------------
 
-// Computes the final tonemapped + gamma-encoded sky color for a world-space
+// Computes the *linear* (scene-referred HDR) sky radiance for a world-space
 // point on the far plane: single scattering, ground half-space, sun disk, tint,
-// exposure and saturation. Safe to call for any fragment.
-vec3 RenderSkyColor(vec3 worldPos, vec3 camPos, AtmosphereParams p) {
+// exposure and saturation. No tone mapping -- HDR renderers feed this to their
+// post chain. Safe to call for any fragment.
+vec3 RenderSkyRadiance(vec3 worldPos, vec3 camPos, AtmosphereParams p) {
     vec3 rd = normalize(worldPos - camPos);
     vec3 sunDir = normalize(p.sunDirection.xyz);
     float fade = p.sunDirection.w;
@@ -219,12 +220,15 @@ vec3 RenderSkyColor(vec3 worldPos, vec3 camPos, AtmosphereParams p) {
     color *= p.ozoneSky.w;
     float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
     color = mix(vec3(luma), color, p.ozoneSky.z);
-    color = max(color, vec3(0.0));
+    return max(color, vec3(0.0));
+}
 
-    // Tonemap (Reinhard) + gamma for the UNORM target.
+// Display-referred sky for LDR targets (the forward sky pass): the linear
+// radiance above, Reinhard tone-mapped and gamma-encoded.
+vec3 RenderSkyColor(vec3 worldPos, vec3 camPos, AtmosphereParams p) {
+    vec3 color = RenderSkyRadiance(worldPos, camPos, p);
     color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
-    return color;
+    return pow(color, vec3(1.0 / 2.2));
 }
 
 #endif  // LUMA_SKY_ATMOSPHERE_GLSL

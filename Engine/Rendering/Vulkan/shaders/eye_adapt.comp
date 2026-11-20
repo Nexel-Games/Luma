@@ -1,0 +1,82 @@
+#version 450
+
+// Eye adaptation, step 2 (Unreal PostProcessEyeAdaptation, single thread):
+//   * average log2 luminance of the histogram after discarding the darkest
+//     `lowPercent` and brightest beyond `highPercent` of pixels (outliers like
+//     the sky or a lamp can't dominate),
+//   * target exposure maps that average to 18% middle grey, with the average
+//     clamped to [minLuminance, maxLuminance],
+//   * adapt toward the target in log space: factor 1 - 2^(-dt * speed).
+// The result persists in `state` across frames; the histogram is cleared for
+// the next frame's metering pass.
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+const uint BUCKETS = 64u;
+
+layout(std430, set = 0, binding = 1) buffer Histogram { uint bins[BUCKETS]; } hist;
+layout(std430, set = 0, binding = 2) buffer ExposureState {
+    float exposureScale;    // multiply scene color by this (read by the composite)
+    float adaptedExposure;  // current "white" luminance (avg / 0.18), log-adapted
+    float targetExposure;   // this frame's target
+    float initialized;      // 0 until the first adaptation (then snap, don't fade)
+} state;
+
+layout(push_constant) uniform Push {
+    float deltaTime;     // seconds; <= 0 snaps straight to the target
+    float speedUp;       // EV/s-ish rate when brightening the image
+    float speedDown;     //   ... and when darkening it
+    float minLuminance;
+    float maxLuminance;
+    float lowPercent;    // 0..1
+    float highPercent;   // 0..1
+    float histScale;
+    float histBias;
+} pc;
+
+float LogLuminanceAtBucket(uint i) {
+    float pos = float(i) / float(BUCKETS - 1u);
+    return (pos - pc.histBias) / pc.histScale;
+}
+
+void main() {
+    float total = 0.0;
+    for (uint i = 0u; i < BUCKETS; ++i) total += float(hist.bins[i]);
+
+    // Average log luminance without outliers (ComputeAverageLuminanceWithoutOutlier).
+    float minSum = total * pc.lowPercent;
+    float maxSum = total * pc.highPercent;
+    vec2 acc = vec2(0.0);
+    for (uint i = 0u; i < BUCKETS; ++i) {
+        float v = float(hist.bins[i]);
+        float sub = min(v, minSum);
+        v -= sub;
+        minSum -= sub;
+        maxSum -= sub;
+        v = min(v, maxSum);
+        maxSum -= v;
+        acc += vec2(LogLuminanceAtBucket(i), 1.0) * v;
+        hist.bins[i] = 0u;  // reset for the next frame
+    }
+    float avgLum = acc.y > 0.0 ? exp2(acc.x / acc.y) : pc.minLuminance;
+
+    float target = clamp(avgLum, pc.minLuminance, pc.maxLuminance) / 0.18;
+
+    float adapted;
+    if (state.initialized < 0.5 || pc.deltaTime <= 0.0) {
+        adapted = target;
+    } else {
+        float logOld = log2(max(state.adaptedExposure, 1e-6));
+        float logTarget = log2(target);
+        float diff = logTarget - logOld;
+        float speed = diff > 0.0 ? pc.speedUp : pc.speedDown;
+        float factor = 1.0 - exp2(-pc.deltaTime * speed);
+        adapted = exp2(logOld + diff * factor);
+    }
+    adapted = clamp(adapted, pc.minLuminance / 0.18, pc.maxLuminance / 0.18);
+
+    state.adaptedExposure = adapted;
+    state.targetExposure = target;
+    state.exposureScale = 1.0 / max(adapted, 1e-4);
+    state.initialized = 1.0;
+}

@@ -28,8 +28,17 @@ public:
     // Closes any open popup (e.g. after the selection changes).
     void ClosePopups();
 
+    // Components the Details panel knows how to add/remove/reset.
+    enum class ComponentKind { Transform, MeshRenderer, Camera, Light,
+                               Environment, PostProcess };
+
 private:
-    bool m_showAddMenu = false;
+    // "Add" picker (searchable, categorized; already-present components
+    // are listed disabled with the reason as tooltip).
+    std::vector<Slate::MenuEntry> BuildAddComponentMenu(Scene* scene, Entity e);
+    // Right-click menu on a component header: reset / remove.
+    std::vector<Slate::MenuEntry> BuildComponentMenu(Scene* scene, Entity e,
+                                                     ComponentKind kind);
 
     // Floating color pickers for the color property rows. State lives here so
     // each picker's edit buffers + open state persist across frames.

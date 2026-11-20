@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bitset>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -11,6 +12,7 @@
 #include "Luma/Slate/DrawList.h"
 #include "Luma/Slate/Font.h"
 #include "Luma/Slate/IconKind.h"
+#include "Luma/Slate/Menu.h"
 #include "Luma/Slate/Theme.h"
 #include "Luma/Slate/Types.h"
 
@@ -169,8 +171,13 @@ public:
     };
     int MenuPopup(u64 id, const Rect& anchor,
                   const std::vector<MenuItem>& items);
-    // Hover-delay tooltip. Shows `text` after kTooltipDelay frames of hover
-    // over `anchor`. Uses elevation shadow.
+    // Hover tooltip (Unreal-style). Call next to the control it describes:
+    // while the pointer rests on `anchor` for kTooltipDelaySec (no button
+    // held) the tip appears near the pointer, drawn by EndFrame on top of
+    // everything. The first line of `text` is the title; lines after '\n'
+    // are a dimmer description (word-wrapped). `id` identifies the control
+    // (the text-only overload hashes the text).
+    void Tooltip(u64 id, const Rect& anchor, std::string_view text);
     void Tooltip(const Rect& anchor, std::string_view text);
     // Modal dialog. BeginModal centers `title`-bar window at given size and
     // dims the rest of the UI; returns the content rect. EndModal closes.
@@ -183,6 +190,38 @@ public:
                                std::string_view cancelLabel = "Cancel");
     // Progress bar (determinate). Optional centered text label.
     void ProgressBar(const Rect& rect, f32 fraction, std::string_view text = {});
+
+    // --- Popup menus (see Menu.h) ------------------------------------------
+    // Opens a menu built with MenuBuilder. `owner` identifies the opener
+    // (IsMenuOpen(owner) lets it render a pressed/open state). OpenMenu
+    // places the menu's top-left at `pos` (context menus at the cursor);
+    // OpenMenuBelow drops it under `anchor` (buttons). Opening a menu
+    // closes any other. The menu is drawn by EndFrame on top of everything
+    // and, while open, blocks mouse/keyboard input to every other widget.
+    void OpenMenu(u64 owner, Vec2 pos, std::vector<MenuEntry> entries,
+                  const MenuOptions& options = {});
+    void OpenMenuBelow(u64 owner, const Rect& anchor,
+                       std::vector<MenuEntry> entries,
+                       const MenuOptions& options = {});
+    // Combo box (Starship-style): shows items[current] with a chevron and
+    // opens a menu of the items (current one checked) below itself. Returns
+    // the index the user picked — on the frame after the pick — or
+    // `current` otherwise.
+    int Combo(u64 id, const Rect& rect, const std::vector<std::string>& items,
+              int current);
+    // Toolbar-style button: leading procedural icon (tinted `iconColor`)
+    // plus a label. `active` draws the pressed/open state (e.g. while the
+    // menu it opened is up). Returns true on click.
+    bool IconTextButton(u64 id, const Rect& rect, Icon icon,
+                        std::string_view label, Color iconColor,
+                        bool active = false);
+    bool IsMenuOpen(u64 owner) const { return m_menus.IsOpen(owner); }
+    bool AnyMenuOpen() const { return m_menus.IsOpen(); }
+    void CloseMenus() { m_menus.Close(); }
+    const MenuHost& menus() const { return m_menus; }
+    // True while an overlay (open menu) owns input this frame: widgets see
+    // no hover, clicks, scroll, or keys.
+    bool inputBlocked() const { return m_inputBlocked; }
 
     // --- Docking primitives -------------------------------------------------
     // Splits `region` by `ratio` (0..1) with a draggable divider. Outputs the
@@ -263,16 +302,42 @@ public:
     // Edge-triggered Delete key (cleared every BeginFrame). Used by the
     // Material Editor to remove the selected node.
     bool keyDelete() const { return m_keyDelete; }
+    // Level-triggered modifier state (tracked from key press/release; not
+    // hidden by an open menu so shortcuts can be resolved by the app).
+    // Level-triggered: true while the GLFW key is held (e.g. WASD fly keys).
+    bool keyHeld(int glfwKey) const {
+        return glfwKey >= 0 && glfwKey < kMaxKeys && m_keysHeld.test(static_cast<usize>(glfwKey));
+    }
+    bool ctrlDown() const { return m_keysHeld.test(341) || m_keysHeld.test(345); }
+    bool shiftDown() const { return m_keysHeld.test(340) || m_keysHeld.test(344); }
+    bool altDown() const { return m_keysHeld.test(342) || m_keysHeld.test(346); }
+    // Clears held-key state (call when the window loses focus so a modifier
+    // released elsewhere doesn't stay "stuck").
+    void ReleaseAllKeys() { m_keysHeld.reset(); }
+    // The real pointer position even while an open menu hides it from
+    // widgets (menu bars use it to switch menus on hover, Unreal-style).
+    Vec2 rawMouse() const { return m_inputBlocked ? m_stash.mouse : m_mouse; }
+    // Edge-triggered press of any GLFW key code (e.g. 291 = F2) this frame.
+    bool keyPressed(int glfwKey) const {
+        return glfwKey >= 0 && glfwKey < kMaxKeys && m_keysPressed.test(static_cast<usize>(glfwKey));
+    }
     // True while a text field (TextField/SearchBox) owns keyboard focus —
     // popup menus use this to leave caret keys (Left/Right/Home/End) to the
     // field instead of hijacking them for navigation.
     bool textFieldFocused() const { return m_focus != 0; }
     // Programmatically gives a field keyboard focus (e.g. auto-focus a
     // popup's search box when the menu opens). Caret starts at 0.
-    void FocusField(u64 id) {
+    void FocusField(u64 id, usize caret = 0) {
         m_focus = id;
-        m_caret = 0;
+        m_caret = caret;
     }
+    bool IsFieldFocused(u64 id) const { return id != 0 && m_focus == id; }
+    // Releases keyboard focus if `id` holds it.
+    void BlurField(u64 id) {
+        if (m_focus == id) m_focus = 0;
+    }
+    // Seconds since the context started (accumulated frame dt).
+    f32 time() const { return m_time; }
 
     // FNV-1a hash for stable widget ids from string literals.
     static u64 ID(std::string_view s);
@@ -316,6 +381,9 @@ private:
     bool m_keyLeft = false, m_keyRight = false;
     bool m_keyHome = false, m_keyEnd = false, m_keyEnter = false;
     bool m_keyUp = false, m_keyDown = false, m_keyEscape = false;
+    static constexpr int kMaxKeys = 512;
+    std::bitset<kMaxKeys> m_keysPressed;
+    std::bitset<kMaxKeys> m_keysHeld;
 
     CursorShape m_requestedCursor = CursorShape::Arrow;
     u64 m_hot = 0;
@@ -331,9 +399,34 @@ private:
     // outside-clicks dismiss cleanly.
     u64 m_openPopup = 0;       // id of the open MenuPopup / Dropdown
     u64 m_openModal = 0;       // id of the open BeginModal
-    u64 m_tooltipAnchor = 0;   // id under tooltip hover-delay
-    u32 m_tooltipTouch = 0;    // frame the anchor was last seen
-    std::string m_tooltipText; // cached tooltip text
+    // Tooltip: this frame's hovered candidate, and the one being timed.
+    u64 m_tipCandidate = 0;
+    std::string m_tipCandidateText;
+    u64 m_tipId = 0;
+    f32 m_tipStart = 0.0f;
+    bool m_tipSuppressed = false;  // a click on the control hides its tip
+    void DrawTooltip();
+    // Popup menu stack + the input it hides from widgets while open.
+    MenuHost m_menus;
+    bool m_inputBlocked = false;
+    std::unordered_map<u64, int> m_comboPicks;  // Combo id -> picked index
+    struct InputStash {
+        Vec2 mouse;
+        Vec2 mouseDelta;
+        bool down[3] = {};
+        bool pressed[3] = {};
+        bool released[3] = {};
+        bool doubleClicked[3] = {};
+        f32 scroll = 0.0f;
+        std::string text;
+        bool backspace = false, del = false, left = false, right = false;
+        bool home = false, end = false, enter = false;
+        bool up = false, downKey = false, escape = false;
+        std::bitset<kMaxKeys> keys;
+    } m_stash;
+    void BlockInput();
+    void RestoreInput();
+
     std::unordered_map<u64, bool> m_modalOk;
     std::unordered_map<u64, bool> m_modalCancel;
 
@@ -343,7 +436,7 @@ private:
     std::unordered_map<u64, AnimState> m_anim;
     u32 m_frame = 0;
     static constexpr u32 kAnimGcAge = 120;     // evict after ~2s untouched
-    static constexpr u32 kTooltipDelay = 30;   // ~0.5s at 60fps
+    static constexpr f32 kTooltipDelaySec = 0.5f;
 };
 
 }  // namespace Luma::Slate

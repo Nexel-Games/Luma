@@ -50,6 +50,7 @@ std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
         WriteComponent<CameraComponent>(reg, e, comps, "Camera");
         WriteComponent<LightComponent>(reg, e, comps, "Light");
         WriteComponent<EnvironmentComponent>(reg, e, comps, "Environment");
+        WriteComponent<PostProcessComponent>(reg, e, comps, "PostProcess");
         entity["components"] = std::move(comps);
         entities.PushBack(std::move(entity));
     }
@@ -81,6 +82,7 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
         ReadComponent<CameraComponent>(reg, e, *comps, "Camera");
         ReadComponent<LightComponent>(reg, e, *comps, "Light");
         ReadComponent<EnvironmentComponent>(reg, e, *comps, "Environment");
+        ReadComponent<PostProcessComponent>(reg, e, *comps, "PostProcess");
     }
     return true;
 }

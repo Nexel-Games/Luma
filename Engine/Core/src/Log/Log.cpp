@@ -159,9 +159,10 @@ namespace Detail {
 LogLevel CurrentLevel() { return g_level.load(); }
 
 void Dispatch(LogLevel level, std::string_view category,
-              std::string_view message) {
+              std::string_view message, bool userFacing) {
     LogRecord record{level, category, message, std::this_thread::get_id(),
                      std::chrono::system_clock::now()};
+    record.userFacing = userFacing;
     std::lock_guard<std::mutex> lock(g_mutex);
     for (auto& sink : g_sinks) sink->Write(record);
 }

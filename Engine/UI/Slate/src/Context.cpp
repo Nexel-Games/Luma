@@ -117,7 +117,11 @@ void Context::OnText(u32 codepoint) {
 }
 
 void Context::OnKey(int glfwKey, bool down) {
+    if (glfwKey >= 0 && glfwKey < kMaxKeys) {
+        m_keysHeld.set(static_cast<usize>(glfwKey), down);
+    }
     if (!down) return;
+    if (glfwKey >= 0 && glfwKey < kMaxKeys) m_keysPressed.set(static_cast<usize>(glfwKey));
     switch (glfwKey) {
         case kKeyBackspace: m_keyBackspace = true; break;
         case kKeyDelete:    m_keyDelete = true; break;
@@ -143,9 +147,172 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     m_prevMouse = m_mouse;
     m_draw.Begin(displayWidth, displayHeight);
     ++m_frame;
+    // An open menu owns input for the whole frame: panels draw normally but
+    // see no pointer / keys, so clicks on (or outside) the menu never reach
+    // the widgets underneath. EndFrame restores the real input for the menu.
+    if (m_menus.IsOpen()) BlockInput();
+}
+
+void Context::BlockInput() {
+    InputStash& s = m_stash;
+    s.mouse = m_mouse;
+    s.mouseDelta = m_mouseDelta;
+    for (int i = 0; i < 3; ++i) {
+        s.down[i] = m_mouseDown[i];
+        s.pressed[i] = m_mousePressed[i];
+        s.released[i] = m_mouseReleased[i];
+        s.doubleClicked[i] = m_mouseDoubleClicked[i];
+        m_mouseDown[i] = m_mousePressed[i] = false;
+        m_mouseReleased[i] = m_mouseDoubleClicked[i] = false;
+    }
+    s.scroll = m_scroll;
+    s.text = std::move(m_textInput);
+    m_textInput.clear();
+    s.backspace = m_keyBackspace; s.del = m_keyDelete;
+    s.left = m_keyLeft; s.right = m_keyRight;
+    s.home = m_keyHome; s.end = m_keyEnd; s.enter = m_keyEnter;
+    s.up = m_keyUp; s.downKey = m_keyDown; s.escape = m_keyEscape;
+    m_keyBackspace = m_keyDelete = m_keyLeft = m_keyRight = false;
+    m_keyHome = m_keyEnd = m_keyEnter = false;
+    m_keyUp = m_keyDown = m_keyEscape = false;
+    s.keys = m_keysPressed;
+    m_keysPressed.reset();
+    // Park the pointer far outside every widget (no hover anywhere).
+    m_mouse = {-1.0e6f, -1.0e6f};
+    m_mouseDelta = {0.0f, 0.0f};
+    m_scroll = 0.0f;
+    m_inputBlocked = true;
+}
+
+void Context::RestoreInput() {
+    if (!m_inputBlocked) return;
+    const InputStash& s = m_stash;
+    m_mouse = s.mouse;
+    m_mouseDelta = s.mouseDelta;
+    for (int i = 0; i < 3; ++i) {
+        // Keep presses that arrived after BeginFrame (none in practice:
+        // events are pumped between frames) by OR-ing.
+        m_mouseDown[i] = s.down[i];
+        m_mousePressed[i] = m_mousePressed[i] || s.pressed[i];
+        m_mouseReleased[i] = m_mouseReleased[i] || s.released[i];
+        m_mouseDoubleClicked[i] = m_mouseDoubleClicked[i] || s.doubleClicked[i];
+    }
+    m_scroll += s.scroll;
+    m_textInput = s.text + m_textInput;
+    m_keyBackspace |= s.backspace; m_keyDelete |= s.del;
+    m_keyLeft |= s.left; m_keyRight |= s.right;
+    m_keyHome |= s.home; m_keyEnd |= s.end; m_keyEnter |= s.enter;
+    m_keyUp |= s.up; m_keyDown |= s.downKey; m_keyEscape |= s.escape;
+    m_keysPressed |= s.keys;
+    m_inputBlocked = false;
+}
+
+void Context::OpenMenu(u64 owner, Vec2 pos, std::vector<MenuEntry> entries,
+                       const MenuOptions& options) {
+    m_menus.Open(owner, Rect{pos.x, pos.y, 0.0f, 0.0f}, false,
+                 std::move(entries), options, isMouseDown(1));
+}
+
+int Context::Combo(u64 id, const Rect& rect,
+                   const std::vector<std::string>& items, int current) {
+    int result = current;
+    if (auto it = m_comboPicks.find(id); it != m_comboPicks.end()) {
+        result = it->second;
+        m_comboPicks.erase(it);
+    }
+    const bool open = m_menus.IsOpen(id);
+    const bool hovered = rect.Contains(m_mouse);
+    if (hovered) m_hot = id;
+    if (hovered && m_mousePressed[0]) m_active = id;
+    bool clicked = false;
+    if (m_active == id && m_mouseReleased[0]) {
+        clicked = hovered;
+        m_active = 0;
+    }
+    const f32 hoverT = Animate(id ^ 0xC0B0B0ull, hovered || open, m_theme.motion.hover);
+    Color fill = Mix(m_theme.button, m_theme.buttonHover, hoverT * 0.6f);
+    m_draw.AddRectFilledRounded(rect, open ? m_theme.focusRing : m_theme.outline,
+                                m_theme.radius.sm);
+    m_draw.AddRectFilledRounded(rect.Inset(1.0f, 1.0f), fill,
+                                std::max(0.0f, m_theme.radius.sm - 1.0f));
+    const f32 chevron = 12.0f;
+    const std::string_view label =
+        (result >= 0 && result < static_cast<int>(items.size()))
+            ? std::string_view(items[static_cast<usize>(result)])
+            : std::string_view("-");
+    m_draw.PushClip({rect.x + 6.0f, rect.y, rect.w - chevron - 14.0f, rect.h});
+    m_draw.AddText(m_uiFont,
+                   {rect.x + 8.0f, rect.y + (rect.h - m_uiFont.LineHeight()) * 0.5f},
+                   label, m_theme.text);
+    m_draw.PopClip();
+    DrawIcon(*this,
+             {rect.Right() - chevron - 6.0f, rect.y + (rect.h - chevron) * 0.5f,
+              chevron, chevron},
+             Icon::ChevronDown, m_theme.textDim);
+    if (clicked) {
+        MenuBuilder b;
+        for (usize i = 0; i < items.size(); ++i) {
+            MenuEntryOptions o;
+            o.checked = static_cast<int>(i) == result;
+            const int index = static_cast<int>(i);
+            b.AddEntry(items[i], {}, [this, id, index] { m_comboPicks[id] = index; }, o);
+        }
+        MenuOptions mo;
+        mo.minWidth = rect.w;
+        OpenMenuBelow(id, rect, b.Build(), mo);
+    }
+    return result;
+}
+
+bool Context::IconTextButton(u64 id, const Rect& rect, Icon icon,
+                             std::string_view label, Color iconColor,
+                             bool active) {
+    const bool hovered = rect.Contains(m_mouse);
+    if (hovered) m_hot = id;
+    if (hovered && m_mousePressed[0]) m_active = id;
+    bool clicked = false;
+    if (m_active == id && m_mouseReleased[0]) {
+        clicked = hovered;
+        m_active = 0;
+    }
+    const f32 hoverT = Animate(id ^ 0x1C07E7ull, hovered, m_theme.motion.hover);
+    Color fill = Mix(m_theme.button, m_theme.buttonHover, hoverT);
+    if (active || m_active == id) fill = m_theme.buttonActive;
+    m_draw.AddRectFilledRounded(rect, active ? m_theme.focusRing : m_theme.outline,
+                                m_theme.radius.sm);
+    m_draw.AddRectFilledRounded(rect.Inset(1.0f, 1.0f), fill,
+                                std::max(0.0f, m_theme.radius.sm - 1.0f));
+    const f32 is = 14.0f;
+    const Vec2 ts = m_uiFont.Measure(label);
+    const f32 total = is + (label.empty() ? 0.0f : 6.0f + ts.x);
+    f32 x = rect.x + (rect.w - total) * 0.5f;
+    DrawIcon(*this, {x, rect.y + (rect.h - is) * 0.5f, is, is}, icon, iconColor);
+    if (!label.empty()) {
+        m_draw.AddText(m_uiFont,
+                       {x + is + 6.0f, rect.y + (rect.h - m_uiFont.LineHeight()) * 0.5f},
+                       label, m_theme.buttonText);
+    }
+    return clicked;
+}
+
+void Context::OpenMenuBelow(u64 owner, const Rect& anchor,
+                            std::vector<MenuEntry> entries,
+                            const MenuOptions& options) {
+    m_menus.Open(owner, anchor, true, std::move(entries), options, false);
 }
 
 const UIDrawData& Context::EndFrame() {
+    // Overlay pass: the open menu draws last (on top of every panel, with
+    // the clip stack unwound) using the real input hidden from widgets.
+    RestoreInput();
+    if (m_menus.IsOpen()) {
+        m_requestedCursor = CursorShape::Arrow;
+        m_menus.Draw(*this);
+    }
+    if (!m_menus.IsOpen()) BlurField(MenuHost::kSearchFieldId);
+    // Tooltips draw last (above panels and menus). While a menu is open the
+    // widgets are input-blocked, so no candidate exists and none shows.
+    DrawTooltip();
     // Clear per-frame input accumulators.
     for (int i = 0; i < 3; ++i) {
         m_mousePressed[i] = false;
@@ -156,6 +323,7 @@ const UIDrawData& Context::EndFrame() {
     m_keyBackspace = m_keyDelete = m_keyLeft = m_keyRight = false;
     m_keyHome = m_keyEnd = m_keyEnter = false;
     m_keyUp = m_keyDown = m_keyEscape = false;
+    m_keysPressed.reset();
     m_scroll = 0.0f;
     // Evict stale animation entries so the map doesn't grow unbounded.
     for (auto it = m_anim.begin(); it != m_anim.end();) {
@@ -475,8 +643,14 @@ void Context::DrawFieldText(const Rect& rect, std::string_view text,
     const f32 padX = m_theme.space.lg;
     Vec2 tp{rect.x + padX, rect.y + (rect.h - m_font.LineHeight()) * 0.5f};
     m_draw.PushClip({rect.x + padX * 0.5f, rect.y, rect.w - padX, rect.h});
-    if (text.empty() && !focused) {
-        m_draw.AddText(m_font, tp, placeholder, m_theme.textDim);
+    if (text.empty()) {
+        // Hint stays visible until the first keystroke (caret over it).
+        m_draw.AddText(m_font, tp, placeholder,
+                       focused ? m_theme.textDisabled : m_theme.textDim);
+        if (focused && std::fmod(m_time, 1.0f) < 0.5f) {
+            m_draw.AddRectFilled({tp.x, rect.y + 6.0f, 1.5f, rect.h - 12.0f},
+                                 m_theme.accent);
+        }
     } else {
         m_draw.AddText(m_font, tp, text, m_theme.text);
         if (focused && std::fmod(m_time, 1.0f) < 0.5f) {
@@ -696,14 +870,12 @@ bool Context::DragFloat(u64 id, const Rect& rect, f32& value, f32 speed,
     Vec2 ts = m_font.Measure(buf);
     m_draw.PushClip(rect);
     if (accent) {
-        // Unreal-style channel marker: a small colored square at the field's
-        // left edge (no X/Y/Z letter); the value reads left-aligned after it.
-        f32 chip = std::max(10.0f, rect.h - 8.0f);
-        Rect chipR{rect.x + 3.0f, rect.y + (rect.h - chip) * 0.5f, chip,
-                   chip};
-        m_draw.AddRectFilledRounded(chipR, *accent, m_theme.radius.sm);
+        // Unreal-style channel marker: a thin colored stripe along the
+        // field's left edge (no X/Y/Z letter); the value reads after it.
+        Rect stripe{rect.x + 1.0f, rect.y + 1.0f, 3.0f, rect.h - 2.0f};
+        m_draw.AddRectFilledRounded(stripe, *accent, 1.5f);
         m_draw.AddText(m_font,
-                       {chipR.Right() + 4.0f,
+                       {stripe.Right() + 6.0f,
                         rect.y + (rect.h - m_font.LineHeight()) * 0.5f},
                        buf, m_theme.text);
     } else {
@@ -717,12 +889,12 @@ bool Context::DragFloat(u64 id, const Rect& rect, f32& value, f32 speed,
 }
 
 bool Context::Vector3Field(u64 id, const Rect& rect, f32* xyz) {
-    // Unreal-style channel cells: each value field carries a small colored
-    // square at its left edge (red X / green Y / blue Z) with no letter
-    // label — the color is the identifier.
-    const Color chipColors[3] = {Color::RGB(196, 78, 82),
-                                 Color::RGB(96, 176, 96),
-                                 Color::RGB(78, 130, 208)};
+    // Unreal-style channel cells: each value field carries a thin colored
+    // stripe at its left edge (red X / green Y / blue Z) with no letter
+    // label — the color is the identifier. Same axis colors as the gizmo.
+    const Color chipColors[3] = {Color::RGB(201, 38, 0),
+                                 Color::RGB(102, 168, 0),
+                                 Color::RGB(43, 125, 237)};
     const f32 gap = m_theme.space.sm + 2.0f;
     const f32 cellW = (rect.w - gap * 2.0f) / 3.0f;
     bool changed = false;
@@ -1135,6 +1307,13 @@ bool Context::SearchBox(u64 id, const Rect& rect, std::string& text,
                      {rect.Right() - iconSide, rect.y, iconSide, rect.h},
                      Icon::Close, m_theme.textDim);
         }
+        if (focused) {
+            // The clear button paints over the ring's right edge; restore it.
+            const f32 focusT = m_theme.border.thick;
+            m_draw.AddRectOutlineRounded(rect.Inset(focusT * 0.5f, focusT * 0.5f),
+                                         m_theme.focusRing, focusT,
+                                         std::max(0.0f, m_theme.radius.md - focusT * 0.5f));
+        }
     }
 
     DrawFieldText(textR, text, placeholder, focused);
@@ -1281,37 +1460,85 @@ int Context::MenuPopup(u64 id, const Rect& anchor,
 }
 
 void Context::Tooltip(const Rect& anchor, std::string_view text) {
-    bool hovered = anchor.Contains(m_mouse);
-    u64 key = reinterpret_cast<u64>(&anchor);
-    if (hovered) {
-        // Restart the hover delay whenever we transition from not-hovering
-        // to hovering this anchor (or a different one).
-        if (m_tooltipAnchor != key) {
-            m_tooltipAnchor = key;
-            m_tooltipTouch = m_frame;
-            m_tooltipText.assign(text);
-        }
-    } else if (m_tooltipAnchor == key) {
-        m_tooltipAnchor = 0;
-        m_tooltipText.clear();
+    Tooltip(ID(text), anchor, text);
+}
+
+void Context::Tooltip(u64 id, const Rect& anchor, std::string_view text) {
+    if (text.empty() || !anchor.Contains(m_mouse)) return;
+    m_tipCandidate = id ? id : 1;
+    m_tipCandidateText.assign(text);
+}
+
+void Context::DrawTooltip() {
+    // Restart the delay whenever the hovered control changes; any click
+    // hides the tip until the pointer moves to another control.
+    if (m_tipCandidate != m_tipId) {
+        m_tipId = m_tipCandidate;
+        m_tipStart = m_time;
+        m_tipSuppressed = false;
     }
-    if (m_tooltipAnchor != 0 && !m_tooltipText.empty() &&
-        m_frame - m_tooltipTouch >= kTooltipDelay) {
-        // Lay out below the anchor, clamped to the display.
-        Vec2 ts = m_uiFont.Measure(m_tooltipText);
-        f32 pad = m_theme.space.sm;
-        f32 w = ts.x + pad * 2.0f;
-        f32 h = ts.y + pad;
-        f32 x = anchor.x;
-        f32 y = anchor.Bottom() + 4.0f;
-        if (x + w > m_displayW) x = std::max(0.0f, m_displayW - w);
-        if (y + h > m_displayH) y = std::max(0.0f, anchor.y - h - 4.0f);
-        Rect tip{x, y, w, h};
-        m_draw.AddRectShadow(tip, m_theme.radius.sm, 0.35f, 6.0f);
-        m_draw.AddRectFilledRounded(tip, m_theme.surface4, m_theme.radius.sm);
-        m_draw.AddRectOutline(tip, m_theme.outline, m_theme.border.hairline);
-        m_draw.AddText(m_uiFont, {tip.x + pad, tip.y + pad * 0.5f},
-                       m_tooltipText, m_theme.text);
+    const bool anyDown = m_mouseDown[0] || m_mouseDown[1] || m_mouseDown[2];
+    if (anyDown && m_tipId) m_tipSuppressed = true;
+    const u64 shown = m_tipId;
+    const std::string text = m_tipCandidateText;
+    m_tipCandidate = 0;
+    m_tipCandidateText.clear();
+    if (!shown || m_tipSuppressed || m_time - m_tipStart < kTooltipDelaySec) return;
+
+    // Lines: title, then a word-wrapped dimmer description.
+    const f32 maxW = m_theme.menu.tooltipMaxW;
+    std::vector<std::pair<std::string, bool>> lines;  // (text, isTitle)
+    usize nl = text.find('\n');
+    lines.emplace_back(text.substr(0, nl), true);
+    if (nl != std::string::npos) {
+        std::string word, line;
+        auto flush = [&]() {
+            if (word.empty()) return;
+            const std::string cand = line.empty() ? word : line + " " + word;
+            if (!line.empty() && m_uiFont.Measure(cand).x > maxW) {
+                lines.emplace_back(line, false);
+                line = word;
+            } else {
+                line = cand;
+            }
+            word.clear();
+        };
+        for (usize i = nl + 1; i < text.size(); ++i) {
+            const char c = text[i];
+            if (c == ' ' || c == '\n') {
+                flush();
+                if (c == '\n' && !line.empty()) {
+                    lines.emplace_back(line, false);
+                    line.clear();
+                }
+            } else {
+                word.push_back(c);
+            }
+        }
+        flush();
+        if (!line.empty()) lines.emplace_back(line, false);
+    }
+
+    const f32 pad = 8.0f;
+    const f32 lh = m_uiFont.LineHeight();
+    f32 w = 0.0f;
+    for (const auto& l : lines) w = std::max(w, m_uiFont.Measure(l.first).x);
+    const f32 gap = lines.size() > 1 ? 4.0f : 0.0f;
+    Rect box{m_mouse.x + 14.0f, m_mouse.y + 22.0f, w + pad * 2.0f,
+             lh * static_cast<f32>(lines.size()) + gap + pad * 1.5f};
+    if (box.Right() > m_displayW - 4.0f) box.x = m_displayW - 4.0f - box.w;
+    if (box.Bottom() > m_displayH - 4.0f) box.y = m_mouse.y - box.h - 8.0f;
+    box.x = std::max(4.0f, box.x);
+    box.y = std::max(4.0f, box.y);
+
+    m_draw.AddRectFilledRounded(box, m_theme.menu.outline, m_theme.radius.sm);
+    m_draw.AddRectFilledRounded(box.Inset(1.0f, 1.0f), m_theme.surface0, m_theme.radius.sm);
+    f32 y = box.y + pad * 0.75f;
+    for (usize i = 0; i < lines.size(); ++i) {
+        if (i == 1) y += gap;
+        m_draw.AddText(m_uiFont, {box.x + pad, y}, lines[i].first,
+                       lines[i].second ? m_theme.text : m_theme.textDim);
+        y += lh;
     }
 }
 

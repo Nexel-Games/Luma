@@ -150,4 +150,86 @@ const TypeInfo<EnvironmentComponent>& GetTypeInfo<EnvironmentComponent>() {
     return info;
 }
 
+template <>
+const TypeInfo<PostProcessComponent>& GetTypeInfo<PostProcessComponent>() {
+    static const TypeInfo<PostProcessComponent> info = [] {
+        TypeBuilder<PostProcessComponent> b("PostProcess");
+        b.Property("enabled", &PostProcessComponent::enabled).Category("General");
+        b.Property("priority", &PostProcessComponent::priority).Category("General");
+        b.Property("blendRadius", &PostProcessComponent::blendRadius).Category("General");
+        b.Property("blendWeight", &PostProcessComponent::blendWeight)
+            .Category("General").Range(0.0, 1.0);
+        // Bloom
+        b.Property("bloomEnabled", &PostProcessComponent::bloomEnabled).Category("Bloom");
+        b.Property("bloomIntensity", &PostProcessComponent::bloomIntensity)
+            .Category("Bloom").Range(0.0, 10.0);
+        b.Property("bloomThreshold", &PostProcessComponent::bloomThreshold)
+            .Category("Bloom").Range(0.0, 10.0);
+        b.Property("bloomSoftThreshold", &PostProcessComponent::bloomSoftThreshold)
+            .Category("Bloom").Range(0.0, 2.0);
+        b.Property("bloomPasses", &PostProcessComponent::bloomPasses)
+            .Category("Bloom").Range(3, 7);
+        b.Property("bloomTint", &PostProcessComponent::bloomTint).Category("Bloom");
+        // Tone Mapping
+        b.Property("toneMapper", &PostProcessComponent::toneMapper).Category("ToneMapping");
+        b.Property("exposure", &PostProcessComponent::exposure)
+            .Category("ToneMapping").Range(0.01, 10.0);
+        b.Property("autoExposure", &PostProcessComponent::autoExposure).Category("ToneMapping");
+        b.Property("autoExposureSpeed", &PostProcessComponent::autoExposureSpeed)
+            .Category("ToneMapping").Range(0.1, 10.0);
+        b.Property("whitePoint", &PostProcessComponent::whitePoint)
+            .Category("ToneMapping").Range(1.0, 100.0);
+        // SSAO
+        b.Property("ssaoEnabled", &PostProcessComponent::ssaoEnabled).Category("SSAO");
+        b.Property("ssaoRadius", &PostProcessComponent::ssaoRadius)
+            .Category("SSAO").Range(1.0, 200.0);
+        b.Property("ssaoIntensity", &PostProcessComponent::ssaoIntensity)
+            .Category("SSAO").Range(0.0, 5.0);
+        b.Property("ssaoSamples", &PostProcessComponent::ssaoSamples)
+            .Category("SSAO").Range(4, 64);
+        // SSR
+        b.Property("ssrEnabled", &PostProcessComponent::ssrEnabled).Category("SSR");
+        b.Property("ssrIntensity", &PostProcessComponent::ssrIntensity)
+            .Category("SSR").Range(0.0, 2.0);
+        b.Property("ssrMaxDistance", &PostProcessComponent::ssrMaxDistance)
+            .Category("SSR").Range(10.0, 1000.0);
+        // Motion Blur
+        b.Property("motionBlurEnabled", &PostProcessComponent::motionBlurEnabled)
+            .Category("MotionBlur");
+        b.Property("motionBlurAmount", &PostProcessComponent::motionBlurAmount)
+            .Category("MotionBlur").Range(0.0, 2.0);
+        // DOF
+        b.Property("dofMethod", &PostProcessComponent::dofMethod).Category("DOF");
+        b.Property("dofFocalDistance", &PostProcessComponent::dofFocalDistance)
+            .Category("DOF").Range(0.1, 10000.0);
+        b.Property("dofScale", &PostProcessComponent::dofScale)
+            .Category("DOF").Range(0.0, 5.0);
+        // Color Grading
+        b.Property("colorGradingEnabled", &PostProcessComponent::colorGradingEnabled)
+            .Category("ColorGrading");
+        b.Property("colorGradingSaturation", &PostProcessComponent::colorGradingSaturation)
+            .Category("ColorGrading").Range(0.0, 3.0);
+        b.Property("colorGradingContrast", &PostProcessComponent::colorGradingContrast)
+            .Category("ColorGrading").Range(0.0, 3.0);
+        b.Property("colorGradingGamma", &PostProcessComponent::colorGradingGamma)
+            .Category("ColorGrading").Range(0.1, 5.0);
+        b.Property("colorGradingTint", &PostProcessComponent::colorGradingTint)
+            .Category("ColorGrading");
+        // Vignette
+        b.Property("vignetteEnabled", &PostProcessComponent::vignetteEnabled)
+            .Category("Vignette");
+        b.Property("vignetteIntensity", &PostProcessComponent::vignetteIntensity)
+            .Category("Vignette").Range(0.0, 2.0);
+        b.Property("vignetteRadius", &PostProcessComponent::vignetteRadius)
+            .Category("Vignette").Range(0.0, 1.0);
+        // Film Grain
+        b.Property("filmGrainEnabled", &PostProcessComponent::filmGrainEnabled)
+            .Category("FilmGrain");
+        b.Property("filmGrainIntensity", &PostProcessComponent::filmGrainIntensity)
+            .Category("FilmGrain").Range(0.0, 2.0);
+        return b.Build();
+    }();
+    return info;
+}
+
 }  // namespace Luma

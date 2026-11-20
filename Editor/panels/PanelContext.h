@@ -9,15 +9,15 @@
 
 namespace Luma {
 // Forward declarations keep PanelContext.h lightweight; only the panels that
-// actually touch the gizmo need to include the full TranslateGizmo header.
-class TranslateGizmo;
+// actually touch the gizmo need to include the full TransformGizmo header.
+class TransformGizmo;
 class Renderer;
 class AssetRegistry;
 }  // namespace Luma
 
 namespace Luma::Editor::Panels {
 
-using GizmoPtr = Luma::TranslateGizmo*;
+using GizmoPtr = Luma::TransformGizmo*;
 
 // What the outliner's "Create GameObject" menu can spawn.
 enum class CreateActorKind {
@@ -31,6 +31,7 @@ enum class CreateActorKind {
     SpotLight,
     TubeLight,
     Environment,
+    PostProcessVolume,
 };
 
 struct PanelContext {
@@ -38,8 +39,7 @@ struct PanelContext {
     Renderer* renderer = nullptr;
 
     // Asset index (rooted at the project's Content/ folder). Panels that
-    // pick assets (e.g. the Material Editor's TextureSample node) read the
-    // texture list from this.
+    // pick assets read the texture list from this.
     AssetRegistry* assetRegistry = nullptr;
 
     // Scene + ECS the panels drive.
@@ -65,17 +65,30 @@ struct PanelContext {
     std::function<void(CreateActorKind)> onCreateActor;  // Outliner's create menu
     std::function<void()> onSaveScene;     // File menu "Save Scene"
 
-    // Content Browser right-click menu: creates a new .lmat material asset
-    // in `folder` (empty = content root). Returns the created asset path on
-    // success, or an empty path on failure.
-    std::function<std::filesystem::path(const std::filesystem::path& folder)>
-        onCreateMaterial;
-
     // Content Browser right-click menu "GET > Import to Current Folder":
     // opens a native file picker and imports the chosen files into `folder`
     // (empty = content root), then rescans the registry. Implemented by
     // EditorScreen; panels just invoke it.
     std::function<void(const std::filesystem::path& folder)> onImportAssets;
+
+    // Content Browser: create an empty scene asset in `folder`; move a file
+    // or folder to the platform recycle bin (recoverable); reveal a path in
+    // the system file browser.
+    std::function<void(const std::filesystem::path& folder)> onCreateScene;
+    std::function<void(const std::filesystem::path& path)> onDeleteAsset;
+    std::function<void(const std::filesystem::path& path)> onRevealInExplorer;
+
+    // World Outliner entity actions (EditorScreen owns naming, selection
+    // and camera state): duplicate (selects the copy), delete, and frame
+    // the entity in the viewport.
+    std::function<void(Entity)> onDuplicateEntity;
+    std::function<void(Entity)> onDeleteEntity;
+    std::function<void(Entity)> onFocusEntity;
+    // Viewport camera: back to the default orbit around the origin.
+    std::function<void()> onResetCamera;
+    // Viewport click-select: a world-space ray through the clicked pixel.
+    // EditorScreen selects the nearest actor it hits (or clears selection).
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir)> onPickRay;
 };
 
 }  // namespace Luma::Editor::Panels

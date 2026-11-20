@@ -215,6 +215,8 @@ inline Mat4 Ortho(f32 l, f32 r, f32 b, f32 t, f32 nearZ, f32 farZ) {
 }
 
 // Vulkan perspective: depth 0..1, with the Y axis flipped for the framebuffer.
+// `aspect` is width/height; vertical FOV stays fixed so objects do not squash
+// when the viewport is resized.
 inline Mat4 Perspective(f32 fovYRadians, f32 aspect, f32 nearZ, f32 farZ) {
     f32 t = std::tan(fovYRadians * 0.5f);
     Mat4 r;
@@ -224,6 +226,15 @@ inline Mat4 Perspective(f32 fovYRadians, f32 aspect, f32 nearZ, f32 farZ) {
     r.m[11] = -1.0f;
     r.m[14] = (nearZ * farZ) / (nearZ - farZ);
     return r;
+}
+
+inline f32 AspectRatio(f32 width, f32 height) {
+    return height > 1e-6f ? width / height : 1.0f;
+}
+
+inline Mat4 PerspectiveForViewport(f32 fovYRadians, f32 width, f32 height,
+                                   f32 nearZ, f32 farZ) {
+    return Perspective(fovYRadians, AspectRatio(width, height), nearZ, farZ);
 }
 
 }  // namespace Luma::Math

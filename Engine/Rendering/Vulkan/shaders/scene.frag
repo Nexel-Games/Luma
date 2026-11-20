@@ -229,7 +229,13 @@ void main() {
     vec3 ambient = (diffuseIBL + specularIBL) * u.params.x;
     vec3 color = direct + ambient;
 
-    color = color / (color + vec3(1.0));
+    // ACES filmic tone mapping (Stephen Hill approximation)
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    color = clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
     color = pow(color, vec3(1.0 / 2.2));
     outColor = vec4(color, 1.0);
 }

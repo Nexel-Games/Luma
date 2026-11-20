@@ -25,3 +25,6 @@ desktop.ini
 Saved/
 Intermediate/
 *.log
+
+# Agent plan workspaces
+.superpowers/

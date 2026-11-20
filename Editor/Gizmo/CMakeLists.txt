@@ -1,7 +1,7 @@
 # Luma::Gizmo - viewport transform gizmos (geometry + manipulation math).
 
 add_library(LumaGizmo STATIC
-    src/TranslateGizmo.cpp)
+    src/TransformGizmo.cpp)
 
 add_library(Luma::Gizmo ALIAS LumaGizmo)
 

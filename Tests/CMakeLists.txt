@@ -7,6 +7,7 @@ add_subdirectory(Editor)
 add_executable(LumaTests
     Core/AssertTests.cpp
     Core/LogTests.cpp
+    Core/LogBufferTests.cpp
     Core/ConfigTests.cpp
     Core/EventTests.cpp
     Core/LayerStackTests.cpp
@@ -18,25 +19,27 @@ add_executable(LumaTests
     Serialization/ReflectionTests.cpp
     Scene/SceneSerializerTests.cpp
     Scene/CameraComponentTests.cpp
-    Material/MaterialTests.cpp
+    Scene/SceneTests.cpp
     Math/MathTests.cpp
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp
     Slate/IconTests.cpp
     Slate/WidgetTests.cpp
     Slate/ColorPickerTests.cpp
+    Slate/MenuTests.cpp
     Asset/AssetIdTests.cpp
     Asset/AssetScannerTests.cpp
     Asset/AssetRegistryTests.cpp
     Asset/MaterialThumbnailTests.cpp
     Editor/ContentBrowserTests.cpp
-    Editor/MaterialEditorTests.cpp
+    Editor/ConsoleTests.cpp
+    Editor/TransformGizmoTests.cpp
     VFS/PathTests.cpp
     VFS/VFSTests.cpp
     VFS/FileWatcherTests.cpp
     Rendering/RHIAdapterTests.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelMaterialEditor Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 

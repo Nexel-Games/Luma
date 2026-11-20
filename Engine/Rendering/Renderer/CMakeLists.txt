@@ -1,11 +1,9 @@
-# Luma::Renderer - Scene renderer and material system
+# Luma::Renderer - Scene renderer and deferred shading
 
 add_library(LumaRenderer STATIC
     src/SceneRenderer.cpp
     src/PrimitiveSceneInfo.cpp
     src/StaticMeshBatch.cpp
-    src/Material.cpp
-    src/MaterialShader.cpp
     src/GBufferRendering.cpp
     src/Lighting.cpp
     src/ShadowRendering.cpp

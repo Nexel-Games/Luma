@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Luma/Math/Math.h"
+#include "Luma/Renderer/CascadeShadows.h"
 #include "Luma/Renderer/DeferredShadingRenderer.h"
 #include "Vulkan/Sky/AtmosphereParams.h"
 #include "Vulkan/VulkanMemory.h"
@@ -15,6 +16,9 @@
 namespace Luma {
 class VulkanUIPass;
 class VulkanGridPass;
+class VulkanOverlayLinePass;
+class VulkanSkyLight;
+class VulkanEyeAdaptation;
 namespace Rendering {
 
 /**
@@ -123,7 +127,7 @@ private:
         f32 posType[4];   // xyz position, w type (0 dir, 1 point, 2 spot)
         f32 dirRange[4];  // xyz direction, w range
         f32 color[4];     // rgb color, w intensity
-        f32 spot[4];      // x cosInner, y cosOuter
+        f32 spot[4];      // x cosInner, y cosOuter, z falloff exponent
     };
     static constexpr u32 kMaxLights = 16;
     static constexpr u32 kCascadesUBO = 4;
@@ -132,18 +136,27 @@ private:
     static constexpr VkFormat kShadowFormat = VK_FORMAT_D32_SFLOAT;
 
     // Lighting UBO (matches LightingUBO in deferred_lighting.frag).
+    ViewMode m_viewMode = ViewMode::Lit;  // last scene's view mode (composite)
+
     struct LightingUBO {
         Math::Mat4 invViewProj;
         f32 camPos[4];
         f32 camForward[4];   // xyz camera forward (for cascade selection)
         f32 sunDir[4];       // xyz direction TO sun, w = below-horizon sky fade
         f32 sunColor[4];     // rgb, w intensity
-        f32 ambientColor[4]; // rgb, w intensity
+        f32 skyZenith[4];    // rgb IBL up
+        f32 skyHorizon[4];   // rgb IBL horizon, w = ibl intensity
+        f32 groundColor[4];  // rgb IBL below horizon
         // x = lightCount, y = sunShadows, z = 1/shadowSize,
         // w = material environment enabled
         f32 params[4];
-        f32 shadowParams[4]; // x = softness, y = cascadeCount, z = shadowBias
+        // x = softness, y = cascadeCount, z = shadowBias, w = normalBias
+        f32 shadowParams[4];
         f32 cascadeSplits[4];
+        f32 cascadeTexel[4];  // world units per shadow texel, per cascade
+        // Sky light (real-time capture): x = enabled, y = max mip of the
+        // prefiltered cube (for roughness -> mip), zw unused.
+        f32 skyLight[4];
         Math::Mat4 cascadeViewProj[kCascadesUBO];
         Rendering::AtmosphereParams atmo;  // physical sky params (sky_atmosphere.glsl)
         GpuLight lights[kMaxLights];
@@ -152,8 +165,9 @@ private:
     // Resource creation
     bool CreateCommandPool();
     bool CreateGBuffer(int32_t width, int32_t height);
+    // `width`/`height` <= 0 use the viewport (G-Buffer) size.
     bool CreateAttachment(VkFormat format, VkImageUsageFlags usage,
-                          Attachment* attachment);
+                          Attachment* attachment, i32 width = 0, i32 height = 0);
     void DestroyAttachment(Attachment& attachment);
     bool CreateRenderPass();
     bool CreateLightingRenderPass();
@@ -173,6 +187,10 @@ private:
     bool CreateShadowResources();
     void DestroyShadowResources();
     bool CreateShadowPipeline(const std::string& shaderDir);
+    // Records the depth-only cascade passes (clears every layer; draws only
+    // when `enabled`) and leaves the array in SHADER_READ_ONLY for lighting.
+    void RecordSunShadows(const SceneView& source,
+                          const Renderer2::SunCascades& cascades, bool enabled);
 
     // Custom mesh support (same contract as VulkanSceneView). `normals` and
     // `uvs` are optional (null → defaults); both are `vertexCount` long when set.
@@ -271,6 +289,72 @@ private:
 
     // Editor ground grid (created with 1-sample targets matching this pass)
     std::unique_ptr<VulkanGridPass> m_gridPass;
+    std::unique_ptr<VulkanOverlayLinePass> m_overlayPass;  // editor gizmo lines
+
+    // Sky light: atmosphere captured into a GGX-prefiltered cube + diffuse SH
+    // (its own module, Vulkan/SkyLight). Feeds the lighting pass's ambient.
+    std::unique_ptr<VulkanSkyLight> m_skyLight;
+
+    // Auto exposure (histogram eye adaptation; its own module,
+    // Vulkan/EyeAdaptation). Meters the HDR light buffer; the composite reads
+    // its exposure buffer.
+    std::unique_ptr<VulkanEyeAdaptation> m_eyeAdaptation;
+
+    // FXAA anti-aliasing pass resources
+    Attachment m_fxaaResolved;        // FXAA output texture
+    VkRenderPass m_fxaaRenderPass = VK_NULL_HANDLE;
+    VkFramebuffer m_fxaaFramebuffer = VK_NULL_HANDLE;
+    VkPipelineLayout m_fxaaLayout = VK_NULL_HANDLE;
+    VkPipeline m_fxaaPipeline = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_fxaaSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_fxaaPool = VK_NULL_HANDLE;
+    VkDescriptorSet m_fxaaSet = VK_NULL_HANDLE;
+    bool CreateFXAAPass();
+    void DestroyFXAAPass();
+    void PointFXAAAt(VkImageView sourceView);
+
+    // Multi-pass bloom resources
+    static constexpr u32 kBloomMips = 5;
+    struct BloomMip {
+        Attachment color;              // downsampled / upsampled texture
+        VkFramebuffer downFBO = VK_NULL_HANDLE;   // for downsample pass
+        VkFramebuffer upFBO = VK_NULL_HANDLE;     // for upsample pass
+        VkDescriptorSet downSet = VK_NULL_HANDLE;  // descriptor for downsample
+        VkDescriptorSet upSet = VK_NULL_HANDLE;    // descriptor for upsample
+        i32 width = 0;
+        i32 height = 0;
+    };
+    BloomMip m_bloomMips[kBloomMips];
+    VkRenderPass m_bloomRenderPass = VK_NULL_HANDLE;    // CLEAR (downsample/composite)
+    VkRenderPass m_bloomUpRenderPass = VK_NULL_HANDLE;  // LOAD (additive upsample)
+    VkPipelineLayout m_bloomDownsampleLayout = VK_NULL_HANDLE;
+    VkPipeline m_bloomDownsamplePipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_bloomUpsampleLayout = VK_NULL_HANDLE;
+    VkPipeline m_bloomUpsamplePipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_bloomCompositeLayout = VK_NULL_HANDLE;
+    VkPipeline m_bloomCompositePipeline = VK_NULL_HANDLE;
+    VkDescriptorSetLayout m_bloomSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool m_bloomPool = VK_NULL_HANDLE;
+    VkSampler m_bloomSampler = VK_NULL_HANDLE;
+    // Composite resources
+    Attachment m_bloomCompositeOutput; // final composited result
+    VkFramebuffer m_bloomCompositeFBO = VK_NULL_HANDLE;
+    VkDescriptorSet m_bloomCompositeSet = VK_NULL_HANDLE;
+    bool m_bloomEnabled = false;      // bloom/composite resources exist
+    bool m_bloomChainPrimed = false;  // down/up chain has run since creation
+    VkDescriptorSetLayout m_bloomCompositeSetLayout = VK_NULL_HANDLE;
+    bool CreateBloomResources();
+    void DestroyBloomResources();
+    // Bloom chain (when enabled) + the final composite: exposure, tone map and
+    // sRGB encode of the HDR light buffer into m_bloomCompositeOutput.
+    void RecordBloom(const PostProcessParams& pp);
+
+    // Calibrates scene-referred radiance to the display: PostProcessParams::
+    // exposure multiplies this (1.0 = the engine's default look).
+    static constexpr f32 kBaseExposure = 1.0f;
+    // With auto exposure, the adapted average maps to 18% grey; this extra
+    // compensation is Unreal 5's default Exposure Compensation (+1 EV = x2).
+    static constexpr f32 kAutoExposureCompensation = 2.0f;
 
     // UI texture handle registered for the light-accumulation buffer
     uint64_t m_textureHandle = 0;
@@ -282,7 +366,10 @@ private:
     static constexpr VkFormat kNormalFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr VkFormat kMaterialFormat = VK_FORMAT_R8G8B8A8_UNORM;
     static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
-    static constexpr VkFormat kLightFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    // HDR: lighting writes scene-referred linear radiance; bloom mips and the
+    // post chain share this format. The final composite writes display-encoded
+    // values into the same format, which FXAA and the UI then sample.
+    static constexpr VkFormat kLightFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
 };
 
 } // namespace Rendering

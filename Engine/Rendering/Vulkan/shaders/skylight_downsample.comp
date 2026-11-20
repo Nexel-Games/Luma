@@ -1,0 +1,22 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Sky light capture, step 2: build the source cube's mip chain. The center of
+// an output texel lies on the shared corner of 2x2 texels one mip up, so a
+// bilinear lookup there is exactly their box average -- and going through the
+// cube sampler handles face seams.
+
+#include "skylight_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform samplerCube srcCube;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2DArray outMip;
+
+void main() {
+    uvec3 id = gl_GlobalInvocationID;
+    if (id.x >= uint(pc.size) || id.y >= uint(pc.size)) return;
+    vec3 dir = TexelDirection(id, pc.size);
+    vec3 c = textureLod(srcCube, dir, float(pc.mip - 1)).rgb;
+    imageStore(outMip, ivec3(id), vec4(c, 1.0));
+}

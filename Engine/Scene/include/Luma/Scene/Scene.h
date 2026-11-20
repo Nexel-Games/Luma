@@ -20,6 +20,10 @@ public:
     // Creates an entity with a Name + Transform and returns its handle.
     Entity CreateEntity(const std::string& name);
     void DestroyEntity(Entity entity);
+    // Creates a new entity carrying a copy of every component on `source`
+    // (type-erased, so components added later are copied too). The caller
+    // renames the copy. Returns kNullEntity when `source` is invalid.
+    Entity DuplicateEntity(Entity source);
     bool IsValid(Entity entity) const { return m_registry.valid(entity); }
 
     entt::registry& Registry() { return m_registry; }

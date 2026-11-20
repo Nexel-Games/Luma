@@ -37,6 +37,11 @@ struct LogRecord {
     std::string_view message;
     std::thread::id thread;
     std::chrono::system_clock::time_point time;
+    // True for messages meant for the editor user (project / scene / asset
+    // activity and the failures of their actions) as opposed to engine
+    // diagnostics. Every sink still receives both; the editor's Output Log
+    // shows only user-facing records unless engine logs are turned on.
+    bool userFacing = false;
 };
 
 // A destination for log records. Implementations must be thread-safe with
@@ -65,7 +70,8 @@ std::shared_ptr<ILogSink> MakeFileSink(const std::string& path);
 
 namespace Detail {
 LogLevel CurrentLevel();
-void Dispatch(LogLevel level, std::string_view category, std::string_view message);
+void Dispatch(LogLevel level, std::string_view category, std::string_view message,
+              bool userFacing = false);
 }  // namespace Detail
 
 template <typename... Args>
@@ -78,8 +84,27 @@ void Print(LogLevel level, std::string_view category,
                      std::format(fmt, std::forward<Args>(args)...));
 }
 
+// User-facing variant (see LogRecord::userFacing).
+template <typename... Args>
+void PrintUser(LogLevel level, std::string_view category,
+               std::format_string<Args...> fmt, Args&&... args) {
+    if (static_cast<u8>(level) < static_cast<u8>(Detail::CurrentLevel())) {
+        return;
+    }
+    Detail::Dispatch(level, category, std::format(fmt, std::forward<Args>(args)...),
+                     true);
+}
+
 }  // namespace Log
 }  // namespace Luma
+
+// Messages for the editor user (shown in the Output Log by default).
+#define LUMA_USER_INFO(cat, ...) \
+    ::Luma::Log::PrintUser(::Luma::LogLevel::Info, cat, __VA_ARGS__)
+#define LUMA_USER_WARN(cat, ...) \
+    ::Luma::Log::PrintUser(::Luma::LogLevel::Warning, cat, __VA_ARGS__)
+#define LUMA_USER_ERROR(cat, ...) \
+    ::Luma::Log::PrintUser(::Luma::LogLevel::Error, cat, __VA_ARGS__)
 
 #define LUMA_LOG_INFO(cat, ...) \
     ::Luma::Log::Print(::Luma::LogLevel::Info, cat, __VA_ARGS__)

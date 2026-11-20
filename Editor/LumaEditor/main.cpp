@@ -6,6 +6,7 @@
 #include "Luma/Core/EngineLoop.h"
 #include "Luma/Core/Events.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Core/LogBuffer.h"
 #include "Luma/Core/Types.h"
 #include "Luma/Editor/ProjectBrowser.h"
 #include "Luma/Platform/Process.h"
@@ -84,13 +85,23 @@ void FeedEvent(Slate::Context& ui, Event& e, bool& running, EditorScreen* editor
         ui.OnKey(k.Keycode(), true);
         return false;
     });
+    d.Dispatch<KeyReleasedEvent>([&](KeyReleasedEvent& k) {
+        ui.OnKey(k.Keycode(), false);
+        return false;
+    });
+    d.Dispatch<WindowLostFocusEvent>([&](WindowLostFocusEvent&) {
+        ui.ReleaseAllKeys();
+        return false;
+    });
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-    Log::Init(LogLevel::Trace);
-    Log::AddSink(Log::MakeConsoleSink());
+    Log::Init(LogLevel::Trace);  // installs the colored stdout sink
+    // In-memory history for the editor's Output Log panel.
+    auto logHistory = std::make_shared<LogBuffer>(5000);
+    Log::AddSink(logHistory);
     
     // Use absolute path for log file to avoid VFS remounting issues
     std::error_code logEc;
@@ -243,7 +254,6 @@ int main(int argc, char** argv) {
     // Template thumbnails.
     ProjectBrowser browser;
     browser.SetLogo(logo);
-    browser.SetRenderer(renderer.get());
     struct TemplateAsset {
         GameTemplate value;
         const char* file;
@@ -300,28 +310,45 @@ int main(int argc, char** argv) {
     TextureHandle olActorSpotLight = loadIcon("Icons/actor-light-spot.png");
     TextureHandle olActorMesh = loadIcon("Icons/actor-mesh.png");
 
+    // Unreal icon pack (Content/Editor/Icons/ue).
+    EditorScreen::IconSet ueIcons;
+    ueIcons.tabOutliner = loadIcon("Icons/ue/icon_tab_SceneOutliner_16x.png");
+    ueIcons.tabDetails = loadIcon("Icons/ue/icon_tab_SelectionDetails_16x.png");
+    ueIcons.tabViewport = loadIcon("Icons/ue/icon_tab_Viewports_16x.png");
+    ueIcons.tabContent = loadIcon("Icons/ue/icon_tab_ContentBrowser_16x.png");
+    ueIcons.tabOutputLog = loadIcon("Icons/ue/icon_tab_OutputLog_16x.png");
+    ueIcons.save = loadIcon("Icons/ue/icon_file_save_16px.png");
+    ueIcons.error = loadIcon("Icons/ue/icon_error_16x.png");
+    ueIcons.warning = loadIcon("Icons/ue/icon_warning_16x.png");
+    ueIcons.viewport.translate = loadIcon("Icons/ue/icon_translateb_16x.png");
+    ueIcons.viewport.rotate = loadIcon("Icons/ue/icon_rotateb_16x.png");
+    ueIcons.viewport.scale = loadIcon("Icons/ue/icon_scaleb_16x.png");
+    ueIcons.viewport.worldSpace = loadIcon("Icons/ue/icon_axis_world_16px.png");
+    ueIcons.viewport.localSpace = loadIcon("Icons/ue/icon_axis_local_16px.png");
+    ueIcons.viewport.gridSnap = loadIcon("Icons/ue/icon_ShowGrid_16x.png");
+    ueIcons.viewport.cameraSpeed = loadIcon("Icons/ue/icon_CameraSpeed_24x16px.png");
+    ueIcons.viewport.perspective = loadIcon("Icons/ue/icon_ViewMode_ViewPerspective_16px.png");
+    ueIcons.viewport.lit = loadIcon("Icons/ue/icon_ViewMode_Lit_16px.png");
+    ueIcons.viewport.unlit = loadIcon("Icons/ue/icon_ViewMode_Unlit_16px.png");
+    ueIcons.viewport.show = loadIcon("Icons/ue/icon_levels_visible_16px.png");
+
     SplashScreen splash;
 
     // Initialize Vulkan deferred renderer (editor mode only)
     void* deferredRendererPtr = renderer->GetVulkanDeferredRenderer();
-    void* materialDeferredRendererPtr =
-        renderer->GetVulkanMaterialDeferredRenderer();
     if (deferredRendererPtr) {
         LUMA_LOG_INFO("Editor", "Vulkan deferred renderer available");
     } else {
         LUMA_LOG_WARN("Editor", "Vulkan deferred renderer not available");
     }
-    if (materialDeferredRendererPtr) {
-        LUMA_LOG_INFO("Editor", "Material deferred renderer available");
-    } else {
-        LUMA_LOG_WARN("Editor", "Material deferred renderer not available");
-    }
     Log::Flush();
     if (editorMode) {
         editor = std::make_unique<EditorScreen>(projectFile);
+        editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
         editor->SetToolbarIcons(iconPlay, iconPause, iconStop);
         editor->SetLogoIcon(iconLogo);
+        editor->SetEditorIcons(ueIcons);
         editor->SetContentBrowserIcons(cbSortUp, cbSortDown, cbSearchGlass,
                                        cbFolder, cbReload, cbImport,
                                        cbOpenFolder, cbExpandArrow,
@@ -363,19 +390,21 @@ int main(int argc, char** argv) {
                 if (deferredRendererPtr) {
                     auto* vulkanDeferredRenderer = static_cast<Rendering::VulkanDeferredRenderer*>(deferredRendererPtr);
                     
-                    // Build scene view for Vulkan deferred renderer
-                    Renderer2::DeferredSceneView deferredScene = editor->BuildDeferredSceneView();
-                    deferredScene.width = static_cast<u32>(vp.w);
-                    deferredScene.height = static_cast<u32>(vp.h);
-                    deferredScene.projectionMatrix = Math::Perspective(
-                        deferredScene.fov,
-                        static_cast<f32>(vp.w) / static_cast<f32>(vp.h),
-                        deferredScene.nearPlane, deferredScene.farPlane);
-                    deferredScene.viewProjectionMatrix =
-                        deferredScene.projectionMatrix * deferredScene.viewMatrix;
-                    
-                    // Set viewport dimensions and render
-                    vulkanDeferredRenderer->SetViewportDimensions(static_cast<u32>(vp.w), static_cast<u32>(vp.h));
+                    // Render the 3D view at framebuffer density (and 1.5× on
+                    // 96-DPI) so the panel samples a sharper image instead of
+                    // stretching a low-res target. Aspect still matches vp.
+                    const f32 dpi = window->ContentScale();
+                    const f32 quality = dpi > 1.05f ? dpi : 1.5f;
+                    const u32 rw = static_cast<u32>(vp.w * quality + 0.5f);
+                    const u32 rh = static_cast<u32>(vp.h * quality + 0.5f);
+                    const u32 viewW = rw > 0 ? (rw < 3840u ? rw : 3840u) : 1u;
+                    const u32 viewH = rh > 0 ? (rh < 2160u ? rh : 2160u) : 1u;
+
+                    Renderer2::DeferredSceneView deferredScene =
+                        editor->BuildDeferredSceneView(viewW, viewH, dt.Seconds());
+
+                    vulkanDeferredRenderer->SetViewportDimensions(
+                        static_cast<i32>(viewW), static_cast<i32>(viewH));
                     vulkanDeferredRenderer->PrepareScene();
                     vulkanDeferredRenderer->RenderScene(deferredScene);
                     
@@ -386,45 +415,8 @@ int main(int argc, char** argv) {
                         editor->SetViewportTexture(sceneTex);
                     }
                     
-                    // Log viewport render (only once per second to avoid spam)
-                    static u32 lastLogFrame = 0;
-                    if (frameCount - lastLogFrame > 60) {
-                        LUMA_LOG_DEBUG("Editor", "Viewport rendered {}x{} with Vulkan deferred renderer", 
-                                     static_cast<u32>(vp.w), static_cast<u32>(vp.h));
-                        lastLogFrame = frameCount;
-                        Log::Flush();
-                    }
                 } else {
                     LUMA_LOG_ERROR("Editor", "Vulkan deferred renderer not available - viewport will be black");
-                }
-            }
-
-            Slate::Rect materialVp = editor->MaterialViewportRect();
-            if (editor->MaterialEditorOpen() && materialVp.w > 4.0f &&
-                materialVp.h > 4.0f) {
-                if (materialDeferredRendererPtr) {
-                    auto* materialRenderer =
-                        static_cast<Rendering::VulkanDeferredRenderer*>(
-                            materialDeferredRendererPtr);
-                    Renderer2::DeferredSceneView materialScene =
-                        editor->BuildMaterialDeferredSceneView(
-                            static_cast<u32>(materialVp.w),
-                            static_cast<u32>(materialVp.h));
-
-                    materialRenderer->SetViewportDimensions(
-                        static_cast<u32>(materialVp.w),
-                        static_cast<u32>(materialVp.h));
-                    materialRenderer->PrepareScene();
-                    materialRenderer->RenderScene(materialScene);
-
-                    TextureHandle materialTex =
-                        materialRenderer->GetViewportTextureHandle();
-                    if (materialTex != 0) {
-                        editor->SetMaterialViewportTexture(materialTex);
-                    }
-                } else {
-                    LUMA_LOG_ERROR("Editor",
-                                   "Material deferred renderer not available");
                 }
             }
         }
@@ -463,13 +455,6 @@ int main(int argc, char** argv) {
         renderer->DrawUI(ui.EndFrame());
         window->SetCursor(ui.RequestedCursor());
 
-        // Capture the final editor frame while it is still the active
-        // swapchain frame. CaptureFrame is consumed by EndFrame, so this must
-        // happen before presenting rather than during shutdown.
-        if (editorMode && editor && !running && screenshotPath.empty()) {
-            editor->CaptureProjectPreview();
-        }
-
         if (!screenshotPath.empty() && frameCount == kCaptureFrame) {
             renderer->CaptureFrame(screenshotPath);
         }
@@ -485,7 +470,6 @@ int main(int argc, char** argv) {
     }
 
     renderer->WaitIdle();
-    if (editor) editor->FinalizeProjectPreview();
     editor.reset();
     renderer.reset();
     window.reset();

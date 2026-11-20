@@ -62,10 +62,9 @@ public:
 
     void Draw(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx);
 
-    // Right-click create menu overlay — drawn by EditorScreen AFTER the
-    // dock (like the outliner's create menu) so it isn't clipped to this
-    // panel's rect. No-op when the menu isn't open.
-    void DrawFloatingMenu(Slate::Context& ui, PanelContext& ctx);
+    // True when the pointer was over the browser on its last Draw (editor-
+    // wide shortcuts like Delete defer to the browser there).
+    bool Hovered() const noexcept { return m_hovered; }
 
     // Selects the given asset (single-click selection, not activation).
     void SetSelected(const AssetId& id) { m_selected = id; }
@@ -76,7 +75,7 @@ public:
 
     // The asset the user double-clicked this frame (single-click selection
     // stays in Selected()). EditorScreen polls this to open the right
-    // editor (e.g. Material Editor for .lmat). Cleared by ClearActivated().
+    // editor. Cleared by ClearActivated().
     AssetId Activated() const noexcept { return m_activated; }
     void ClearActivated() { m_activated = AssetId{}; }
 
@@ -98,6 +97,12 @@ private:
     AssetId m_selected{};
     AssetId m_activated{};  // double-clicked this frame
 
+    // Inline rename state. When m_renaming matches a tile's id the name
+    // row is replaced by a focused TextField. Enter / outside-click
+    // commits; Escape cancels; empty buffer falls back to the original name.
+    AssetId m_renaming{};
+    std::string m_renameBuf;
+
     // Reusable folder tree (draws the dark inset "Folders" panel and
     // reports the selected folder via OnFolderSelected). Kept in sync
     // with m_currentFolder both ways.
@@ -107,10 +112,6 @@ private:
     // vs. grid columns. Clamped by SplitterV to [0.12, 0.88].
     float m_treeRatio = 0.22f;
 
-    // Filter drop-down state: true while the popup listing asset-type
-    // filters is open. Toggled by the down/up chevron button inside the
-    // search bar; dismissed by selection or outside-click.
-    bool m_filterMenuOpen = false;
     // Vertical scroll offset of the asset grid (px). Clamped to the grid's
     // content height by VerticalScroll each frame.
     f32 m_gridScroll = 0.0f;
@@ -123,22 +124,13 @@ private:
     // True between a press over the Import button and its release, so a
     // press-then-drag-off release doesn't fire Import.
     bool m_importPressed = false;
-    // Rect of the toggle button when the menu was last opened; the popup
-    // anchors below it. Refreshed by DrawToolbar each frame.
-    Slate::Rect m_filterAnchor{};
-
-    // Right-click "Create" context menu state. The menu floats (drawn by
-    // DrawFloatingMenu after the dock) so it isn't clipped to the panel.
-    bool m_contextMenuOpen = false;
-    bool m_contextMenuOpenedThisFrame = false;
-    Slate::Vec2 m_contextMenuPos{};  // anchor (screen coords)
-    std::string m_contextSearch;
-    int m_contextHover = -1;      // hovered row (flat index, -1 = none)
-    int m_contextFocus = -1;      // keyboard focus (flat index, -1 = none)
-    int m_contextSubmenu = -1;    // open category index (-1 = none)
-    u64 m_pressedCreateRow = 0;  // press-tracking id for menu rows
-    // Body rect cached by Draw so the floating pass can clamp the menu.
-    Slate::Rect m_bodyRect{};
+    // Right-click target resolved by the grid this frame: the asset under
+    // the cursor (invalid = empty space -> folder menu).
+    AssetId m_contextTarget{};
+    bool m_hovered = false;
+    // Set when a menu action starts an inline rename; the rename field takes
+    // keyboard focus on the next frame it is drawn.
+    bool m_renameFocusPending = false;
 
     // Loaded textures supplied by EditorScreen; 0 = not loaded. The sort
     // up/down PNGs are kept for API stability but the toolbar chevron is
@@ -171,16 +163,17 @@ private:
     void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect);
     void DrawGridPane(Slate::Context& ui, const Slate::Rect& rect,
                       PanelContext& ctx);
-    // Draws the type-filter drop-down below `anchor`. No-op when
-    // m_filterMenuOpen is false; handles outside-click to close and
-    // updates m_typeFilter on selection.
-    void DrawFilterMenu(Slate::Context& ui, const Slate::Rect& anchor);
-    // Draws the right-click create menu (Unreal-style: search + GET section
-    // with Import, CREATE section with New Folder / Material, then a
-    // categorized list whose rows open a submenu beside them). Called from
-    // DrawFloatingMenu.
-    void DrawCreateMenu(Slate::Context& ui, PanelContext& ctx,
-                        bool openedThisFrame);
+    // Menus (Slate::MenuBuilder; drawn + input-handled by the Slate menu
+    // host on top of every panel).
+    std::vector<Slate::MenuEntry> BuildFilterMenu();
+    std::vector<Slate::MenuEntry> BuildFolderMenu(PanelContext& ctx);
+    std::vector<Slate::MenuEntry> BuildAssetMenu(const AssetData& asset,
+                                                 PanelContext& ctx);
+    // Folder that create/import actions target (current folder or root).
+    std::filesystem::path TargetFolder() const;
+    // Creates "NewFolder[ N]" in TargetFolder(), rescans, navigates in.
+    void CreateFolder();
+    void BeginRename(const AssetData& asset);
 
     // Returns the entries the right pane should currently show, applying
     // name + type + folder filters via the registry.
@@ -193,6 +186,14 @@ private:
 
     // Helper: map AssetType -> Slate::Icon for the row / tile.
     static Slate::Icon IconForType(AssetType t) noexcept;
+
+    // Monotonic clock in milliseconds (only deltas are meaningful,
+    // used for the rename timeout / click window if needed).
+    static u64 NowMs() noexcept;
+
+    // Inline rename lifecycle.
+    void CommitRename(const AssetData& a);
+    void CancelRename() noexcept;
 };
 
 }  // namespace Luma::Editor::Panels

@@ -23,9 +23,10 @@ class DockSpace {
 public:
     using PanelDrawer = std::function<void(Context&, const Rect&)>;
 
-    // Registers a panel and its content drawer.
+    // Registers a panel and its content drawer. `icon` (optional) is drawn
+    // before the title in the panel's tab, Unreal-style.
     void AddPanel(const std::string& id, const std::string& title,
-                  PanelDrawer drawer);
+                  PanelDrawer drawer, TextureHandle icon = 0);
 
     // --- Layout builder (also used by drag-docking) ------------------------
     void DockRoot(const std::string& id);
@@ -55,6 +56,7 @@ private:
     struct PanelInfo {
         std::string title;
         PanelDrawer drawer;
+        TextureHandle icon = 0;
     };
 
     struct PendingDock {

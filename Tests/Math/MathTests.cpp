@@ -114,6 +114,33 @@ TEST_CASE("Ray-plane intersection finds the crossing", "[math][ray]") {
     REQUIRE(t == Approx(5.0f));
 }
 
+TEST_CASE("Perspective vertical scale is independent of aspect ratio",
+          "[math][proj]") {
+    const f32 fov = Radians(60.0f);
+    Mat4 wide = Perspective(fov, 16.0f / 9.0f, 0.1f, 100.0f);
+    Mat4 square = Perspective(fov, 1.0f, 0.1f, 100.0f);
+    Mat4 tall = PerspectiveForViewport(fov, 400.0f, 800.0f, 0.1f, 100.0f);
+
+    // Vertical FOV is locked: changing the viewport shape must not squash Y.
+    REQUIRE(wide.m[5] == Approx(square.m[5]).margin(1e-5));
+    REQUIRE(tall.m[5] == Approx(square.m[5]).margin(1e-5));
+    REQUIRE(wide.m[0] * (16.0f / 9.0f) == Approx(square.m[0]).margin(1e-5));
+    REQUIRE(tall.m[0] * AspectRatio(400.0f, 800.0f) ==
+            Approx(square.m[0]).margin(1e-5));
+
+    // A point on the view-space Y axis keeps the same NDC Y at any aspect.
+    auto ndcY = [](const Mat4& p, Vec3 viewPos) {
+        f32 x = p.m[0] * viewPos.x + p.m[8] * viewPos.z;
+        (void)x;  // only Y/W needed for this test
+        f32 y = p.m[5] * viewPos.y + p.m[9] * viewPos.z;
+        f32 w = p.m[11] * viewPos.z;
+        return y / w;
+    };
+    Vec3 sample{0.0f, 1.0f, -5.0f};
+    REQUIRE(ndcY(wide, sample) == Approx(ndcY(square, sample)).margin(1e-5));
+    REQUIRE(ndcY(tall, sample) == Approx(ndcY(square, sample)).margin(1e-5));
+}
+
 // --- Frustum culling ---
 TEST_CASE("Frustum from ortho clip accepts inside and rejects outside boxes",
           "[math][frustum]") {

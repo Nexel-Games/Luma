@@ -28,15 +28,19 @@ Color Mix(Color a, Color b, f32 t) {
 Theme DarkTheme() {
     Theme t;
 
-    // Unreal-style neutral surface ramp: deep window -> raised popup.
-    // Colors roughly mirror Unreal's editor palette so panels feel familiar.
-    t.surface0 = Color::RGB(30, 30, 30);   // window background
-    t.surface1 = Color::RGB(37, 37, 38);   // toolbars / breadcrumbs
-    t.surface2 = Color::RGB(45, 45, 48);   // panel bg, card bg
-    t.surface3 = Color::RGB(63, 63, 70);   // raised (button resting)
-    t.surface4 = Color::RGB(80, 80, 86);   // popups / headers
+    // Neutral surface ramp after Unreal's Starship editor palette
+    // (SlateCore StyleColors): Background #151515 -> Panel #242424 ->
+    // Header #2F2F2F -> Secondary/Dropdown #383838. Deep, low-chroma greys
+    // keep the viewport the brightest thing on screen.
+    t.surface0 = Color::RGB(21, 21, 21);   // window / title background
+    t.surface1 = Color::RGB(36, 36, 36);   // panels
+    t.surface2 = Color::RGB(47, 47, 47);   // panel headers / toolbars
+    t.surface3 = Color::RGB(56, 56, 56);   // controls (button resting)
+    t.surface4 = Color::RGB(71, 71, 71);   // raised overlays
+    t.recessed = Color::RGB(26, 26, 26);   // inset wells (tree / lists)
+    t.tabWell = Color::RGB(21, 21, 21);    // dock tab strip
 
-    // Unreal-style orange accent ramp.
+    // Luma's orange identity stands in for Starship's blue Primary.
     t.accent = Color::RGB(255, 140, 0);
     t.accentHover = Color::RGB(255, 170, 50);
     t.accentActive = Color::RGB(220, 110, 0);
@@ -44,21 +48,22 @@ Theme DarkTheme() {
     t.accentText = Color::RGB(255, 230, 200);
 
     // Semantic.
-    t.separator = Color::RGB(20, 20, 20);
-    t.outline = Color::RGB(58, 58, 60);
+    t.separator = Color::RGB(15, 15, 15);  // Starship WindowBorder
+    t.outline = Color::RGB(61, 61, 61);
     t.focusRing = t.accent;
-    t.text = Color::RGB(234, 237, 244);
-    t.textDim = Color::RGB(180, 180, 184);
-    t.textDisabled = Color::RGB(110, 110, 116);
-    t.selectionBg = Color::RGB(38, 79, 138);
+    t.text = Color::RGB(204, 204, 204);    // Starship Foreground (+ legibility)
+    t.textDim = Color::RGB(140, 140, 140);
+    t.textDisabled = Color::RGB(92, 92, 92);
+    // Selection = the accent, deep enough for white text on top.
+    t.selectionBg = Color::RGB(186, 98, 8);
     t.selectionText = Color::RGB(255, 255, 255);
-    t.success = Color::RGB(76, 180, 120);
-    t.warning = Color::RGB(226, 170, 66);
-    t.error = Color::RGB(226, 98, 98);
+    t.success = Color::RGB(139, 194, 74);   // Starship AccentGreen
+    t.warning = Color::RGB(255, 196, 46);
+    t.error = Color::RGB(255, 72, 72);
 
-    // Fields (search box, text fields).
-    t.fieldBg = Color::RGB(28, 28, 30);
-    t.fieldBorder = Color::RGB(60, 60, 64);
+    // Fields (search box, text fields): Starship Input / InputOutline.
+    t.fieldBg = Color::RGB(15, 15, 15);
+    t.fieldBorder = Color::RGB(56, 56, 56);
 
     // Legacy flat fields mapped onto the ramp (keeps existing widgets working).
     t.windowBg = t.surface0;
@@ -66,24 +71,26 @@ Theme DarkTheme() {
     t.panelBorder = t.separator;
     t.header = t.surface2;
     t.button = t.surface3;
-    t.buttonHover = t.surface4;
-    t.buttonActive = Color::RGB(50, 50, 54);
-    t.buttonText = Color::RGB(228, 231, 238);
+    t.buttonHover = Color::RGB(87, 87, 87);   // Starship Hover
+    t.buttonActive = Color::RGB(42, 42, 42);
+    t.buttonText = Color::RGB(214, 214, 214);
     t.cardBg = t.surface2;
     t.cardHover = t.surface3;
     t.cardSelected = t.accentMuted;
     t.caret = t.text;
     t.rounding = t.radius.md;
 
-    // Menu rows sit on the surface4 popup; hover = surface3 (darker, visible
-    // against the raised menu bg), focus = one step lighter than hover so the
-    // keyboard-focus row reads as a distinct state (plus the orange accent
-    // bar the caller draws).
-    t.menu.hoverFill = t.surface3;
-    t.menu.focusFill = Lighten(t.surface3, 0.08f);
-    // Unreal-style row highlight: vivid Luma-orange fill with white text
-    // (Unreal uses its blue; we keep the orange identity).
-    t.menu.highlightFill = Color::RGB(186, 103, 12);
+    // Menus (Starship "Menu.*"): Dropdown fill + DropdownOutline border,
+    // White25 headings/separators, Primary (here: Luma orange) hover rows.
+    t.menu.background = Color::RGB(56, 56, 56);
+    t.menu.outline = Color::RGB(76, 76, 76);
+    t.menu.separator = Color::RGBA(255, 255, 255, 34);
+    t.menu.headingText = Color::RGBA(255, 255, 255, 118);
+    t.menu.shortcutText = Color::RGB(136, 136, 136);
+    t.menu.iconTint = Color::RGB(192, 192, 192);
+    t.menu.hoverFill = Color::RGB(87, 87, 87);
+    t.menu.focusFill = Color::RGB(74, 74, 74);
+    t.menu.highlightFill = t.selectionBg;
     t.menu.highlightText = Color::RGB(255, 255, 255);
 
     return t;

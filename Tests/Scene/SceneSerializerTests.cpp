@@ -97,6 +97,36 @@ TEST_CASE("Scene round-trips through save/load preserving components",
     REQUIRE(foundLight);
 }
 
+TEST_CASE("Post-process volumes survive a save/load round-trip",
+          "[scene][serialize]") {
+    // Regression: PostProcessComponent had reflection + an Inspector but was
+    // missing from the serializer, so volumes were silently dropped on save.
+    Scene original;
+    Luma::Entity e = original.CreateEntity("Post Process Volume");
+    auto& pp = original.Registry().emplace<Luma::PostProcessComponent>(e);
+    pp.priority = 3;
+    pp.bloomIntensity = 0.75f;
+    pp.bloomThreshold = 1.5f;
+    pp.toneMapper = Luma::PostProcessComponent::ToneMapper::AgX;
+    pp.exposure = 1.5f;
+
+    const std::string json = SceneSerializer::SaveToString(original);
+    REQUIRE(json.find("\"PostProcess\"") != std::string::npos);
+
+    Scene loaded;
+    std::string err;
+    REQUIRE(SceneSerializer::LoadFromString(loaded, json, &err));
+    REQUIRE(err.empty());
+    auto view = loaded.Registry().view<const Luma::PostProcessComponent>();
+    REQUIRE(view.size() == 1);
+    const auto& out = view.get<const Luma::PostProcessComponent>(view.front());
+    REQUIRE(out.priority == 3);
+    REQUIRE(out.bloomIntensity == 0.75f);
+    REQUIRE(out.bloomThreshold == 1.5f);
+    REQUIRE(out.toneMapper == Luma::PostProcessComponent::ToneMapper::AgX);
+    REQUIRE(out.exposure == 1.5f);
+}
+
 TEST_CASE("Loading a scene clears any previous contents", "[scene][serialize]") {
     Scene scene = MakeSampleScene();      // 2 entities
     const std::string json = SceneSerializer::SaveToString(scene);

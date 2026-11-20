@@ -43,5 +43,7 @@ template <>
 const TypeInfo<LightComponent>& GetTypeInfo<LightComponent>();
 template <>
 const TypeInfo<EnvironmentComponent>& GetTypeInfo<EnvironmentComponent>();
+template <>
+const TypeInfo<PostProcessComponent>& GetTypeInfo<PostProcessComponent>();
 
 }  // namespace Luma

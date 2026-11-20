@@ -5,6 +5,7 @@ add_library(LumaCore STATIC
     src/Foundation/Version.cpp
     src/Foundation/Assert.cpp
     src/Log/Log.cpp
+    src/Log/LogBuffer.cpp
     src/Config/Config.cpp
     src/Event/Event.cpp
     src/Layer/LayerStack.cpp

@@ -1,0 +1,65 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Sky light capture, step 4: diffuse irradiance as 3rd-order (L2) spherical
+// harmonics. One 8x8 workgroup takes 64 stratified uniform-sphere samples of a
+// low mip (Unreal samples mip 2 of a 128 cube with 8x8 samples -- smooth enough
+// for diffuse), reduces them in shared memory, and stores the coefficients
+// with the clamped-cosine convolution already applied (Ramamoorthi & Hanrahan),
+// so evaluating them at N directly yields irradiance E(N).
+
+#include "skylight_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform samplerCube srcCube;
+layout(std430, set = 0, binding = 3) writeonly buffer SkyLightSH {
+    vec4 coeffs[9];  // rgb = convolved L2 SH coefficient, a unused
+} outSH;
+
+shared vec3 s_sh[64][9];
+
+void ShBasis(vec3 d, out float b[9]) {
+    b[0] = 0.282095;
+    b[1] = 0.488603 * d.y;
+    b[2] = 0.488603 * d.z;
+    b[3] = 0.488603 * d.x;
+    b[4] = 1.092548 * d.x * d.y;
+    b[5] = 1.092548 * d.y * d.z;
+    b[6] = 0.315392 * (3.0 * d.z * d.z - 1.0);
+    b[7] = 1.092548 * d.x * d.z;
+    b[8] = 0.546274 * (d.x * d.x - d.y * d.y);
+}
+
+void main() {
+    uint idx = gl_LocalInvocationIndex;
+    // Stratified uniform sphere sample for this thread.
+    vec2 E = (vec2(gl_LocalInvocationID.xy) + 0.5) / 8.0;
+    float z = 1.0 - 2.0 * E.x;
+    float r = sqrt(max(0.0, 1.0 - z * z));
+    float phi = 2.0 * SL_PI * E.y;
+    vec3 dir = vec3(r * cos(phi), r * sin(phi), z);
+
+    float lod = min(2.0, float(pc.numMips - 1));
+    vec3 radiance = textureLod(srcCube, dir, lod).rgb;
+    float sampleSolidAngle = 4.0 * SL_PI / 64.0;
+    float b[9];
+    ShBasis(dir, b);
+    for (int k = 0; k < 9; ++k) s_sh[idx][k] = radiance * (b[k] * sampleSolidAngle);
+    barrier();
+
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (idx < stride) {
+            for (int k = 0; k < 9; ++k) s_sh[idx][k] += s_sh[idx + stride][k];
+        }
+        barrier();
+    }
+
+    if (idx == 0u) {
+        // Clamped-cosine lobe convolution per band: A0 = pi, A1 = 2pi/3, A2 = pi/4.
+        const float A[9] = float[](SL_PI,
+                                   2.0 * SL_PI / 3.0, 2.0 * SL_PI / 3.0, 2.0 * SL_PI / 3.0,
+                                   SL_PI / 4.0, SL_PI / 4.0, SL_PI / 4.0, SL_PI / 4.0, SL_PI / 4.0);
+        for (int k = 0; k < 9; ++k) outSH.coeffs[k] = vec4(s_sh[0][k] * A[k], 0.0);
+    }
+}

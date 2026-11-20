@@ -83,6 +83,35 @@ bool DeferredShadingRenderer::Initialize(RHI::RHIDevice* device) {
         return false;
     }
 
+    // Create shadow map for cascaded shadows (directional light / sun)
+    m_shadowRenderer = new ShadowRenderer();
+    ShadowMapDesc shadowDesc;
+    shadowDesc.width = 2048;
+    shadowDesc.height = 2048;
+    shadowDesc.format = RHI::ETextureFormat::D24_UNORM_S8_UINT;
+    shadowDesc.type = EShadowMapType::Cascaded;
+    shadowDesc.cascadeCount = 4;
+    shadowDesc.cascadeSplitLambda = 0.6f;
+    m_shadowRenderer->SetShadowMapDesc(shadowDesc);
+    
+    // Create shadow map with cascaded type
+    ShadowMap* shadowMap = new ShadowMap();
+    if (!shadowMap->Create(shadowDesc, device)) {
+        delete shadowMap;
+        delete m_shadowRenderer;
+        m_shadowRenderer = nullptr;
+        LUMA_LOG_ERROR("Deferred", "Failed to create shadow map");
+        return false;
+    }
+    m_shadowRenderer->SetShadowMap(shadowMap);
+    if (!m_shadowRenderer->Initialize(device)) {
+        delete m_shadowRenderer;
+        m_shadowRenderer = nullptr;
+        LUMA_LOG_WARN("Deferred", "ShadowRenderer failed to init (shaders missing?) - shadows disabled");
+    } else {
+        m_shadowRenderer->SetPrimitiveMeshes(m_gbufferRenderer->GetPrimitives());
+    }
+
     // Create light accumulation buffer - make this fatal
     m_lightAccumulation = new LightAccumulationBuffer();
     if (!m_lightAccumulation->Create(m_viewportWidth, m_viewportHeight, RHI::ETextureFormat::R8G8B8A8_UNORM, device)) {
@@ -136,6 +165,7 @@ void DeferredShadingRenderer::Cleanup() {
         m_lightingRenderer = nullptr;
     }
     if (m_shadowRenderer) {
+        m_shadowRenderer->Shutdown();
         delete m_shadowRenderer;
         m_shadowRenderer = nullptr;
     }
@@ -326,9 +356,72 @@ void DeferredShadingRenderer::RenderLightingPass(const DeferredSceneView& view) 
 }
 
 void DeferredShadingRenderer::RenderShadowPass(const DeferredSceneView& view) {
-    // TODO: Render shadow pass
-    // This would use the ShadowRenderer to render shadow maps
-    (void)view;
+    if (!m_shadowRenderer || !m_shadowRenderer->GetShadowMap() || !m_shadowRenderer->GetShadowMap()->IsValid()) {
+        return;
+    }
+
+    if (!view.sceneData || !view.sceneData->lights || view.sceneData->lightCount == 0) {
+        return;
+    }
+
+    LUMA_LOG_INFO("Deferred", "RenderShadowPass: Starting cascaded shadow map rendering");
+
+    try {
+        m_commandList->Begin();
+        LUMA_LOG_INFO("Deferred", "RenderShadowPass: Command list begun");
+
+        // Prepare shadow maps (clear them)
+        m_shadowRenderer->Prepare(m_commandList);
+        LUMA_LOG_INFO("Deferred", "RenderShadowPass: Shadow maps cleared");
+
+        // Find the main directional light (sun) - usually the first directional light
+        for (u32 i = 0; i < view.sceneData->lightCount; ++i) {
+            const SceneLight& sceneLight = view.sceneData->lights[i];
+            if (sceneLight.type == 0 && sceneLight.castShadows) { // Directional light
+                LightData lightData = LightData::FromSceneLight(sceneLight);
+                m_shadowRenderer->RenderCascadedShadowMaps(m_commandList, lightData, *view.sceneData);
+                
+                // Get cascade data for lighting pass
+                const auto& cascadeMatrices = m_shadowRenderer->GetCascadeViewProjections();
+                const auto& cascadeSplits = m_shadowRenderer->GetCascadeSplits();
+                
+                // Pass to lighting renderer
+                if (m_lightingRenderer && !cascadeMatrices.empty()) {
+                    // Convert vector<Mat4> to Mat4[4]
+                    Mat4 cascadeArray[4] = {Mat4::Identity(), Mat4::Identity(), Mat4::Identity(), Mat4::Identity()};
+                    u32 count = std::min<u32>(static_cast<u32>(cascadeMatrices.size()), 4);
+                    for (u32 c = 0; c < count; ++c) {
+                        cascadeArray[c] = cascadeMatrices[c];
+                    }
+                    // Convert vector<f32> to Vec4 (first 4 splits)
+                    Vec4 splitsVec(0.0f, 0.0f, 0.0f, 0.0f);
+                    for (u32 c = 0; c < count && c < 4; ++c) {
+                        (&splitsVec.x)[c] = cascadeSplits[c];
+                    }
+                    m_lightingRenderer->SetCascadeShadowData(cascadeArray, count, splitsVec, m_shadowRenderer->GetShadowMap()->GetDesc().width);
+                }
+                break; // Only render shadows for the first directional light for now
+            }
+        }
+
+        m_commandList->End();
+        LUMA_LOG_INFO("Deferred", "RenderShadowPass: Command list ended");
+
+        LUMA_LOG_INFO("Deferred", "RenderShadowPass: Submitting command list");
+        {
+            RHI::RHICommandList* lists[] = {m_commandList};
+            m_device->GetContext()->GetGraphicsQueue()->Submit(1, lists);
+        }
+
+        LUMA_LOG_INFO("Deferred", "RenderShadowPass: Waiting for GPU");
+        m_device->WaitIdle();
+
+        LUMA_LOG_INFO("Deferred", "RenderShadowPass: Completed");
+    } catch (const std::exception& e) {
+        LUMA_LOG_ERROR("Deferred", "RenderShadowPass: Exception: {}", e.what());
+    } catch (...) {
+        LUMA_LOG_ERROR("Deferred", "RenderShadowPass: Unknown exception");
+    }
 }
 
 void DeferredShadingRenderer::RenderCompositionPass(const DeferredSceneView& view) {

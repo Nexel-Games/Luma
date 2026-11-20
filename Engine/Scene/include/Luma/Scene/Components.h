@@ -126,14 +126,106 @@ struct EnvironmentComponent {
     f32 ozoneScale = 1.0f;               // ozone layer density multiplier
 
     // --- Sky post-processing ---
-    f32 skyIntensity = 1.0f;             // overall sky brightness
+    f32 skyIntensity = 1.0f;             // sky radiance scale (also scales the sky light)
     f32 saturation = 1.25f;              // saturation boost
-    f32 exposure = 2.4f;                 // exposure multiplier
+    f32 exposure = 2.4f;                 // visible sky background brightness only (not lighting)
     Math::Vec3 skyTint{1.0f, 1.0f, 1.0f};
 
     // --- Ground & ambient ---
     Math::Vec3 groundColor{0.11f, 0.12f, 0.14f};   // below the horizon
     f32 iblIntensity = 1.0f;                       // ambient / image-based light
+};
+
+// Post Process Volume component — UE5-style post-process settings that override
+// the renderer's defaults when this entity's PostProcessComponent is active.
+// Attach to an entity with a Transform (position/rotation define the volume bounds;
+// scale defines the volume extent). Priority determines which volume wins when
+// multiple volumes overlap (higher = takes precedence).
+struct PostProcessComponent {
+    bool enabled = true;
+    i32 priority = 0;              // higher wins when volumes overlap
+    f32 blendRadius = 500.0f;      // world-unit blend distance outside the volume
+    f32 blendWeight = 1.0f;        // 0..1 overall influence of this volume
+
+    // --- Bloom ---
+    bool bloomEnabled = true;
+    f32 bloomIntensity = 0.3f;     // overall bloom multiplier
+    f32 bloomThreshold = 1.0f;     // luminance threshold for bloom
+    f32 bloomSoftThreshold = 0.5f; // knee width above threshold
+    i32 bloomPasses = 5;           // downsample/upsample chain length (3..7)
+    Math::Vec3 bloomTint{1.0f, 1.0f, 1.0f};  // color tint applied to bloom
+
+    // --- Tone Mapping ---
+    enum class ToneMapper : u8 { ACES, Reinhard, AgX, Linear };
+    ToneMapper toneMapper = ToneMapper::ACES;
+    f32 exposure = 1.0f;           // manual exposure compensation
+    bool autoExposure = true;      // eye adaptation (luminance histogram); on by default like Unreal
+    f32 autoExposureSpeed = 3.0f;  // adaptation speed (higher = faster; darkening runs at 1/3)
+    f32 autoExposureMin = 0.03f;   // min average scene luminance adapted to (UE "Min Brightness")
+    f32 autoExposureMax = 16.0f;   // max average scene luminance adapted to (UE "Max Brightness")
+    f32 whitePoint = 10.0f;        // not used by the renderer yet
+
+    // --- Ambient Occlusion ---
+    bool ssaoEnabled = false;
+    f32 ssaoRadius = 50.0f;        // world-space sample radius
+    f32 ssaoIntensity = 1.0f;      // darkness multiplier
+    f32 ssaoPower = 2.0f;          // distance falloff exponent
+    f32 ssaoBias = 0.025f;         // depth bias to prevent self-occlusion
+    i32 ssaoSamples = 16;          // sample count (quality)
+
+    // --- Screen Space Reflections ---
+    bool ssrEnabled = false;
+    f32 ssrIntensity = 1.0f;       // reflection strength
+    f32 ssrMaxDistance = 200.0f;    // max ray march distance
+    i32 ssrSteps = 64;             // ray march step count
+    f32 ssrThickness = 0.5f;       // depth thickness test
+
+    // --- Motion Blur ---
+    bool motionBlurEnabled = false;
+    f32 motionBlurAmount = 0.5f;   // per-object blur strength
+    f32 motionBlurMax = 1.0f;      // max blur length in screen pixels
+    i32 motionBlurSamples = 12;    // directional samples per pixel
+
+    // --- Depth of Field ---
+    enum class DOFMethod : u8 { None, Gaussian, CircleBokeh };
+    DOFMethod dofMethod = DOFMethod::None;
+    f32 dofFocalDistance = 100.0f;  // focus distance from camera
+    f32 dofFocalRadius = 10.0f;    // in-focus region depth
+    f32 dofNearBlur = 5.0f;        // near-blur start distance
+    f32 dofFarBlur = 100.0f;       // far-blur start distance
+    f32 dofScale = 1.0f;           // overall DOF intensity
+    i32 dofBokehSamples = 16;      // circle-of-confusion samples
+    Math::Vec2 dofBokehShape{1.0f, 1.0f};  // hex shape (1,1 = circle)
+
+    // --- Color Grading ---
+    bool colorGradingEnabled = false;
+    f32 colorGradingSaturation = 1.0f;
+    f32 colorGradingContrast = 1.0f;
+    f32 colorGradingGamma = 2.2f;
+    Math::Vec3 colorGradingTint{1.0f, 1.0f, 1.0f};  // color multiply
+    f32 colorGradingTemperature = 0.0f;   // -1..1 (blue..yellow shift)
+    f32 colorGradingTintStrength = 0.0f;  // 0..1 strength of the tint
+
+    // --- Vignette ---
+    bool vignetteEnabled = false;
+    f32 vignetteIntensity = 0.4f;  // strength (0 = off, 1 = full black edges)
+    f32 vignetteRadius = 0.5f;     // inner radius where vignette starts
+    f32 vignetteFalloff = 0.5f;    // smoothness of the falloff
+    Math::Vec3 vignetteColor{0.0f, 0.0f, 0.0f};  // edge color
+
+    // --- Chromatic Aberration ---
+    bool chromaticAberrationEnabled = false;
+    f32 chromaticAberrationIntensity = 0.5f;  // RGB offset strength
+
+    // --- Film Grain ---
+    bool filmGrainEnabled = false;
+    f32 filmGrainIntensity = 0.3f;  // grain visibility
+    f32 filmGrainSize = 1.0f;       // grain scale
+
+    // --- Lens Flares ---
+    bool lensFlaresEnabled = false;
+    f32 lensFlaresIntensity = 1.0f;
+    f32 lensFlaresThreshold = 5.0f; // brightness threshold
 };
 
 }  // namespace Luma
