@@ -144,6 +144,11 @@ struct Theme {
     Color warning;
     Color error;
 
+    // -- Text entry --
+    Color textSelection;    // selected-text highlight behind the glyphs
+    f32 caretWidth = 1.5f;  // text caret thickness, px
+    f32 fieldPadX = 12.0f;  // text inset inside a field, px
+
     // -- Scales --
     Spacing space;
     Sizing size;

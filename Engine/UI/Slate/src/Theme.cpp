@@ -64,6 +64,10 @@ Theme DarkTheme() {
     // Fields (search box, text fields): Starship Input / InputOutline.
     t.fieldBg = Color::RGB(15, 15, 15);
     t.fieldBorder = Color::RGB(56, 56, 56);
+    // Text selection: the accent, translucent so the glyphs stay readable.
+    t.textSelection = Color::RGBA(186, 98, 8, 140);
+    t.caretWidth = 1.5f;
+    t.fieldPadX = t.space.lg;
 
     // Legacy flat fields mapped onto the ramp (keeps existing widgets working).
     t.windowBg = t.surface0;

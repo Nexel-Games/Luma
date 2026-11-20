@@ -161,6 +161,7 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     m_hot = 0;
     m_requestedCursor = CursorShape::Arrow;
     m_pointerLock = false;
+    m_focusOrder.clear();
     m_mouseDelta = {m_mouse.x - m_prevMouse.x, m_mouse.y - m_prevMouse.y};
     m_prevMouse = m_mouse;
     m_draw.Begin(displayWidth, displayHeight);
@@ -332,6 +333,20 @@ const UIDrawData& Context::EndFrame() {
         m_menus.Draw(*this);
     }
     if (!m_menus.IsOpen()) BlurField(MenuHost::kSearchFieldId);
+    // Tab / Shift+Tab: move focus along this frame's focus chain.
+    m_tabFocusId = 0;
+    if (keyTab() && m_focus != 0) {
+        const auto it = std::find_if(m_focusOrder.begin(), m_focusOrder.end(),
+                                     [this](const Focusable& f) { return f.id == m_focus; });
+        if (it != m_focusOrder.end() && m_focusOrder.size() > 1) {
+            const auto n = static_cast<std::ptrdiff_t>(m_focusOrder.size());
+            const std::ptrdiff_t i = it - m_focusOrder.begin();
+            const Focusable& next = m_focusOrder[static_cast<usize>(
+                (i + (shiftDown() ? n - 1 : 1)) % n)];
+            SetFocus(next.id, next.textEntry);
+            m_tabFocusId = next.id;
+        }
+    }
     // Tooltips draw last (above panels and menus). While a menu is open the
     // widgets are input-blocked, so no candidate exists and none shows.
     DrawTooltip();
@@ -632,56 +647,151 @@ bool Context::Tab(u64 id, const Rect& rect, std::string_view label,
 
 bool Context::TextField(u64 id, const Rect& rect, std::string& text,
                         std::string_view placeholder) {
-    bool changed = EditText(id, rect, text);
-    DrawFieldChrome(rect, m_focus == id);
-    DrawFieldText(rect, text, placeholder, m_focus == id);
-    return changed;
+    TextFieldOptions options;
+    options.placeholder = placeholder;
+    return EditableText(id, rect, text, options).changed;
 }
 
-bool Context::EditText(u64 id, const Rect& hitRect, std::string& text) {
-    bool hovered = hitRect.Contains(m_mouse);
+TextResult Context::EditableText(u64 id, const Rect& rect, std::string& text,
+                                 const TextFieldOptions& options) {
+    TextResult result = EditText(id, rect, rect, text, options);
+    const bool focused = m_focus == id && m_editOwner == id;
+    DrawFieldChrome(rect, focused);
+    DrawFieldText(rect, text, options.placeholder, focused);
+    return result;
+}
+
+void Context::RegisterFocusable(u64 id, bool textEntry) {
+    if (id == 0 || m_inputBlocked) return;
+    m_focusOrder.push_back({id, textEntry});
+}
+
+void Context::SetFocus(u64 id, bool textEntry) {
+    if (m_focus == id) {
+        m_focusIsText = id != 0 && textEntry;
+        return;
+    }
+    if (m_editOwner != 0 && m_editOwner != id) {
+        m_focusLostId = m_editOwner;
+        m_editOwner = 0;
+    }
+    m_focus = id;
+    m_focusIsText = id != 0 && textEntry;
+    m_pendingCaret.reset();
+}
+
+void Context::BeginEdit(u64 id, const std::string& text, const TextFieldOptions& options) {
+    if (m_editOwner == id) return;
+    m_edit.maxLength = options.maxLength;
+    m_edit.Begin(text, options.selectAllOnFocus || FocusedByTab(id));
+    if (m_pendingCaret) {
+        m_edit.SetCaret(*m_pendingCaret, false);
+        m_pendingCaret.reset();
+    }
+    m_editOwner = id;
+}
+
+TextResult Context::EditText(u64 id, const Rect& hitRect, const Rect& textRect,
+                             std::string& text, const TextFieldOptions& options) {
+    TextResult result;
+    RegisterFocusable(id, true);
+    const bool hovered = hitRect.Contains(m_mouse);
     if (hovered) {
         m_hot = id;
         m_requestedCursor = CursorShape::IBeam;
     }
+    // Caret index under a pointer x, in the same layout DrawFieldText uses.
+    const f32 originX = textRect.x + m_theme.fieldPadX;
+    auto caretAt = [&](f32 x) {
+        return CaretFromX(m_edit.Text(), x - originX + m_edit.scroll,
+                          [this](std::string_view s) { return m_font.Measure(s).x; });
+    };
+
+    // --- Pointer: focus, caret placement, selection ----------------------
     if (m_mousePressed[0]) {
         if (hovered) {
-            m_focus = id;
-            m_caret = text.size();
+            const bool wasEditing = (m_focus == id && m_editOwner == id);
+            SetFocus(id, true);
+            BeginEdit(id, text, options);
+            if (m_mouseDoubleClicked[0]) {
+                m_edit.SelectWordAt(caretAt(m_mouse.x));
+            } else if (wasEditing || !options.selectAllOnFocus) {
+                m_edit.SetCaret(caretAt(m_mouse.x), wasEditing && shiftDown());
+            }
+            m_active = id;
         } else if (m_focus == id) {
-            m_focus = 0;
+            SetFocus(0, false);
+        }
+    }
+    if (m_active == id) {
+        if (!m_mouseDown[0]) {
+            m_active = 0;
+        } else if (m_focus == id && m_editOwner == id && !m_mouseDoubleClicked[0] &&
+                   (m_mouseDelta.x != 0.0f || m_mouseDelta.y != 0.0f)) {
+            m_edit.SetCaret(caretAt(m_mouse.x), true);  // drag-select
         }
     }
 
-    bool changed = false;
-    if (m_focus == id) {
-        if (!m_textInput.empty()) {
-            if (m_caret > text.size()) m_caret = text.size();
-            text.insert(m_caret, m_textInput);
-            m_caret += m_textInput.size();
-            changed = true;
-        }
-        if (m_keyBackspace && m_caret > 0) {
-            text.erase(m_caret - 1, 1);
-            m_caret--;
-            changed = true;
-        }
-        if (m_keyDelete && m_caret < text.size()) {
-            text.erase(m_caret, 1);
-            changed = true;
-        }
-        if (m_keyLeft && m_caret > 0) m_caret--;
-        if (m_keyRight && m_caret < text.size()) m_caret++;
-        if (m_keyHome) m_caret = 0;
-        if (m_keyEnd) m_caret = text.size();
-        // Enter dismisses the field: the caller treats it as a commit signal
-        // (e.g. the ColorPicker's spin boxes parse + validate on Enter).
-        if (m_keyEnter) {
-            m_focus = 0;
-            m_caret = 0;
-        }
+    if (m_focusLostId == id) {
+        result.commit = TextCommit::OnFocusLost;
+        m_focusLostId = 0;
     }
-    return changed;
+    if (m_focus != id) return result;
+
+    BeginEdit(id, text, options);
+    // The caller replaced the text (e.g. a search box's clear button).
+    if (text != m_edit.Text()) m_edit.Begin(text, false);
+
+    // --- Keyboard ----------------------------------------------------------
+    const bool ctrl = ctrlDown();
+    const bool shift = shiftDown();
+    if (!options.readOnly) {
+        if (!m_textInput.empty()) m_edit.Insert(m_textInput);
+        if (m_keyBackspace) m_edit.Backspace(ctrl);
+        if (m_keyDelete) m_edit.Delete(ctrl);
+    }
+    if (m_keyLeft) m_edit.MoveLeft(ctrl, shift);
+    if (m_keyRight) m_edit.MoveRight(ctrl, shift);
+    if (m_keyHome) m_edit.Home(shift);
+    if (m_keyEnd) m_edit.End(shift);
+    if (ctrl) {
+        constexpr int kA = 65, kC = 67, kV = 86, kX = 88, kY = 89, kZ = 90;
+        if (keyPressed(kA)) m_edit.SelectAll();
+        if (keyPressed(kC) && m_edit.HasSelection()) SetClipboardText(m_edit.SelectedText());
+        if (keyPressed(kX) && m_edit.HasSelection()) {
+            SetClipboardText(options.readOnly ? m_edit.SelectedText() : m_edit.Cut());
+        }
+        if (keyPressed(kV) && !options.readOnly) {
+            // Single-line field: line breaks become spaces.
+            std::string paste = ClipboardText();
+            paste.erase(std::remove(paste.begin(), paste.end(), '\r'), paste.end());
+            std::replace(paste.begin(), paste.end(), '\n', ' ');
+            std::replace(paste.begin(), paste.end(), '\t', ' ');
+            m_edit.Insert(paste);
+        }
+        if (!options.readOnly && keyPressed(kZ)) {
+            if (shift) {
+                m_edit.Redo();
+            } else {
+                m_edit.Undo();
+            }
+        }
+        if (!options.readOnly && keyPressed(kY)) m_edit.Redo();
+    }
+    if (m_keyEscape && options.revertOnEscape) {
+        m_edit.Revert();
+        result.commit = TextCommit::OnCleared;
+    }
+    if (text != m_edit.Text()) {
+        text = m_edit.Text();
+        result.changed = true;
+    }
+    if (m_keyEnter && result.commit == TextCommit::None) result.commit = TextCommit::OnEnter;
+    if (result.commit == TextCommit::OnEnter || result.commit == TextCommit::OnCleared) {
+        SetFocus(0, false);
+        m_focusLostId = 0;  // already reported
+    }
+    return result;
 }
 
 void Context::DrawFieldChrome(const Rect& rect, bool focused) {
@@ -703,27 +813,47 @@ void Context::DrawFieldChrome(const Rect& rect, bool focused) {
 
 void Context::DrawFieldText(const Rect& rect, std::string_view text,
                             std::string_view placeholder, bool focused) {
-    // Input padding uses the spacing token (lg=12).
-    const f32 padX = m_theme.space.lg;
-    Vec2 tp{rect.x + padX, rect.y + (rect.h - m_font.LineHeight()) * 0.5f};
+    const f32 padX = m_theme.fieldPadX;
+    const f32 originX = rect.x + padX;
+    const f32 textY = rect.y + (rect.h - m_font.LineHeight()) * 0.5f;
+    const f32 caretH = rect.h - 12.0f;
+    const bool blinkOn = std::fmod(m_time, 1.0f) < 0.5f;
     m_draw.PushClip({rect.x + padX * 0.5f, rect.y, rect.w - padX, rect.h});
     if (text.empty()) {
         // Hint stays visible until the first keystroke (caret over it).
-        m_draw.AddText(m_font, tp, placeholder,
+        m_draw.AddText(m_font, {originX, textY}, placeholder,
                        focused ? m_theme.textDisabled : m_theme.textDim);
-        if (focused && std::fmod(m_time, 1.0f) < 0.5f) {
-            m_draw.AddRectFilled({tp.x, rect.y + 6.0f, 1.5f, rect.h - 12.0f},
-                                 m_theme.accent);
+        if (focused && blinkOn) {
+            m_draw.AddRectFilled({originX, rect.y + 6.0f, m_theme.caretWidth, caretH},
+                                 m_theme.caret);
         }
-    } else {
-        m_draw.AddText(m_font, tp, text, m_theme.text);
-        if (focused && std::fmod(m_time, 1.0f) < 0.5f) {
-            usize caret = m_caret <= text.size() ? m_caret : text.size();
-            Vec2 w = m_font.Measure(text.substr(0, caret));
-            m_draw.AddRectFilled({tp.x + w.x, rect.y + 6.0f, 1.5f,
-                                  rect.h - 12.0f},
-                                 m_theme.accent);
-        }
+        m_draw.PopClip();
+        return;
+    }
+    if (!focused) {
+        m_draw.AddText(m_font, {originX, textY}, text, m_theme.text);
+        m_draw.PopClip();
+        return;
+    }
+    // Focused: draw from the edit state; scroll so the caret stays visible.
+    auto width = [this, text](usize n) { return m_font.Measure(text.substr(0, n)).x; };
+    const usize caret = std::min(m_edit.Caret(), text.size());
+    const f32 caretX = width(caret);
+    const f32 visibleW = std::max(rect.w - padX * 2.0f, 1.0f);
+    f32& scroll = m_edit.scroll;
+    if (caretX - scroll > visibleW) scroll = caretX - visibleW;
+    if (caretX - scroll < 0.0f) scroll = caretX;
+    scroll = std::clamp(scroll, 0.0f, std::max(0.0f, width(text.size()) - visibleW + 2.0f));
+    if (m_edit.HasSelection()) {
+        const auto [b, e] = m_edit.Selection();
+        const f32 x0 = originX - scroll + width(std::min(b, text.size()));
+        const f32 x1 = originX - scroll + width(std::min(e, text.size()));
+        m_draw.AddRectFilled({x0, rect.y + 4.0f, x1 - x0, rect.h - 8.0f}, m_theme.textSelection);
+    }
+    m_draw.AddText(m_font, {originX - scroll, textY}, text, m_theme.text);
+    if (blinkOn) {
+        m_draw.AddRectFilled({originX - scroll + caretX, rect.y + 6.0f, m_theme.caretWidth, caretH},
+                             m_theme.caret);
     }
     m_draw.PopClip();
 }
@@ -1345,8 +1475,10 @@ bool Context::SearchBox(u64 id, const Rect& rect, std::string& text,
     Rect textR{rect.x + iconSide, rect.y, rect.w - iconSide, rect.h};
 
     // Interaction covers the whole bar (clicking the icon zone focuses too).
-    bool changed = EditText(id, rect, text);
-    bool focused = (m_focus == id);
+    TextFieldOptions searchOptions;
+    searchOptions.revertOnEscape = false;
+    bool changed = EditText(id, rect, textR, text, searchOptions).changed;
+    bool focused = (m_focus == id && m_editOwner == id);
     DrawFieldChrome(rect, focused);
 
     // Leading icon drawn on the field background at the bar's left edge: the

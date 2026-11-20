@@ -15,6 +15,7 @@
 #include "Luma/Slate/Font.h"
 #include "Luma/Slate/IconKind.h"
 #include "Luma/Slate/Menu.h"
+#include "Luma/Slate/TextEditState.h"
 #include "Luma/Slate/Theme.h"
 #include "Luma/Slate/Types.h"
 
@@ -26,6 +27,27 @@
 // Context owns one Theme that widgets read through m_theme.
 
 namespace Luma::Slate {
+
+// How a text edit ended (mirrors the usual editor commit reasons).
+enum class TextCommit {
+    None,         // still editing (or not focused)
+    OnEnter,      // Enter pressed
+    OnFocusLost,  // clicked elsewhere / Tab moved focus / focus taken
+    OnCleared,    // Escape: the text was reverted to its focus-start value
+};
+
+struct TextFieldOptions {
+    std::string_view placeholder;
+    bool selectAllOnFocus = false;  // select everything when focus arrives by click
+    bool readOnly = false;          // caret/selection/copy only
+    usize maxLength = 0;            // bytes; 0 = unlimited
+    bool revertOnEscape = true;     // Escape reverts and commits OnCleared
+};
+
+struct TextResult {
+    bool changed = false;           // text differs from last frame
+    TextCommit commit = TextCommit::None;
+};
 
 // Horizontal text alignment for LabelIn.
 enum class Align { Left, Center, Right };
@@ -130,6 +152,22 @@ public:
     bool Tab(u64 id, const Rect& rect, std::string_view label, bool active);
     bool TextField(u64 id, const Rect& rect, std::string& text,
                    std::string_view placeholder = {});
+    // The full single-line text field: click to place the caret, drag /
+    // Shift+click / double-click to select, Ctrl+A/C/X/V/Z/Y, Ctrl+arrows
+    // and Ctrl+Backspace/Delete by word, Home/End, Enter commits, Escape
+    // reverts, clicking elsewhere or Tab commits OnFocusLost. The caller's
+    // `text` is updated live while typing.
+    TextResult EditableText(u64 id, const Rect& rect, std::string& text,
+                            const TextFieldOptions& options = {});
+    // Keyboard focus chain: focusable widgets register in draw order every
+    // frame (skipped while input is blocked, so an open menu / modal keeps
+    // Tab to its own widgets). Tab / Shift+Tab move focus to the next /
+    // previous registered widget, wrapping.
+    void RegisterFocusable(u64 id, bool textEntry);
+    // True during the frame after `id` received focus through Tab.
+    bool FocusedByTab(u64 id) const { return id != 0 && m_tabFocusId == id; }
+    // Gives keyboard focus to a non-text widget (e.g. a clicked checkbox).
+    void FocusWidget(u64 id) { SetFocus(id, false); }
     bool Card(u64 id, const Rect& rect, std::string_view title,
               std::string_view desc, bool selected);
     // A selectable card whose content is a single image (e.g. a template
@@ -363,17 +401,18 @@ public:
     // True while a text field (TextField/SearchBox) owns keyboard focus —
     // popup menus use this to leave caret keys (Left/Right/Home/End) to the
     // field instead of hijacking them for navigation.
-    bool textFieldFocused() const { return m_focus != 0; }
-    // Programmatically gives a field keyboard focus (e.g. auto-focus a
-    // popup's search box when the menu opens). Caret starts at 0.
+    bool textFieldFocused() const { return m_focus != 0 && m_focusIsText; }
+    // Programmatically gives a text field keyboard focus (e.g. auto-focus a
+    // popup's search box when the menu opens) with the caret at `caret`.
     void FocusField(u64 id, usize caret = 0) {
-        m_focus = id;
-        m_caret = caret;
+        SetFocus(id, true);
+        m_pendingCaret = caret;
     }
+    // True while `id` holds keyboard focus (text field or other widget).
     bool IsFieldFocused(u64 id) const { return id != 0 && m_focus == id; }
     // Releases keyboard focus if `id` holds it.
     void BlurField(u64 id) {
-        if (m_focus == id) m_focus = 0;
+        if (id != 0 && m_focus == id) SetFocus(0, false);
     }
     // Seconds since the context started (accumulated frame dt).
     f32 time() const { return m_time; }
@@ -382,15 +421,21 @@ public:
     static u64 ID(std::string_view s);
 
 private:
-    // --- Text-field internals (shared by TextField + SearchBox) ----------
-    // Interaction + editing core (no chrome): hover cursor, click-to-focus,
-    // caret editing, Enter-commit. `hitRect` is the interactive region —
-    // TextField passes its full rect; SearchBox passes the whole bar so
-    // clicking the icon zone focuses too. Returns true if text changed.
-    bool EditText(u64 id, const Rect& hitRect, std::string& text);
+    // --- Text-field internals (EditableText, TextField, SearchBox) -------
+    // Interaction + editing core (no chrome). `hitRect` is the interactive
+    // region (SearchBox passes the whole bar so clicking the icon zone
+    // focuses too); `textRect` is where DrawFieldText lays the text out, so
+    // clicks map to the same caret positions.
+    TextResult EditText(u64 id, const Rect& hitRect, const Rect& textRect,
+                        std::string& text, const TextFieldOptions& options);
+    // Starts the shared edit state for `id` if it isn't already editing.
+    void BeginEdit(u64 id, const std::string& text, const TextFieldOptions& options);
+    // Moves keyboard focus; the field losing it gets OnFocusLost.
+    void SetFocus(u64 id, bool textEntry);
     // Rounded field chrome: hairline border, field bg, accent focus ring.
     void DrawFieldChrome(const Rect& rect, bool focused);
-    // Text / placeholder / caret rendering clipped to `rect`.
+    // Text / placeholder / selection / caret clipped to `rect`; `focused`
+    // draws from the shared edit state (scrolled to keep the caret visible).
     void DrawFieldText(const Rect& rect, std::string_view text,
                        std::string_view placeholder, bool focused);
 
@@ -436,7 +481,17 @@ private:
     u64 m_active = 0;
     u64 m_focus = 0;
     f32 m_dragGrab = 0.0f;  // thumb grab offset within the scrollbar thumb
-    usize m_caret = 0;
+    bool m_focusIsText = false;     // m_focus is a text-entry widget
+    TextEditState m_edit;           // edit state of the focused text field
+    u64 m_editOwner = 0;            // field m_edit belongs to (0 = none)
+    u64 m_focusLostId = 0;          // field owed an OnFocusLost commit
+    std::optional<usize> m_pendingCaret;  // FocusField caret, applied at BeginEdit
+    struct Focusable {
+        u64 id;
+        bool textEntry;
+    };
+    std::vector<Focusable> m_focusOrder;  // this frame's focus chain
+    u64 m_tabFocusId = 0;
     f32 m_time = 0.0f;
     f32 m_displayW = 0.0f;
     f32 m_displayH = 0.0f;
