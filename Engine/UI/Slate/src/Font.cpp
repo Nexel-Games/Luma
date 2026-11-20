@@ -9,6 +9,24 @@
 #include "stb_truetype.h"
 
 namespace Luma::Slate {
+namespace {
+
+// Decodes the UTF-8 codepoint at text[i] and advances i (invalid bytes are
+// consumed one at a time and reported as U+FFFD).
+u32 NextCodepoint(std::string_view text, usize& i) {
+    const auto b0 = static_cast<unsigned char>(text[i++]);
+    if (b0 < 0x80) return b0;
+    int extra = (b0 & 0xE0) == 0xC0 ? 1 : (b0 & 0xF0) == 0xE0 ? 2 : (b0 & 0xF8) == 0xF0 ? 3 : -1;
+    if (extra < 0) return 0xFFFD;
+    u32 cp = b0 & (0x3F >> extra);
+    for (; extra > 0; --extra) {
+        if (i >= text.size() || (static_cast<unsigned char>(text[i]) & 0xC0) != 0x80) return 0xFFFD;
+        cp = (cp << 6) | (static_cast<unsigned char>(text[i++]) & 0x3F);
+    }
+    return cp;
+}
+
+}  // namespace
 
 bool Font::LoadFromFile(Renderer& renderer, const std::string& ttfPath,
                         f32 pixelHeight) {
@@ -23,16 +41,21 @@ bool Font::LoadFromFile(Renderer& renderer, const std::string& ttfPath,
     file.read(reinterpret_cast<char*>(ttf.data()), size);
 
     m_pixelHeight = pixelHeight;
-    m_atlasWidth = 512;
-    m_atlasHeight = 512;
 
-    std::vector<u8> alpha(static_cast<usize>(m_atlasWidth) * m_atlasHeight, 0);
+    // Bake into the smallest square atlas that holds every glyph
+    // (stbtt_BakeFontBitmap returns <= 0 when they don't all fit).
+    std::vector<u8> alpha;
     std::vector<stbtt_bakedchar> baked(kCharCount);
-    int result = stbtt_BakeFontBitmap(
-        ttf.data(), 0, pixelHeight, alpha.data(),
-        static_cast<int>(m_atlasWidth), static_cast<int>(m_atlasHeight),
-        kFirstChar, kCharCount, baked.data());
-    if (result == 0) {
+    int result = 0;
+    for (u32 side = 512; side <= 4096; side *= 2) {
+        m_atlasWidth = m_atlasHeight = side;
+        alpha.assign(static_cast<usize>(side) * side, 0);
+        result = stbtt_BakeFontBitmap(ttf.data(), 0, pixelHeight, alpha.data(),
+                                      static_cast<int>(side), static_cast<int>(side),
+                                      kFirstChar, kCharCount, baked.data());
+        if (result > 0) break;
+    }
+    if (result <= 0) {
         LUMA_LOG_ERROR("Slate", "failed to bake font atlas: {}", ttfPath);
         return false;
     }
@@ -68,8 +91,8 @@ bool Font::LoadFromFile(Renderer& renderer, const std::string& ttfPath,
 
 Vec2 Font::Measure(std::string_view text) const {
     f32 width = 0.0f;
-    for (char c : text) {
-        int idx = static_cast<int>(c) - kFirstChar;
+    for (usize i = 0; i < text.size();) {
+        const int idx = static_cast<int>(NextCodepoint(text, i)) - kFirstChar;
         if (idx < 0 || idx >= kCharCount) continue;
         width += m_chars[static_cast<usize>(idx)].xadvance;
     }
@@ -84,8 +107,8 @@ void Font::Layout(
     const f32 invW = 1.0f / static_cast<f32>(m_atlasWidth);
     const f32 invH = 1.0f / static_cast<f32>(m_atlasHeight);
 
-    for (char c : text) {
-        int idx = static_cast<int>(c) - kFirstChar;
+    for (usize i = 0; i < text.size();) {
+        const int idx = static_cast<int>(NextCodepoint(text, i)) - kFirstChar;
         if (idx < 0 || idx >= kCharCount) {
             continue;
         }

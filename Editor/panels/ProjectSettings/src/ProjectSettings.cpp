@@ -5,6 +5,26 @@
 
 namespace Luma::Editor::Panels {
 
+namespace {
+// Spin-box options: drag speed, hard limits, optional unit suffix.
+Slate::SpinBoxOptions Num(f64 speed, std::optional<f64> lo, std::optional<f64> hi,
+                          std::string_view suffix = {}) {
+    Slate::SpinBoxOptions o;
+    o.speed = speed;
+    o.min = lo;
+    o.max = hi;
+    o.suffix = suffix;
+    return o;
+}
+// 0..1 amount with a slider fill bar.
+Slate::SpinBoxOptions Amount01() {
+    Slate::SpinBoxOptions o = Num(0.005, 0.0, 1.0);
+    o.sliderMin = 0.0;
+    o.sliderMax = 1.0;
+    return o;
+}
+}  // namespace
+
 using Slate::Align;
 using Slate::Color;
 using Slate::Rect;
@@ -294,8 +314,8 @@ void ProjectSettingsPanel::DrawRenderingGeneral(Slate::Context& ui, const Slate:
     y += 30.0f;
 
     ui.LabelIn({x + 16.0f, y, 120.0f, 22.0f}, "Exposure", t.textDim);
-    ui.DragFloat(Slate::Context::ID("ps.exposure"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                 rs.exposure, 0.01f);
+    ui.SpinBox(Slate::Context::ID("ps.exposure"), {x + 160.0f, y, w - 160.0f, 22.0f},
+               rs.exposure, Num(0.01, std::nullopt, std::nullopt, " EV"));
     y += 30.0f;
 
     ui.Checkbox(Slate::Context::ID("ps.autoexp"), {x + 16.0f, y, 18.0f, 18.0f},
@@ -312,21 +332,17 @@ void ProjectSettingsPanel::DrawRenderingGeneral(Slate::Context& ui, const Slate:
 
     if (rs.bloomEnabled) {
         ui.LabelIn({x + 32.0f, y, 120.0f, 22.0f}, "Intensity", t.textDim);
-        ui.DragFloat(Slate::Context::ID("ps.bloomint"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                     rs.bloomIntensity, 0.01f);
+        ui.SpinBox(Slate::Context::ID("ps.bloomint"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                   rs.bloomIntensity, Num(0.01, 0.0, std::nullopt));
         y += 26.0f;
 
         ui.LabelIn({x + 32.0f, y, 120.0f, 22.0f}, "Passes", t.textDim);
-        {
-            f32 tmpPasses = static_cast<f32>(rs.bloomPasses);
-            if (ui.DragFloat(Slate::Context::ID("ps.bloompasses"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                             tmpPasses, 1.0f)) {
-                rs.bloomPasses = static_cast<int>(tmpPasses);
-            }
-        }
+        ui.SpinBoxInt(Slate::Context::ID("ps.bloompasses"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                      rs.bloomPasses, Num(0.05, 3.0, 7.0));
         y += 30.0f;
     }
 }
+
 
 void ProjectSettingsPanel::DrawRenderingShadows(Slate::Context& ui, const Slate::Rect& rect) {
     Slate::Theme& t = ui.theme();
@@ -357,23 +373,18 @@ void ProjectSettingsPanel::DrawRenderingShadows(Slate::Context& ui, const Slate:
         y += 30.0f;
 
         ui.LabelIn({x, y, 140.0f, 22.0f}, "Cascade Count", t.textDim);
-        {
-            f32 tmpCascades = static_cast<f32>(rs.cascadeCount);
-            if (ui.DragFloat(Slate::Context::ID("ps.cascades"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                             tmpCascades, 1.0f)) {
-                rs.cascadeCount = static_cast<int>(tmpCascades);
-            }
-        }
+        ui.SpinBoxInt(Slate::Context::ID("ps.cascades"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                      rs.cascadeCount, Num(0.05, 1.0, 4.0));
         y += 28.0f;
 
         ui.LabelIn({x, y, 140.0f, 22.0f}, "Shadow Distance", t.textDim);
-        ui.DragFloat(Slate::Context::ID("ps.shadist"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                     rs.shadowDistance, 1.0f);
+        ui.SpinBox(Slate::Context::ID("ps.shadist"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                   rs.shadowDistance, Num(0.5, 1.0, std::nullopt, " m"));
         y += 28.0f;
 
         ui.LabelIn({x, y, 140.0f, 22.0f}, "Shadow Softness", t.textDim);
-        ui.DragFloat(Slate::Context::ID("ps.shadsoft"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                     rs.shadowSoftness, 0.1f);
+        ui.SpinBox(Slate::Context::ID("ps.shadsoft"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                   rs.shadowSoftness, Num(0.01, 0.0, std::nullopt));
         y += 28.0f;
     }
 }
@@ -394,8 +405,8 @@ void ProjectSettingsPanel::DrawRenderingPostProcess(Slate::Context& ui, const Sl
 
     if (rs.ssaoEnabled) {
         ui.LabelIn({x + 16.0f, y, 120.0f, 22.0f}, "Intensity", t.textDim);
-        ui.DragFloat(Slate::Context::ID("ps.ssao.int"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                     rs.ssaoIntensity, 0.01f);
+        ui.SpinBox(Slate::Context::ID("ps.ssao.int"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                   rs.ssaoIntensity, Num(0.01, 0.0, 4.0));
         y += 28.0f;
     }
 
@@ -409,8 +420,8 @@ void ProjectSettingsPanel::DrawRenderingPostProcess(Slate::Context& ui, const Sl
 
     if (rs.motionBlur) {
         ui.LabelIn({x + 16.0f, y, 120.0f, 22.0f}, "Amount", t.textDim);
-        ui.DragFloat(Slate::Context::ID("ps.mb.amount"), {x + 160.0f, y, w - 160.0f, 22.0f},
-                     rs.motionBlurAmount, 0.01f);
+        ui.SpinBox(Slate::Context::ID("ps.mb.amount"), {x + 160.0f, y, w - 160.0f, 22.0f},
+                   rs.motionBlurAmount, Amount01());
         y += 28.0f;
     }
 }

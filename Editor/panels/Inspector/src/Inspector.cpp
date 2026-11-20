@@ -248,10 +248,38 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         ui.Vector3Field(id, {x + 82, y, w - 82, 22}, v);
         y += 28.0f;
     };
-    auto floatRow = [&](const char* label, u64 id, f32& v) {
+    // Numeric property: label + spin box (drag to scrub, click to type).
+    auto floatRow = [&](const char* label, u64 id, f32& v,
+                        const Slate::SpinBoxOptions& o = {}) {
         ui.LabelIn({x, y, 118, 22}, label, t.textDim);
-        ui.DragFloat(id, {x + 118, y, w - 118, 22}, v, 0.02f);
+        ui.SpinBox(id, {x + 118, y, w - 118, 22}, v, o);
         y += 28.0f;
+    };
+    auto intRow = [&](const char* label, u64 id, i32& v, const Slate::SpinBoxOptions& o) {
+        ui.LabelIn({x, y, 118, 22}, label, t.textDim);
+        ui.SpinBoxInt(id, {x + 118, y, w - 118, 22}, v, o);
+        y += 28.0f;
+    };
+    // Option presets: limits, drag speed, unit suffix.
+    auto opts = [](f64 speed, std::optional<f64> lo, std::optional<f64> hi,
+                   std::string_view suffix = {}, int maxDigits = 3) {
+        Slate::SpinBoxOptions o;
+        o.speed = speed;
+        o.min = lo;
+        o.max = hi;
+        o.suffix = suffix;
+        o.maxFractionalDigits = maxDigits;
+        return o;
+    };
+    // 0..1 values get a slider fill bar.
+    auto unit01 = [](f64 speed = 0.005) {
+        Slate::SpinBoxOptions o;
+        o.speed = speed;
+        o.min = 0.0;
+        o.max = 1.0;
+        o.sliderMin = 0.0;
+        o.sliderMax = 1.0;
+        return o;
     };
     // Enum property: label + combo box (fits any column width, unlike a
     // segmented tab row). Returns the (possibly changed) index.
@@ -321,16 +349,15 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                      static_cast<int>(cam.projection)));
         if (cam.projection == ProjectionType::Perspective) {
             floatRow("Field of View", Slate::Context::ID("insp.camfov"),
-                     cam.fovYDegrees);
-            cam.fovYDegrees = std::clamp(cam.fovYDegrees, 5.0f, 170.0f);
+                     cam.fovYDegrees, opts(0.2, 5.0, 170.0, "\u00B0", 1));
         } else {
             floatRow("Ortho Height", Slate::Context::ID("insp.camortho"),
-                     cam.orthoHeight);
-            cam.orthoHeight = std::max(cam.orthoHeight, 0.01f);
+                     cam.orthoHeight, opts(0.05, 0.01, std::nullopt, " m"));
         }
-        floatRow("Near Clip", Slate::Context::ID("insp.camnear"), cam.nearZ);
-        floatRow("Far Clip", Slate::Context::ID("insp.camfar"), cam.farZ);
-        cam.nearZ = std::max(cam.nearZ, 0.001f);
+        floatRow("Near Clip", Slate::Context::ID("insp.camnear"), cam.nearZ,
+                 opts(0.005, 0.001, std::nullopt, " m"));
+        floatRow("Far Clip", Slate::Context::ID("insp.camfar"), cam.farZ,
+                 opts(1.0, 0.01, std::nullopt, " m", 1));
         cam.farZ = std::max(cam.farZ, cam.nearZ + 0.01f);
         ui.Checkbox(Slate::Context::ID("insp.camprimary"), {x, y, 18, 18},
                     "Primary Camera", cam.primary);
@@ -351,28 +378,34 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         y += 26.0f;
         vec3Row("Rayleigh Scatter", Slate::Context::ID("insp.rayscat"),
                 &env.rayleighScattering.x);
-        floatRow("Rayleigh Height (m)",
-                 Slate::Context::ID("insp.rayh"), env.rayleighScaleHeight);
+        floatRow("Rayleigh Height",
+                 Slate::Context::ID("insp.rayh"), env.rayleighScaleHeight,
+                 opts(10.0, 0.0, std::nullopt, " m", 0));
         floatRow("Mie Scatter", Slate::Context::ID("insp.miescat"),
-                 env.mieScattering);
+                 env.mieScattering, opts(0.0001, 0.0, std::nullopt, {}, 6));
         floatRow("Mie Absorption", Slate::Context::ID("insp.mieabs"),
-                 env.mieAbsorption);
-        floatRow("Mie Height (m)", Slate::Context::ID("insp.mieh"),
-                 env.mieScaleHeight);
-        floatRow("Mie Anisotropy", Slate::Context::ID("insp.mieg"),
-                 env.mieAnisotropy);
+                 env.mieAbsorption, opts(0.0001, 0.0, std::nullopt, {}, 6));
+        floatRow("Mie Height", Slate::Context::ID("insp.mieh"),
+                 env.mieScaleHeight, opts(10.0, 0.0, std::nullopt, " m", 0));
+        {
+            Slate::SpinBoxOptions g = unit01();
+            g.min = g.sliderMin = -0.99;
+            g.max = g.sliderMax = 0.99;
+            floatRow("Mie Anisotropy", Slate::Context::ID("insp.mieg"), env.mieAnisotropy, g);
+        }
         floatRow("Ozone Scale", Slate::Context::ID("insp.ozone"),
-                 env.ozoneScale);
+                 env.ozoneScale, opts(0.01, 0.0, std::nullopt));
 
         // --- Sky post-processing ---
         y += 4.0f;
         ui.LabelIn({x, y, w, 20}, "Sky Post", t.accent);
         y += 24.0f;
         floatRow("Sky Intensity", Slate::Context::ID("insp.skyi"),
-                 env.skyIntensity);
+                 env.skyIntensity, opts(0.01, 0.0, std::nullopt));
         floatRow("Saturation", Slate::Context::ID("insp.sats"),
-                 env.saturation);
-        floatRow("Exposure", Slate::Context::ID("insp.exp"), env.exposure);
+                 env.saturation, opts(0.01, 0.0, 2.0));
+        floatRow("Exposure", Slate::Context::ID("insp.exp"), env.exposure,
+                 opts(0.01, std::nullopt, std::nullopt, " EV"));
 
         // --- Ground & ambient ---
         y += 4.0f;
@@ -380,7 +413,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         y += 24.0f;
         colorRow("Ground Color", m_groundColorPicker, env.groundColor);
         floatRow("IBL Intensity", Slate::Context::ID("insp.ibl"),
-                 env.iblIntensity);
+                 env.iblIntensity, opts(0.01, 0.0, std::nullopt));
         y += 8.0f;
     }
     if (reg.all_of<LightComponent>(*ctx.selected)) {
@@ -391,34 +424,35 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                      {"Directional", "Point", "Spot", "Tube"},
                      static_cast<int>(lc.type)));
         colorRow("Color", m_lightColorPicker, lc.color);
-        floatRow("Intensity", Slate::Context::ID("insp.lint"), lc.intensity);
+        floatRow("Intensity", Slate::Context::ID("insp.lint"), lc.intensity,
+                 opts(0.05, 0.0, std::nullopt));
         if (lc.type == LightType::Directional) {
             // --- Sun disk (directional) ---
             y += 4.0f;
             ui.LabelIn({x, y, w, 20}, "Sun Disk", t.accent);
             y += 24.0f;
-            floatRow("Disk Size (deg)", Slate::Context::ID("insp.ldisks"),
-                     lc.sunDiskSizeDeg);
+            floatRow("Disk Size", Slate::Context::ID("insp.ldisks"),
+                     lc.sunDiskSizeDeg, opts(0.01, 0.0, 30.0, "\u00B0", 2));
             floatRow("Disk Intensity", Slate::Context::ID("insp.ldiski"),
-                     lc.sunDiskIntensity);
+                     lc.sunDiskIntensity, opts(0.01, 0.0, std::nullopt));
         } else {
             // --- Attenuation (point/spot) ---
             y += 4.0f;
             ui.LabelIn({x, y, w, 20}, "Attenuation", t.accent);
             y += 24.0f;
             floatRow("Radius", Slate::Context::ID("insp.lrad"),
-                     lc.attenuationRadius);
+                     lc.attenuationRadius, opts(0.05, 0.0, std::nullopt, " m"));
             floatRow("Falloff Power", Slate::Context::ID("insp.lpow"),
-                     lc.attenuationPower);
+                     lc.attenuationPower, opts(0.01, 0.0, 16.0));
             if (lc.type == LightType::Tube) {
                 floatRow("Length", Slate::Context::ID("insp.llen"),
-                         lc.length);
+                         lc.length, opts(0.02, 0.0, std::nullopt, " m"));
             }
             if (lc.type == LightType::Spot) {
                 floatRow("Inner Angle", Slate::Context::ID("insp.lin"),
-                         lc.innerAngleDeg);
+                         lc.innerAngleDeg, opts(0.2, 0.0, 89.0, "\u00B0", 1));
                 floatRow("Outer Angle", Slate::Context::ID("insp.lout"),
-                         lc.outerAngleDeg);
+                         lc.outerAngleDeg, opts(0.2, 0.0, 89.0, "\u00B0", 1));
             }
         }
 
@@ -429,22 +463,21 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         ui.Checkbox(Slate::Context::ID("insp.lshadows"), {x, y, 18, 18},
                     "Cast Shadows", lc.castShadows);
         y += 26.0f;
-        f32 mapSize = static_cast<f32>(lc.shadowMapSize);
-        floatRow("Map Size", Slate::Context::ID("insp.lmapsize"), mapSize);
-        lc.shadowMapSize = static_cast<i32>(mapSize);
-        floatRow("Bias", Slate::Context::ID("insp.lbias"), lc.shadowBias);
+        intRow("Map Size", Slate::Context::ID("insp.lmapsize"), lc.shadowMapSize,
+               opts(4.0, 256.0, 8192.0, " px"));
+        floatRow("Bias", Slate::Context::ID("insp.lbias"), lc.shadowBias,
+                 opts(0.0001, 0.0, 0.1, {}, 4));
         floatRow("Normal Bias", Slate::Context::ID("insp.lnbias"),
-                 lc.normalBias);
+                 lc.normalBias, opts(0.001, 0.0, 1.0, {}, 4));
         floatRow("Softness", Slate::Context::ID("insp.lsoft"),
-                 lc.shadowSoftness);
+                 lc.shadowSoftness, opts(0.01, 0.0, std::nullopt));
         if (lc.type == LightType::Directional) {
-            f32 cascades = static_cast<f32>(lc.cascadeCount);
-            floatRow("Cascades", Slate::Context::ID("insp.lcascades"),
-                     cascades);
-            lc.cascadeCount = static_cast<i32>(cascades);
+            intRow("Cascades", Slate::Context::ID("insp.lcascades"), lc.cascadeCount,
+                   opts(0.05, 1.0, 4.0));
             floatRow("Shadow Distance", Slate::Context::ID("insp.ldist"),
-                     lc.shadowDistance);
-            floatRow("Split Lambda", Slate::Context::ID("insp.llambda"),            lc.cascadeSplitLambda);
+                     lc.shadowDistance, opts(0.5, 1.0, std::nullopt, " m", 1));
+            floatRow("Split Lambda", Slate::Context::ID("insp.llambda"),
+                     lc.cascadeSplitLambda, unit01());
         }
         y += 8.0f;
     }

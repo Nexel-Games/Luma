@@ -41,9 +41,11 @@ private:
     f32 m_lineHeight = 0.0f;
     f32 m_ascent = 0.0f;
 
-    // stbtt_bakedchar for ASCII 32..126, stored as raw floats/shorts.
+    // stbtt_bakedchar for Latin-1 32..255 (ASCII plus symbols such as the
+    // degree sign), stored as raw floats/shorts. Text is UTF-8; codepoints
+    // outside the range are skipped.
     static constexpr int kFirstChar = 32;
-    static constexpr int kCharCount = 95;
+    static constexpr int kCharCount = 224;
     struct BakedChar {
         u16 x0, y0, x1, y1;
         f32 xoff, yoff, xadvance;

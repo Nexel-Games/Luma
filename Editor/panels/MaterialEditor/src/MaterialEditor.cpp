@@ -63,11 +63,20 @@ const char* InputTooltip(MaterialParameter p) {
 }
 
 // DragFloat with a [min, max] range.
+// A clamped spin box; ranges that fit a slider (min..max both finite and
+// small) show a fill bar. Returns true when the value changed.
 bool DragClamped(Context& ui, u64 id, const Rect& rect, f32& value, f32 speed, f32 min,
-                 f32 max) {
-    const bool changed = ui.DragFloat(id, rect, value, speed);
-    value = std::clamp(value, min, max);
-    return changed;
+                 f32 max, bool slider = false, int maxDigits = 3) {
+    Slate::SpinBoxOptions o;
+    o.speed = speed;
+    o.min = min;
+    o.max = max;
+    if (slider) {
+        o.sliderMin = min;
+        o.sliderMax = max;
+    }
+    o.maxFractionalDigits = maxDigits;
+    return ui.SpinBox(id, rect, value, o).changed;
 }
 
 }  // namespace
@@ -338,7 +347,7 @@ void MaterialEditorPanel::DrawSettings(Context& ui, Layout& l) {
                              "Opacity Mask Clip Value\nMasked pixels below this value are cut out.",
                              !on);
         f32 clip = s.opacityMaskClip;
-        if (DragClamped(ui, Context::ID("mated.clip." + m_path), f, clip, 0.005f, 0.0f, 1.0f) && on) {
+        if (DragClamped(ui, Context::ID("mated.clip." + m_path), f, clip, 0.005f, 0.0f, 1.0f, true) && on) {
             m_model->SetOpacityMaskClip(clip);
         }
     }
@@ -412,7 +421,7 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
             }
         } else {
             f32 v = input.constant.x;
-            if (DragClamped(ui, Context::ID("mated.const." + key), f, v, 0.005f, 0.0f, 1.0f)) {
+            if (DragClamped(ui, Context::ID("mated.const." + key), f, v, 0.005f, 0.0f, 1.0f, true)) {
                 input.constant = {v, v, v, v};
                 changed = true;
             }
@@ -549,7 +558,7 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
     if (p == MaterialParameter::Height) {
         const Rect fh = l.Row(ui, "Scale",
                               "Height Scale\nParallax depth in UV units (0 disables parallax).", dim);
-        if (DragClamped(ui, Context::ID("mated.hscale." + key), fh, input.normalStrength, 0.001f, 0.0f, 0.3f)) {
+        if (DragClamped(ui, Context::ID("mated.hscale." + key), fh, input.normalStrength, 0.001f, 0.0f, 0.3f, true, 4)) {
             changed = true;
         }
     }
