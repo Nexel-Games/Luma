@@ -149,6 +149,11 @@ struct Theme {
     f32 caretWidth = 1.5f;  // text caret thickness, px
     f32 fieldPadX = 12.0f;  // text inset inside a field, px
 
+    // -- Numeric entry (SpinBox) --
+    Color spinFill;              // slider-range fill bar
+    Color spinFillHover;         // fill bar while hovered / scrubbing
+    f32 dragThreshold = 4.0f;    // px of travel before a press becomes a scrub
+
     // -- Scales --
     Spacing space;
     Sizing size;

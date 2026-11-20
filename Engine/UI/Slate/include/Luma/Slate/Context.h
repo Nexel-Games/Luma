@@ -49,6 +49,29 @@ struct TextResult {
     TextCommit commit = TextCommit::None;
 };
 
+// Unreal-style numeric entry (SpinBox / SpinBoxInt / VectorField).
+struct SpinBoxOptions {
+    std::optional<f64> min, max;              // hard limits (clamp)
+    std::optional<f64> sliderMin, sliderMax;  // range shown as a fill bar; drags map over it
+    f64 delta = 0.0;                          // snap step (0 = continuous)
+    f64 speed = 0.02;                         // value per pixel dragged (no slider range)
+    f32 shiftMultiplier = 10.0f;              // drag faster while Shift is held
+    f32 ctrlMultiplier = 0.1f;                // drag finer while Ctrl is held
+    f32 sliderExponent = 1.0f;                // non-linear drag over the slider range
+    int minFractionalDigits = 1;
+    int maxFractionalDigits = 3;
+    bool enableWheel = false;                 // mouse wheel steps the value when hovered
+    std::string_view suffix;                  // unit text appended verbatim, e.g. " cm", "°"
+    const Color* accent = nullptr;            // axis stripe at the left edge (X/Y/Z)
+};
+
+struct NumericResult {
+    bool changed = false;      // the bound value changed this frame
+    bool committed = false;    // a typed value was committed (Enter / focus loss)
+    bool dragStarted = false;  // a scrub began (undo systems open a transaction)
+    bool dragEnded = false;    // a scrub ended (... and close it)
+};
+
 // Horizontal text alignment for LabelIn.
 enum class Align { Left, Center, Right };
 
@@ -182,6 +205,15 @@ public:
     // and the value reads left-aligned after it (no letter label).
     bool DragFloat(u64 id, const Rect& rect, f32& value, f32 speed = 0.02f,
                    const Color* accent = nullptr);
+    // Unreal-style numeric field. Drag to scrub (Shift faster, Ctrl finer;
+    // the pointer is hidden and locked while scrubbing), click without
+    // dragging to type — math expressions such as "2*3.5" are evaluated;
+    // Enter / focus loss commits, Escape reverts. Values clamp to min/max
+    // and snap to delta. A slider range draws a fill bar and maps drags
+    // across the field width.
+    NumericResult SpinBox(u64 id, const Rect& rect, f32& value, const SpinBoxOptions& options = {});
+    NumericResult SpinBoxInt(u64 id, const Rect& rect, i32& value,
+                             const SpinBoxOptions& options = {});
     // Three drag fields with colored X/Y/Z labels (edits xyz[0..2] in place).
     bool Vector3Field(u64 id, const Rect& rect, f32* xyz);
     // A collapsible section header; toggles `open` when clicked.
@@ -434,6 +466,9 @@ private:
     void SetFocus(u64 id, bool textEntry);
     // Rounded field chrome: hairline border, field bg, accent focus ring.
     void DrawFieldChrome(const Rect& rect, bool focused);
+    // Shared SpinBox / SpinBoxInt implementation over a double.
+    NumericResult SpinBoxImpl(u64 id, const Rect& rect, f64& value,
+                              const SpinBoxOptions& options, bool integer);
     // Text / placeholder / selection / caret clipped to `rect`; `focused`
     // draws from the shared edit state (scrolled to keep the caret visible).
     void DrawFieldText(const Rect& rect, std::string_view text,
@@ -492,6 +527,22 @@ private:
     };
     std::vector<Focusable> m_focusOrder;  // this frame's focus chain
     u64 m_tabFocusId = 0;
+    // The spin box being pressed / scrubbed (one at a time).
+    struct SpinDrag {
+        u64 id = 0;
+        Vec2 pressPos;
+        f32 moved = 0.0f;     // pointer travel since the press, px
+        bool dragging = false;
+        f64 startValue = 0.0;
+        f64 accum = 0.0;      // unsnapped running value
+        u32 lastFrame = 0;    // frame the widget was last drawn
+    } m_spin;
+    // Spin boxes in text mode: the typed text and the text editing began with.
+    struct SpinEdit {
+        std::string text;
+        std::string original;
+    };
+    std::unordered_map<u64, SpinEdit> m_spinEdits;
     f32 m_time = 0.0f;
     f32 m_displayW = 0.0f;
     f32 m_displayH = 0.0f;

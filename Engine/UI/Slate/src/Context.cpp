@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "Luma/Slate/Icons.h"
+#include "Luma/Slate/NumericText.h"
 #include "Luma/Slate/Theme.h"
 
 namespace Luma::Slate {
@@ -166,6 +167,13 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     m_prevMouse = m_mouse;
     m_draw.Begin(displayWidth, displayHeight);
     ++m_frame;
+    // A spin box that stopped being drawn mid-press (panel closed) ends its
+    // scrub: release the pointer lock and the mouse capture.
+    if (m_spin.id != 0 && m_spin.lastFrame + 1 < m_frame) {
+        if (m_spin.dragging) RequestPointerRestore(m_spin.pressPos);
+        if (m_active == m_spin.id) m_active = 0;
+        m_spin = {};
+    }
     m_drag.BeginFrame(m_mouse, m_mousePressed[0], m_mouseDown[0], m_mouseReleased[0],
                       m_keyEscape);
     // An open menu owns input for the whole frame: panels draw normally but
@@ -663,6 +671,7 @@ TextResult Context::EditableText(u64 id, const Rect& rect, std::string& text,
 
 void Context::RegisterFocusable(u64 id, bool textEntry) {
     if (id == 0 || m_inputBlocked) return;
+    if (!m_focusOrder.empty() && m_focusOrder.back().id == id) return;  // spin box + its text
     m_focusOrder.push_back({id, textEntry});
 }
 
@@ -1030,56 +1039,187 @@ bool Context::Checkbox(u64 id, const Rect& box, std::string_view label,
 
 bool Context::DragFloat(u64 id, const Rect& rect, f32& value, f32 speed,
                         const Color* accent) {
-    bool hovered = rect.Contains(m_mouse);
+    SpinBoxOptions options;
+    options.speed = speed;
+    options.accent = accent;
+    return SpinBox(id, rect, value, options).changed;
+}
+
+NumericResult Context::SpinBox(u64 id, const Rect& rect, f32& value,
+                               const SpinBoxOptions& options) {
+    f64 v = value;
+    const NumericResult r = SpinBoxImpl(id, rect, v, options, false);
+    if (r.changed) value = static_cast<f32>(v);
+    return r;
+}
+
+NumericResult Context::SpinBoxInt(u64 id, const Rect& rect, i32& value,
+                                  const SpinBoxOptions& options) {
+    SpinBoxOptions o = options;
+    o.minFractionalDigits = 0;
+    o.maxFractionalDigits = 0;
+    f64 v = value;
+    const NumericResult r = SpinBoxImpl(id, rect, v, o, true);
+    if (r.changed) value = static_cast<i32>(std::llround(v));
+    return r;
+}
+
+NumericResult Context::SpinBoxImpl(u64 id, const Rect& rect, f64& value,
+                                   const SpinBoxOptions& o, bool integer) {
+    NumericResult result;
+    auto constrain = [&](f64 v) {
+        if (integer) {
+            v = std::round(v);
+        } else if (o.delta > 0.0) {
+            v = std::round(v / o.delta) * o.delta;
+        }
+        if (o.min) v = std::max(v, *o.min);
+        if (o.max) v = std::min(v, *o.max);
+        return v;
+    };
+    auto setValue = [&](f64 v) {
+        v = constrain(v);
+        if (v != value) {
+            value = v;
+            result.changed = true;
+        }
+    };
+    const bool hasSlider = o.sliderMin && o.sliderMax && *o.sliderMax > *o.sliderMin;
+    const f64 exponent = o.sliderExponent > 0.0f ? o.sliderExponent : 1.0;
+    // Text shown when typing starts: full precision, no unit.
+    auto editText = [&] { return FormatNumber(value, 0, integer ? 0 : 6); };
+
+    RegisterFocusable(id, true);
+
+    // --- Text mode ---------------------------------------------------------
+    auto edit = m_spinEdits.find(id);
+    if (m_focus == id && edit == m_spinEdits.end()) {
+        // Focus arrived without a click (Tab / FocusField): start typing.
+        const std::string t = editText();
+        edit = m_spinEdits.emplace(id, SpinEdit{t, t}).first;
+    }
+    if (edit != m_spinEdits.end()) {
+        TextFieldOptions to;
+        to.selectAllOnFocus = true;
+        const TextResult tr = EditableText(id, rect, edit->second.text, to);
+        if (tr.commit == TextCommit::OnEnter || tr.commit == TextCommit::OnFocusLost) {
+            result.committed = true;
+            if (edit->second.text != edit->second.original) {
+                if (auto parsed = EvaluateNumericExpression(edit->second.text)) setValue(*parsed);
+            }
+            m_spinEdits.erase(edit);
+        } else if (tr.commit == TextCommit::OnCleared) {
+            m_spinEdits.erase(edit);
+        } else if (m_focus != id && m_editOwner != id) {
+            m_spinEdits.erase(edit);  // focus gone without a commit report
+        }
+        return result;
+    }
+
+    // --- Scrub / click -------------------------------------------------------
+    const bool hovered = rect.Contains(m_mouse);
     if (hovered) {
         m_hot = id;
         m_requestedCursor = CursorShape::ResizeEW;
     }
-    if (hovered && m_mousePressed[0]) m_active = id;
-
-    bool changed = false;
-    if (m_active == id) {
+    if (hovered && m_mousePressed[0]) {
+        m_active = id;
+        m_spin = {};
+        m_spin.id = id;
+        m_spin.pressPos = m_mouse;
+        m_spin.startValue = value;
+        m_spin.accum = value;
+    }
+    if (m_active == id && m_spin.id == id) {
+        m_spin.lastFrame = m_frame;
         m_requestedCursor = CursorShape::ResizeEW;
         if (!m_mouseDown[0]) {
+            if (m_spin.dragging) {
+                result.dragEnded = true;
+                RequestPointerRestore(m_spin.pressPos);
+            } else if (!m_mousePressed[0]) {
+                // A click: start typing with everything selected.
+                SetFocus(id, true);
+                const std::string t = editText();
+                m_spinEdits[id] = SpinEdit{t, t};
+            }
             m_active = 0;
-        } else if (m_mouseDelta.x != 0.0f) {
-            value += m_mouseDelta.x * speed;
-            changed = true;
+            m_spin = {};
+        } else if (m_keyEscape && m_spin.dragging) {
+            setValue(m_spin.startValue);  // cancel the scrub
+            result.dragEnded = true;
+            RequestPointerRestore(m_spin.pressPos);
+            m_active = 0;
+            m_spin = {};
+        } else if (!m_mousePressed[0]) {
+            const f32 dx = m_mouseDelta.x;
+            if (!m_spin.dragging) {
+                m_spin.moved += std::abs(dx) + std::abs(m_mouseDelta.y);
+                if (m_spin.moved > m_theme.dragThreshold) {
+                    m_spin.dragging = true;
+                    result.dragStarted = true;
+                }
+            }
+            if (m_spin.dragging) {
+                RequestPointerLock(true);
+                if (dx != 0.0f) {
+                    f64 mult = 1.0;
+                    if (shiftDown()) mult *= o.shiftMultiplier;
+                    if (ctrlDown()) mult *= o.ctrlMultiplier;
+                    if (hasSlider) {
+                        const f64 lo = *o.sliderMin, range = *o.sliderMax - lo;
+                        const f64 t = std::clamp((m_spin.accum - lo) / range, 0.0, 1.0);
+                        f64 frac = std::pow(t, 1.0 / exponent);
+                        frac = std::clamp(frac + dx / std::max(rect.w, 1.0f) * mult, 0.0, 1.0);
+                        m_spin.accum = lo + std::pow(frac, exponent) * range;
+                    } else {
+                        m_spin.accum += dx * o.speed * mult;
+                    }
+                    setValue(m_spin.accum);
+                }
+            }
         }
     }
+    if (o.enableWheel && hovered && m_scroll != 0.0f && m_active == 0) {
+        const f64 step = o.delta > 0.0 ? o.delta : (integer ? 1.0 : o.speed * 10.0);
+        setValue(value + step * m_scroll);
+    }
 
-    // Hairline border resting; accent hairline when hovered/active (focus
-    // ring convention). Field background inside, then value text centered.
-    bool active = (m_active == id);
-    Color border = (hovered || active) ? m_theme.focusRing
-                                       : m_theme.fieldBorder;
+    // --- Draw ----------------------------------------------------------------
+    const bool active = (m_active == id);
+    const Color border = (hovered || active) ? m_theme.focusRing : m_theme.fieldBorder;
+    const f32 hair = m_theme.border.hairline;
     m_draw.AddRectFilledRounded(rect, border, m_theme.radius.md);
-    m_draw.AddRectFilledRounded(
-        rect.Inset(m_theme.border.hairline, m_theme.border.hairline),
-        m_theme.fieldBg,
-        std::max(0.0f, m_theme.radius.md - m_theme.border.hairline));
-
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.2f", value);
-    Vec2 ts = m_font.Measure(buf);
+    const Rect inner = rect.Inset(hair, hair);
+    const f32 innerR = std::max(0.0f, m_theme.radius.md - hair);
+    m_draw.AddRectFilledRounded(inner, m_theme.fieldBg, innerR);
+    if (hasSlider) {
+        const f64 lo = *o.sliderMin, range = *o.sliderMax - lo;
+        const f64 t = std::clamp((value - lo) / range, 0.0, 1.0);
+        const f32 frac = static_cast<f32>(std::pow(t, 1.0 / exponent));
+        if (frac > 0.0f) {
+            m_draw.PushClip({inner.x, inner.y, inner.w * frac, inner.h});
+            m_draw.AddRectFilledRounded(inner, (hovered || active) ? m_theme.spinFillHover
+                                                                  : m_theme.spinFill, innerR);
+            m_draw.PopClip();
+        }
+    }
+    std::string text = FormatNumber(value, o.minFractionalDigits, o.maxFractionalDigits);
+    text += o.suffix;
+    const f32 textY = rect.y + (rect.h - m_font.LineHeight()) * 0.5f;
     m_draw.PushClip(rect);
-    if (accent) {
+    if (o.accent) {
         // Unreal-style channel marker: a thin colored stripe along the
-        // field's left edge (no X/Y/Z letter); the value reads after it.
-        Rect stripe{rect.x + 1.0f, rect.y + 1.0f, 3.0f, rect.h - 2.0f};
-        m_draw.AddRectFilledRounded(stripe, *accent, 1.5f);
-        m_draw.AddText(m_font,
-                       {stripe.Right() + 6.0f,
-                        rect.y + (rect.h - m_font.LineHeight()) * 0.5f},
-                       buf, m_theme.text);
+        // field's left edge; the value reads after it.
+        const Rect stripe{rect.x + 1.0f, rect.y + 1.0f, 3.0f, rect.h - 2.0f};
+        m_draw.AddRectFilledRounded(stripe, *o.accent, 1.5f);
+        m_draw.AddText(m_font, {stripe.Right() + 6.0f, textY}, text, m_theme.text);
     } else {
-        m_draw.AddText(m_font,
-                       {rect.x + (rect.w - ts.x) * 0.5f,
-                        rect.y + (rect.h - m_font.LineHeight()) * 0.5f},
-                       buf, m_theme.text);
+        const Vec2 ts = m_font.Measure(text);
+        m_draw.AddText(m_font, {rect.x + (rect.w - ts.x) * 0.5f, textY}, text, m_theme.text);
     }
     m_draw.PopClip();
-    return changed;
+    return result;
 }
 
 bool Context::Vector3Field(u64 id, const Rect& rect, f32* xyz) {
