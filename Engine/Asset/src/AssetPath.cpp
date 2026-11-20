@@ -76,6 +76,29 @@ std::optional<fs::path> AssetPathResolver::ToFile(std::string_view virtualPath) 
     return found;
 }
 
+std::optional<fs::path> AssetPathResolver::ToFile(
+    std::string_view virtualPath, std::initializer_list<std::string_view> extensions) const {
+    return ToFileAny(virtualPath, extensions);
+}
+
+std::optional<fs::path> AssetPathResolver::MakeFilePath(std::string_view virtualPath,
+                                                        std::string_view extension) const {
+    const fs::path* root = nullptr;
+    std::string_view rest;
+    if (virtualPath.starts_with(kGamePrefix)) {
+        root = &m_game;
+        rest = virtualPath.substr(kGamePrefix.size());
+    } else if (virtualPath.starts_with(kEnginePrefix)) {
+        root = &m_engine;
+        rest = virtualPath.substr(kEnginePrefix.size());
+    }
+    if (!root || root->empty() || rest.empty()) return std::nullopt;
+    fs::path file = *root / fs::path(std::string(rest));
+    file += ".";
+    file += std::string(extension);
+    return file;
+}
+
 std::optional<std::string> AssetPathResolver::ToVirtual(const fs::path& file) const {
     if (fs::path rel = RelativeUnder(m_game, file); !rel.empty()) {
         return ToVirtualString(kGamePrefix, rel);

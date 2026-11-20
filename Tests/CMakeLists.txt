@@ -34,6 +34,7 @@ add_executable(LumaTests
     Asset/AssetPathTests.cpp
     Material/MaterialModelTests.cpp
     Material/MaterialSerializerTests.cpp
+    Material/MaterialLibraryTests.cpp
     Editor/ContentBrowserTests.cpp
     Editor/ConsoleTests.cpp
     Editor/TransformGizmoTests.cpp
@@ -49,3 +50,5 @@ set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 # One ctest entry that runs the whole Catch2 binary (reports per-assertion on
 # failure). Fine-grained catch_discover_tests can be adopted later.
 add_test(NAME LumaTests COMMAND LumaTests)
+
+target_compile_definitions(LumaTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

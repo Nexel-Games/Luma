@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,6 +30,27 @@ public:
     // nullopt when the prefix is unknown, the root is unset, or no file
     // exists.
     std::optional<std::filesystem::path> ToFile(std::string_view virtualPath) const;
+    // Typed lookup: the first existing file among `extensions` (no dot, in
+    // preference order). Disambiguates assets sharing a stem (a material
+    // and a texture both named "Wood").
+    std::optional<std::filesystem::path> ToFile(
+        std::string_view virtualPath,
+        std::initializer_list<std::string_view> extensions) const;
+    template <typename Range>
+    std::optional<std::filesystem::path> ToFileAny(std::string_view virtualPath,
+                                                   const Range& extensions) const {
+        for (std::string_view ext : extensions) {
+            if (ext.empty()) continue;
+            if (auto f = MakeFilePath(virtualPath, ext); f && std::filesystem::is_regular_file(*f)) {
+                return f;
+            }
+        }
+        return std::nullopt;
+    }
+    // The file a virtual path maps to with `extension`, whether or not it
+    // exists yet (target for saving a new asset). nullopt for unknown roots.
+    std::optional<std::filesystem::path> MakeFilePath(std::string_view virtualPath,
+                                                      std::string_view extension) const;
 
     // Converts a file under the game or engine root to its virtual path
     // (no extension, '/' separators). nullopt for files outside both roots.

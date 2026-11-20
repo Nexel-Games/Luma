@@ -68,3 +68,22 @@ TEST_CASE("AssetPath normalizes Windows separators", "[assetpath]") {
     CHECK(resolver.ToVirtual(windowsStyle) ==
           std::optional<std::string>("/Game/Materials/M_Wood"));
 }
+
+TEST_CASE("Typed lookup disambiguates assets sharing a stem", "[assetpath]") {
+    Roots r;
+    std::ofstream(r.game / "Materials" / "M_Wood.png") << "png";  // same stem
+    AssetPathResolver resolver;
+    resolver.SetGameRoot(r.game);
+    CHECK_FALSE(resolver.ToFile("/Game/Materials/M_Wood").has_value());  // ambiguous
+    auto mat = resolver.ToFile("/Game/Materials/M_Wood", {"lmat", "lmatinst"});
+    REQUIRE(mat.has_value());
+    CHECK(mat->extension() == ".lmat");
+    auto tex = resolver.ToFile("/Game/Materials/M_Wood", {"png", "jpg"});
+    REQUIRE(tex.has_value());
+    CHECK(tex->extension() == ".png");
+    // Target path for a not-yet-written asset.
+    auto fresh = resolver.MakeFilePath("/Game/Materials/MI_New", "lmatinst");
+    REQUIRE(fresh.has_value());
+    CHECK(fresh->filename() == "MI_New.lmatinst");
+    CHECK_FALSE(resolver.MakeFilePath("/Nope/X", "lmat").has_value());
+}

@@ -1,0 +1,221 @@
+{
+  "version": 3,
+  "type": "Material",
+  "name": "DefaultMaterial",
+  "settings": {
+    "blendMode": "Opaque",
+    "shadingModel": "DefaultLit",
+    "twoSided": false,
+    "opacityMaskClip": 0.3333
+  },
+  "inputs": {
+    "baseColor": {
+      "constant": [
+        0.82,
+        0.82,
+        0.85,
+        1.0
+      ],
+      "channel": "RGB",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "metallic": {
+      "constant": [
+        0.0,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "specular": {
+      "constant": [
+        0.5,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "roughness": {
+      "constant": [
+        0.5,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "normal": {
+      "constant": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "channel": "RGB",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "emissiveColor": {
+      "constant": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "channel": "RGB",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "ambientOcclusion": {
+      "constant": [
+        1.0,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    },
+    "opacityMask": {
+      "constant": [
+        1.0,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1.0,
+      "flipGreen": false,
+      "emissiveIntensity": 1.0
+    }
+  }
+}
