@@ -21,8 +21,7 @@
 #include "Luma/Math/Math.h"
 #include "Luma/Project/Project.h"
 #include "Luma/RHI/Renderer.h"
-#include "Luma/RHI/RHIContext.h"
-#include "Luma/Renderer/DeferredShadingRenderer.h"
+#include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Scene/Scene.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/DockSpace.h"
@@ -91,15 +90,6 @@ public:
     }
     Luma::Renderer* Renderer() const noexcept { return m_renderer; }
     
-    // Get deferred renderer
-    Renderer2::DeferredShadingRenderer* GetDeferredRenderer() const { return m_deferredRenderer; }
-    
-    // Set deferred renderer
-    void SetDeferredRenderer(Renderer2::DeferredShadingRenderer* renderer) { m_deferredRenderer = renderer; }
-    
-    // Initialize deferred renderer with RHI device
-    void InitializeDeferredRenderer(RHI::RHIDevice* device);
-    
     // Build scene view for deferred renderer. `width`/`height` are the
     // current viewport pixel size and drive the projection aspect ratio so
     // objects keep their proportions when the panel is resized.
@@ -107,12 +97,7 @@ public:
     // adaptation) use it. 0 makes them snap instead of animating.
     Renderer2::DeferredSceneView BuildDeferredSceneView(u32 width, u32 height,
                                                         f32 deltaSeconds = 0.0f);
-    
-    // Editor rendering mode controls
-    void SetRenderMode(Renderer2::EditorRenderMode mode);
-    Renderer2::EditorRenderMode GetRenderMode() const;
-    void ToggleDebugVisualization();
-    bool GetDebugVisualization() const;
+
 
     // Forwards the Create-menu header button icon to the outliner panel.
     // A zero handle falls back to a procedural plus glyph.
@@ -254,9 +239,7 @@ private:
 
     // Renderer for thumbnail generation
     Luma::Renderer* m_renderer = nullptr;
-    
-    // Deferred renderer for advanced rendering
-    Renderer2::DeferredShadingRenderer* m_deferredRenderer = nullptr;
+
 
     // Holds the source SceneView for the deferred pipeline. Must outlive the
     // DeferredSceneView returned by BuildDeferredSceneView (its sceneData /

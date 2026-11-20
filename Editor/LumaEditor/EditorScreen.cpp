@@ -19,7 +19,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Scene/SceneSerializer.h"
-#include "Luma/Renderer/DeferredShadingRenderer.h"
+#include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Slate/Image.h"
 
 #define STB_IMAGE_WRITE_STATIC
@@ -100,23 +100,6 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
         // thumbnails live in the project's scratch area, not inside Assets/.
         ThumbnailManager::Get().SetProjectRoot(m_project->RootDir());
         ThumbnailManager::Get().SetRegistry(&m_assetRegistry);
-    }
-    
-    // Initialize deferred renderer
-    m_deferredRenderer = Renderer2::CreateDeferredRenderer();
-    if (m_deferredRenderer) {
-        // Deferred renderer will be initialized later when RHI device is available
-        LUMA_LOG_INFO("Editor", "Deferred renderer created (pending RHI device initialization)");
-    }
-}
-
-void EditorScreen::InitializeDeferredRenderer(RHI::RHIDevice* device) {
-    if (m_deferredRenderer && device) {
-        if (m_deferredRenderer->Initialize(device)) {
-            LUMA_LOG_INFO("Editor", "Deferred renderer initialized with RHI device");
-        } else {
-            LUMA_LOG_ERROR("Editor", "Failed to initialize deferred renderer");
-        }
     }
 }
 
@@ -691,35 +674,6 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
     deferredScene.lightingParams = &rhiScene.lighting;
     
     return deferredScene;
-}
-
-void EditorScreen::SetRenderMode(Renderer2::EditorRenderMode mode) {
-    if (m_deferredRenderer) {
-        m_deferredRenderer->SetEditorRenderMode(mode);
-        LUMA_LOG_INFO("Editor", "Render mode set to {}", static_cast<int>(mode));
-    }
-}
-
-Renderer2::EditorRenderMode EditorScreen::GetRenderMode() const {
-    if (m_deferredRenderer) {
-        return m_deferredRenderer->GetEditorRenderMode();
-    }
-    return Renderer2::EditorRenderMode::Deferred;
-}
-
-void EditorScreen::ToggleDebugVisualization() {
-    if (m_deferredRenderer) {
-        bool current = m_deferredRenderer->GetDebugVisualization();
-        m_deferredRenderer->SetDebugVisualization(!current);
-        LUMA_LOG_INFO("Editor", "Debug visualization {}", !current ? "enabled" : "disabled");
-    }
-}
-
-bool EditorScreen::GetDebugVisualization() const {
-    if (m_deferredRenderer) {
-        return m_deferredRenderer->GetDebugVisualization();
-    }
-    return false;
 }
 
 void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& files) {

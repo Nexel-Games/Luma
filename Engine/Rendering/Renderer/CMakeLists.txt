@@ -1,25 +1,10 @@
-# Luma::Renderer - Scene renderer and deferred shading
+# Luma::Renderer - renderer-agnostic scene-view types for the deferred
+# renderer (header-only): DeferredSceneView + cascaded shadow fitting.
 
-add_library(LumaRenderer STATIC
-    src/SceneRenderer.cpp
-    src/PrimitiveSceneInfo.cpp
-    src/StaticMeshBatch.cpp
-    src/GBufferRendering.cpp
-    src/Lighting.cpp
-    src/ShadowRendering.cpp
-    src/DeferredShadingRenderer.cpp)
-
+add_library(LumaRenderer INTERFACE)
 add_library(Luma::Renderer ALIAS LumaRenderer)
 
 target_include_directories(LumaRenderer
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-            ${PROJECT_SOURCE_DIR}/Engine/Rendering/Vulkan/src)
+    INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(LumaRenderer
-    PUBLIC Luma::Core Luma::RHI Luma::Math Luma::Shader Luma::RenderGraph Luma::UniformBuffer Luma::Mesh Vulkan::Vulkan)
-
-# Register deferred renderer factory
-target_compile_definitions(LumaRenderer PRIVATE DEFERRED_RENDERER_EXPORTS)
-
-set_target_properties(LumaRenderer PROPERTIES FOLDER "Engine")
+target_link_libraries(LumaRenderer INTERFACE Luma::Core Luma::RHI Luma::Math)

@@ -15,8 +15,7 @@
 #include "Luma/RHI/VulkanRenderer.h"
 #include "Luma/RHI/VulkanRHIDevice.h"
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
-#include "Luma/Renderer/DeferredShadingRenderer.h"
-#include "Luma/Renderer/Lighting.h"
+#include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Image.h"
 #include "Luma/VFS/Path.h"
@@ -175,10 +174,9 @@ int main(int argc, char** argv) {
         thumbnailMgr.RegisterRenderer(Luma::AssetType::Texture, 
                                      std::make_unique<Luma::TextureThumbnailRenderer>());
         
-        // Initialize mesh thumbnail renderer with RHI device for potential GPU rendering
-        auto meshRenderer = std::make_unique<Luma::MeshThumbnailRenderer>();
-        meshRenderer->Initialize(nullptr);  // CPU software rendering; GPU paths available later
-        thumbnailMgr.RegisterRenderer(Luma::AssetType::Mesh, std::move(meshRenderer));
+        // Mesh thumbnails (CPU rasterized preview).
+        thumbnailMgr.RegisterRenderer(Luma::AssetType::Mesh,
+                                     std::make_unique<Luma::MeshThumbnailRenderer>());
 
         // Material thumbnails: a studio-lit sphere shaded with the .lmat's
         // constant fallbacks (base color / metallic / roughness / emissive).

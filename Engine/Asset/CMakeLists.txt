@@ -46,8 +46,7 @@ target_include_directories(LumaAsset
 
 target_link_libraries(LumaAsset
     PUBLIC Luma::Core Luma::Math Luma::Serialization
-    PRIVATE assimp
-    PRIVATE Luma::Renderer)
+    PRIVATE assimp)
 
 # stb_image is header-only, just include the path
 target_include_directories(LumaAsset

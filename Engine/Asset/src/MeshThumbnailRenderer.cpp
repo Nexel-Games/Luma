@@ -2,7 +2,6 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Math/Math.h"
 #include "Luma/Math/MathUtils.h"
-#include "Luma/Renderer/DeferredShadingRenderer.h"
 
 #include <fstream>
 #include <algorithm>
@@ -32,34 +31,9 @@ namespace Luma {
 // MeshThumbnailRenderer Implementation
 // ============================================================================
 
-MeshThumbnailRenderer::MeshThumbnailRenderer()
-    : m_device(nullptr), m_deferredRenderer(nullptr), m_useGPU(false) {
-}
+MeshThumbnailRenderer::MeshThumbnailRenderer() = default;
 
-MeshThumbnailRenderer::~MeshThumbnailRenderer() {
-    if (m_deferredRenderer) {
-        delete m_deferredRenderer;
-    }
-}
-
-bool MeshThumbnailRenderer::Initialize(RHI::RHIDevice* device) {
-    m_device = device;
-    
-    if (m_device) {
-        // Create deferred renderer for GPU rendering
-        m_deferredRenderer = Renderer2::CreateDeferredRenderer();
-        if (m_deferredRenderer) {
-            if (m_deferredRenderer->Initialize(m_device)) {
-                m_useGPU = true;
-                LUMA_LOG_INFO("MeshThumbnailRenderer", "GPU rendering enabled");
-            } else {
-                LUMA_LOG_WARN("MeshThumbnailRenderer", "Failed to initialize deferred renderer, using software fallback");
-            }
-        }
-    }
-    
-    return true;
-}
+MeshThumbnailRenderer::~MeshThumbnailRenderer() = default;
 
 bool MeshThumbnailRenderer::CanRender(const AssetId& assetId, const std::filesystem::path& nativePath) const {
     (void)assetId;
@@ -84,8 +58,6 @@ bool MeshThumbnailRenderer::RenderThumbnail(const AssetId& assetId,
     
     LUMA_LOG_INFO("MeshThumbnailRenderer", "Attempting to render thumbnail for: {} -> {}", nativePath.string(), outputPath.string());
     
-    // For now, use software rendering to ensure thumbnails work
-    // GPU rendering is not fully implemented yet (texture capture missing)
     // Load mesh and associated texture
     LumaMeshData mesh;
     TexturePreviewData texture;
@@ -130,95 +102,6 @@ bool MeshThumbnailRenderer::RenderThumbnail(const AssetId& assetId,
 void MeshThumbnailRenderer::GetPreferredSize(u32& outWidth, u32& outHeight) const {
     outWidth = 128;
     outHeight = 128;
-}
-
-bool MeshThumbnailRenderer::RenderGPUThumbnail(const AssetId& assetId,
-                                               const std::filesystem::path& nativePath,
-                                               const std::filesystem::path& outputPath,
-                                               u32 width,
-                                               u32 height) {
-    (void)assetId;
-    (void)outputPath;
-    
-    // Load mesh
-    LumaMeshData mesh;
-    if (!LoadMesh(nativePath, mesh)) {
-        LUMA_LOG_ERROR("MeshThumbnailRenderer", "Failed to load mesh for GPU rendering: {}", nativePath.string());
-        return false;
-    }
-    
-    if (!mesh.IsValid()) {
-        LUMA_LOG_ERROR("MeshThumbnailRenderer", "Invalid mesh data for GPU rendering");
-        return false;
-    }
-    
-    // Build thumbnail scene view
-    Renderer2::DeferredSceneView sceneView = BuildThumbnailSceneView(mesh, width, height);
-    
-    // Set up deferred renderer for thumbnail rendering
-    m_deferredRenderer->SetViewportDimensions(width, height);
-    m_deferredRenderer->SetEditorRenderMode(Renderer2::EditorRenderMode::Unlit);
-    m_deferredRenderer->SetDebugVisualization(false);
-    
-    // Prepare and render
-    m_deferredRenderer->PrepareScene();
-    m_deferredRenderer->RenderScene(sceneView);
-    
-    // TODO: Capture output from deferred renderer and save to file
-    // This requires implementing texture capture from the deferred renderer's output
-    LUMA_LOG_INFO("MeshThumbnailRenderer", "GPU rendering stub: {} vertices", mesh.vertices.size());
-    
-    return false; // TODO: Return true when texture capture is implemented
-}
-
-Renderer2::DeferredSceneView MeshThumbnailRenderer::BuildThumbnailSceneView(const LumaMeshData& mesh, u32 width, u32 height) {
-    using namespace Math;
-    
-    Renderer2::DeferredSceneView sceneView;
-    
-    // Center camera on mesh bounds
-    Vec3 center = mesh.bounds.center;
-    f32 radius = mesh.bounds.radius;
-    
-    // Position camera at diagonal
-    sceneView.cameraPosition = center + Vec3(radius * 1.5f, radius * 1.5f, radius * 1.5f);
-    sceneView.cameraDirection = Normalize(center - sceneView.cameraPosition);
-    
-    // Set up view matrix (look at center)
-    Vec3 up = Vec3(0.0f, 0.0f, 1.0f);
-    Vec3 f = Normalize(center - sceneView.cameraPosition);
-    Vec3 s = Normalize(Cross(f, up));
-    Vec3 u = Cross(s, f);
-    
-    sceneView.viewMatrix = Mat4::Identity();
-    sceneView.viewMatrix.m[0] = s.x; sceneView.viewMatrix.m[4] = s.y; sceneView.viewMatrix.m[8] = s.z;
-    sceneView.viewMatrix.m[1] = u.x; sceneView.viewMatrix.m[5] = u.y; sceneView.viewMatrix.m[9] = u.z;
-    sceneView.viewMatrix.m[2] = -f.x; sceneView.viewMatrix.m[6] = -f.y; sceneView.viewMatrix.m[10] = -f.z;
-    sceneView.viewMatrix.m[12] = -Dot(s, sceneView.cameraPosition);
-    sceneView.viewMatrix.m[13] = -Dot(u, sceneView.cameraPosition);
-    sceneView.viewMatrix.m[14] = Dot(f, sceneView.cameraPosition);
-    
-    // Orthographic projection
-    f32 orthoSize = radius * 2.0f;
-    f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
-    
-    sceneView.projectionMatrix = Mat4::Identity();
-    sceneView.projectionMatrix.m[0] = 2.0f / (orthoSize * aspect);
-    sceneView.projectionMatrix.m[5] = 2.0f / orthoSize;
-    sceneView.projectionMatrix.m[10] = -2.0f / (orthoSize * 2.0f);
-    sceneView.projectionMatrix.m[15] = 1.0f;
-    
-    sceneView.viewProjectionMatrix = sceneView.projectionMatrix * sceneView.viewMatrix;
-    
-    sceneView.fov = 1.0f;
-    sceneView.nearPlane = 0.1f;
-    sceneView.farPlane = radius * 10.0f;
-    sceneView.width = width;
-    sceneView.height = height;
-    sceneView.time = 0.0f;
-    sceneView.deltaTime = 0.0f;
-    
-    return sceneView;
 }
 
 bool MeshThumbnailRenderer::LoadTextureFromFile(const std::filesystem::path& path, TexturePreviewData& outTexture) {

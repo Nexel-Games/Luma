@@ -2,7 +2,6 @@
 
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Asset/LumaMesh.h"
-#include "Luma/RHI/RHIContext.h"
 #include "Luma/Core/Types.h"
 #include "Luma/Math/Math.h"
 
@@ -10,12 +9,6 @@
 #include <vector>
 
 namespace Luma {
-
-// Forward declarations
-namespace Renderer2 {
-class DeferredShadingRenderer;
-struct DeferredSceneView;
-}
 
 struct TexturePreviewData {
     std::vector<u8> pixels; // RGBA8
@@ -27,15 +20,12 @@ struct TexturePreviewData {
 /**
  * Thumbnail renderer for mesh assets
  * Renders .lmesh files as thumbnails using wireframe or solid preview
- * Can use software rendering (fallback) or GPU rendering with deferred renderer
+ * (CPU rasterized preview).
  */
 class MeshThumbnailRenderer : public ThumbnailRenderer {
 public:
     MeshThumbnailRenderer();
     ~MeshThumbnailRenderer() override;
-    
-    // Initialize with RHI device for GPU rendering
-    bool Initialize(RHI::RHIDevice* device);
     
     // ThumbnailRenderer interface
     AssetType GetAssetType() const override { return AssetType::Mesh; }
@@ -75,15 +65,6 @@ private:
                            TexturePreviewData& outTexture);
     
     /**
-     * Render mesh using GPU with deferred renderer
-     */
-    bool RenderGPUThumbnail(const AssetId& assetId,
-                           const std::filesystem::path& nativePath,
-                           const std::filesystem::path& outputPath,
-                           u32 width,
-                           u32 height);
-    
-    /**
      * Render mesh as wireframe thumbnail (software fallback)
      */
     bool RenderWireframe(const LumaMeshData& mesh,
@@ -120,14 +101,6 @@ private:
                   f32 x0, f32 y0, f32 x1, f32 y1,
                   u8 r, u8 g, u8 b);
     
-    /**
-     * Build thumbnail scene view for deferred renderer
-     */
-    Renderer2::DeferredSceneView BuildThumbnailSceneView(const LumaMeshData& mesh, u32 width, u32 height);
-    
-    RHI::RHIDevice* m_device = nullptr;
-    Renderer2::DeferredShadingRenderer* m_deferredRenderer = nullptr;
-    bool m_useGPU = false;
 };
 
 } // namespace Luma

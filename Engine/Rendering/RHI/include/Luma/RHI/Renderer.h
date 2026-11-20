@@ -292,11 +292,6 @@ public:
     // Begin/EndFrame). Only the rendered window contents are written.
     virtual void CaptureFrame(const std::string& pngPath) = 0;
 
-    // Renders the given scene into an offscreen target and returns a UI texture
-    // handle to display it. Call before BeginFrame.
-    virtual TextureHandle RenderSceneView(u32 width, u32 height,
-                                          const SceneView& scene) = 0;
-
     // Register an external Vulkan image view as a UI texture (for deferred renderer output)
     virtual TextureHandle RegisterExternalTexture(void* imageView) { (void)imageView; return 0; }
     virtual void UpdateExternalTexture(TextureHandle handle, void* imageView) { (void)handle; (void)imageView; }

@@ -45,10 +45,6 @@ public:
     }
     void DestroyTexture(Luma::TextureHandle) override {}
     void CaptureFrame(const std::string&) override {}
-    Luma::TextureHandle RenderSceneView(Luma::u32, Luma::u32,
-                                        const Luma::SceneView&) override {
-        return 0;
-    }
     void WaitIdle() override {}
 };
 }  // namespace

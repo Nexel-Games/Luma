@@ -23,7 +23,8 @@ target_link_libraries(LumaEditor
             Luma::PanelWorldOutliner Luma::PanelViewport Luma::PanelInspector
             Luma::PanelConsole Luma::PanelContentBrowser
             Luma::PanelFileSystemTree
-            Luma::PanelProjectSettings)
+            Luma::PanelProjectSettings
+            Vulkan::Vulkan)  # main.cpp drives VulkanDeferredRenderer directly
 
 set_target_properties(LumaEditor PROPERTIES
     OUTPUT_NAME "LumaEditor"

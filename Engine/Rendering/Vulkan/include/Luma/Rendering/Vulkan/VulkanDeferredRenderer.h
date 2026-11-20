@@ -9,7 +9,7 @@
 
 #include "Luma/Math/Math.h"
 #include "Luma/Renderer/CascadeShadows.h"
-#include "Luma/Renderer/DeferredShadingRenderer.h"
+#include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Sky/AtmosphereParams.h"
 #include "Vulkan/VulkanMemory.h"
 

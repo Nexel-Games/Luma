@@ -11,8 +11,6 @@ add_library(LumaRenderVulkan STATIC
     src/Vulkan/VulkanMemory.cpp
     src/Vulkan/VulkanTexture.cpp
     src/Vulkan/UI/VulkanUIPass.cpp
-    src/Vulkan/Scene/VulkanSceneView.cpp
-    src/Vulkan/Sky/VulkanSkyPass.cpp
     src/Vulkan/Grid/VulkanGridPass.cpp
     src/Vulkan/Overlay/VulkanOverlayLinePass.cpp
     src/Vulkan/SkyLight/VulkanSkyLight.cpp
@@ -37,8 +35,8 @@ if(NOT Vulkan_GLSLC_EXECUTABLE)
 endif()
 
 set(_luma_spv_outputs)
-foreach(shader ui.vert ui.frag scene.vert scene.frag sky.vert sky.frag
-               grid.vert grid.frag line.vert line.frag shadow.vert shadow.frag
+foreach(shader ui.vert ui.frag
+               grid.vert grid.frag shadow.vert shadow.frag
                gbuffer.vert gbuffer.frag
                deferred_lighting.vert deferred_lighting.frag
                fxaa.frag

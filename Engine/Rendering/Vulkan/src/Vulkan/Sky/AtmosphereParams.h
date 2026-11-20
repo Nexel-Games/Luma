@@ -21,9 +21,9 @@ struct AtmosphereParams {
     f32 ground[4];        // rgb ground color (below the horizon)
 };
 
-// Fills the UBO-ready params from the RHI SkyParams. Shared by the forward sky
-// pass (VulkanSkyPass) and the deferred lighting pass (VulkanDeferredRenderer)
-// so both render the same sky.
+// Fills the UBO-ready params from the RHI SkyParams. Used by the deferred
+// lighting pass (sky background) and the sky light capture so both see the
+// same atmosphere.
 inline void FillAtmosphereParams(AtmosphereParams& out, const SkyParams& sky) {
     Math::Vec3 sunDir = Math::Normalize(sky.sunDirection);
     // Fade the analytic sky out as the sun drops below the horizon (the

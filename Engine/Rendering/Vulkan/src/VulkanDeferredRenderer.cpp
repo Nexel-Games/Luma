@@ -19,7 +19,7 @@
 
 #include "Luma/Core/Log.h"
 #include "Luma/Mesh/Mesh.h"
-#include "Luma/Renderer/DeferredShadingRenderer.h"
+#include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Grid/VulkanGridPass.h"
 #include "Vulkan/Overlay/VulkanOverlayLinePass.h"
 #include "Vulkan/EyeAdaptation/VulkanEyeAdaptation.h"

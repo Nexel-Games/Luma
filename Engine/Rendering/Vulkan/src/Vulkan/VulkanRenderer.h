@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "Luma/RHI/Renderer.h"
-#include "Vulkan/Scene/VulkanSceneView.h"
 #include "Vulkan/UI/VulkanUIPass.h"
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
 #include "Vulkan/VulkanCommon.h"
@@ -35,8 +34,6 @@ public:
     void CaptureFrame(const std::string& pngPath) override {
         m_capturePath = pngPath;
     }
-    TextureHandle RenderSceneView(u32 width, u32 height,
-                                  const SceneView& scene) override;
     void WaitIdle() override;
     void* GetRhiDevice() const override { return m_device.get(); }
     
@@ -74,7 +71,6 @@ private:
     std::unique_ptr<VulkanDevice> m_device;
     std::unique_ptr<VulkanSwapchain> m_swapchain;
     std::unique_ptr<VulkanUIPass> m_uiPass;
-    std::unique_ptr<VulkanSceneView> m_sceneView;
     std::unique_ptr<Rendering::VulkanDeferredRenderer> m_vulkanDeferredRenderer;
     std::unique_ptr<Rendering::VulkanDeferredRenderer> m_vulkanMaterialDeferredRenderer;
 
