@@ -9,6 +9,13 @@ void AssignMaterialSlot(MeshRendererComponent& mesh, u32 slot, const std::string
     mesh.materials[slot] = materialPath;
 }
 
+bool UseSelectedAssetForSlot(MeshRendererComponent& mesh, u32 slot, const std::string& selectedPath,
+                             Material::MaterialLibrary& library) {
+    if (selectedPath.empty() || !library.Exists(selectedPath)) return false;
+    AssignMaterialSlot(mesh, slot, selectedPath);
+    return true;
+}
+
 std::string CreateInstanceForSlot(MeshRendererComponent& mesh, u32 slot,
                                   Material::MaterialLibrary& library, std::string* error) {
     std::string parent = slot < mesh.materials.size() ? mesh.materials[slot] : std::string{};

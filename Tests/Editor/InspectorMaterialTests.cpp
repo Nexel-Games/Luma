@@ -14,6 +14,7 @@ namespace fs = std::filesystem;
 using namespace Luma;
 using Luma::Editor::Panels::AssignMaterialSlot;
 using Luma::Editor::Panels::CreateInstanceForSlot;
+using Luma::Editor::Panels::UseSelectedAssetForSlot;
 using Luma::Editor::Panels::InspectorPanel;
 using Luma::Editor::Panels::PanelContext;
 using Luma::Material::MaterialLibrary;
@@ -132,4 +133,30 @@ TEST_CASE("Dropping a material on a slot row assigns that slot", "[inspector][ma
     REQUIRE(f.Mesh().materials.size() >= 2);
     CHECK(f.Mesh().materials[1] == "/Game/Materials/M_Wood");
     CHECK(f.Mesh().materials[0].empty());
+}
+
+TEST_CASE("Use Selected assigns a material", "[inspector][materials]") {
+    SlotFixture f;
+    CHECK(UseSelectedAssetForSlot(f.Mesh(), 1, "/Game/Materials/M_Wood", *f.lib));
+    REQUIRE(f.Mesh().materials.size() == 2);
+    CHECK(f.Mesh().materials[1] == "/Game/Materials/M_Wood");
+}
+
+TEST_CASE("Use Selected assigns a material instance", "[inspector][materials]") {
+    SlotFixture f;
+    AssignMaterialSlot(f.Mesh(), 0, "/Game/Materials/M_Wood");
+    std::string error;
+    const std::string inst = CreateInstanceForSlot(f.Mesh(), 0, *f.lib, &error);
+    REQUIRE_FALSE(inst.empty());
+    CHECK(UseSelectedAssetForSlot(f.Mesh(), 2, inst, *f.lib));
+    CHECK(f.Mesh().materials[2] == inst);
+}
+
+TEST_CASE("Use Selected rejects non-material assets", "[inspector][materials]") {
+    SlotFixture f;
+    AssignMaterialSlot(f.Mesh(), 0, "/Game/Materials/M_Wood");
+    CHECK_FALSE(UseSelectedAssetForSlot(f.Mesh(), 0, "/Game/Textures/T_Wood_diff", *f.lib));
+    CHECK_FALSE(UseSelectedAssetForSlot(f.Mesh(), 0, "", *f.lib));
+    CHECK_FALSE(UseSelectedAssetForSlot(f.Mesh(), 0, "/Game/Materials/M_Missing", *f.lib));
+    CHECK(f.Mesh().materials[0] == "/Game/Materials/M_Wood");
 }

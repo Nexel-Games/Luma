@@ -795,6 +795,11 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
             m_contentBrowser.BrowseTo(*file);
         }
     };
+    ctx.selectedAsset = [this]() -> std::string {
+        const AssetData* a = m_assetRegistry.Lookup(m_contentBrowser.Selected());
+        if (!a) return {};
+        return m_assetPaths.ToVirtual(a->packagePath).value_or(std::string{});
+    };
     ctx.onResetCamera = [this] {
         m_camYaw = kDefaultCamYaw;
         m_camPitch = kDefaultCamPitch;

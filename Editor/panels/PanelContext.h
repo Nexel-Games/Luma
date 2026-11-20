@@ -116,6 +116,8 @@ struct PanelContext {
     std::function<void(const std::string& assetPath)> onOpenAsset;
     // Shows an asset in the Content Browser.
     std::function<void(const std::string& assetPath)> onBrowseToAsset;
+    // Virtual path of the Content Browser's selected asset ("" when none).
+    std::function<std::string()> selectedAsset;
     // Virtual asset path of a file under the project/engine content ("" if
     // outside both).
     std::function<std::string(const std::filesystem::path& file)> virtualPathOf;

@@ -286,6 +286,46 @@ void DrawRefresh(Context& ctx, const Rect& box, Color color) {
     ctx.drawList().AddTriangle(p0, p1, p2, color);
 }
 
+// A left-pointing arrow: shaft plus a filled head.
+void DrawArrowLeft(Context& ctx, const Rect& box, Color color) {
+    const f32 cx = box.x + box.w * 0.5f;
+    const f32 cy = box.y + box.h * 0.5f;
+    const f32 s = box.w * 0.38f;
+    ctx.drawList().AddLine({cx - s * 0.2f, cy}, {cx + s, cy}, color, StrokeWidth(ctx) * 1.3f);
+    ctx.drawList().AddTriangle({cx - s, cy}, {cx - s * 0.1f, cy - s * 0.65f},
+                               {cx - s * 0.1f, cy + s * 0.65f}, color);
+}
+
+// Reset to default: a three-quarter circle running counter-clockwise from
+// the right, ending at the bottom in an arrow head along the arc.
+void DrawReset(Context& ctx, const Rect& box, Color color) {
+    const f32 cx = box.x + box.w * 0.5f;
+    const f32 cy = box.y + box.h * 0.5f;
+    const f32 r = box.w * 0.30f;
+    const f32 w = StrokeWidth(ctx) * 1.2f;
+    constexpr f32 kPi = 3.14159265f;
+    constexpr int kSegments = 16;
+    constexpr f32 kStart = 0.0f;           // right
+    constexpr f32 kEnd = -1.5f * kPi;      // bottom (screen y points down)
+    Vec2 prev{cx + r * std::cos(kStart), cy + r * std::sin(kStart)};
+    for (int i = 1; i <= kSegments; ++i) {
+        const f32 a = kStart + (kEnd - kStart) * static_cast<f32>(i) / kSegments;
+        const Vec2 p{cx + r * std::cos(a), cy + r * std::sin(a)};
+        ctx.drawList().AddLine(prev, p, color, w);
+        prev = p;
+    }
+    // Head: tangent of a decreasing angle is (sin a, -cos a).
+    const Vec2 dir{std::sin(kEnd), -std::cos(kEnd)};
+    const Vec2 nrm{std::cos(kEnd), std::sin(kEnd)};
+    const f32 h = r * 0.85f;
+    const Vec2 tip{prev.x + dir.x * h * 0.7f, prev.y + dir.y * h * 0.7f};
+    const Vec2 b0{prev.x + nrm.x * h * 0.55f - dir.x * h * 0.2f,
+                  prev.y + nrm.y * h * 0.55f - dir.y * h * 0.2f};
+    const Vec2 b1{prev.x - nrm.x * h * 0.55f - dir.x * h * 0.2f,
+                  prev.y - nrm.y * h * 0.55f - dir.y * h * 0.2f};
+    ctx.drawList().AddTriangle(tip, b0, b1, color);
+}
+
 }  // namespace
 
 void DrawIcon(Context& ctx, const Rect& box, Icon icon, Color color) {
@@ -318,6 +358,8 @@ void DrawIcon(Context& ctx, const Rect& box, Icon icon, Color color) {
         case Icon::Plane:        DrawPrimitivePlane(ctx, box, color); break;
         case Icon::Cylinder:     DrawPrimitiveCylinder(ctx, box, color); break;
         case Icon::Refresh:      DrawRefresh(ctx, box, color); break;
+        case Icon::ArrowLeft:    DrawArrowLeft(ctx, box, color); break;
+        case Icon::Reset:        DrawReset(ctx, box, color); break;
         case Icon::Image: {
             // A square frame with a small mountain + sun inside.
             f32 x = box.x, y = box.y, w = box.w, h = box.h;

@@ -87,7 +87,7 @@ TEST_CASE("DrawIcon emits at least one draw command for every glyph",
         Icon::Lock, Icon::Plus, Icon::Close, Icon::Check, Icon::Save,
         Icon::Play, Icon::Pause, Icon::Stop, Icon::Grip, Icon::Dot,
         Icon::Trash, Icon::Camera, Icon::Cube, Icon::Sphere, Icon::Plane,
-        Icon::Cylinder, Icon::Refresh,
+        Icon::Cylinder, Icon::Refresh, Icon::ArrowLeft, Icon::Reset,
     };
     int prevCount = 0;
     for (Icon i : icons) {
@@ -109,4 +109,17 @@ TEST_CASE("DrawIcon with Icon::None emits nothing", "[slate][icon]") {
                           Color::RGB(255, 255, 255));
     ctx.EndFrame();
     REQUIRE(ctx.drawList().vertexCount() == before);
+}
+
+TEST_CASE("ArrowLeft and Reset icons each draw geometry", "[slate][icons]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    for (Icon icon : {Icon::ArrowLeft, Icon::Reset}) {
+        ctx.BeginFrame(800, 600, 0.0166f);
+        const auto before = ctx.drawList().vertexCount();
+        Luma::Slate::DrawIcon(ctx, {0, 0, 16, 16}, icon, Color::RGB(255, 255, 255));
+        CHECK(ctx.drawList().vertexCount() > before);
+        ctx.EndFrame();
+    }
 }

@@ -14,6 +14,12 @@ namespace Luma::Editor::Panels {
 // Default Material entries as needed).
 void AssignMaterialSlot(MeshRendererComponent& mesh, u32 slot, const std::string& materialPath);
 
+// "Use Selected Asset": assigns `selectedPath` (the Content Browser
+// selection) to `slot` when it is a Material or Material Instance; returns
+// false and leaves the slot unchanged otherwise.
+bool UseSelectedAssetForSlot(MeshRendererComponent& mesh, u32 slot, const std::string& selectedPath,
+                             Material::MaterialLibrary& library);
+
 // Creates and saves a Material Instance of the slot's material (the Default
 // Material for an empty slot) named MI_<parent name> next to its parent
 // (/Game/Materials for engine parents), assigns it to the slot and returns its

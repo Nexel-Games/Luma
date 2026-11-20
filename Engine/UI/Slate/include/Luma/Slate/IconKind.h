@@ -35,6 +35,8 @@ enum class Icon {
     Plane,
     Cylinder,
     Refresh,
+    ArrowLeft,  // "use selected" (take the Content Browser selection)
+    Reset,      // "reset to default" (counter-clockwise hooked arrow)
     Image,
 };
 

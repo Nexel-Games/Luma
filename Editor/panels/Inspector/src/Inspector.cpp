@@ -9,6 +9,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
 #include "Luma/Material/MaterialLibrary.h"
+#include "Luma/Slate/Icons.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Slate/Menu.h"
 
@@ -619,82 +620,143 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
                "Materials\nOne material per mesh section. Empty slots use the Default "
                "Material. Drag a material from the Content Browser onto a slot.");
     y += 24.0f;
-    constexpr f32 kThumb = 40.0f;
+    // Unreal-style slot: label column | thumbnail | asset combo + actions.
+    //   Element 0   [thumb]  [ M_Bricks                  v ]
+    //                        (<-) (search) (reset)   Material Instance
+    const f32 kLabelW = ui.font().Measure("Element 00").x + 10.0f;
+    constexpr f32 kThumb = 48.0f;
     constexpr f32 kButton = 22.0f;
+    constexpr f32 kGap = 2.0f;
     for (u32 slot = 0; slot < rows; ++slot) {
         const bool unused = slot >= sections;
         const std::string path = slot < mr.materials.size() ? mr.materials[slot] : std::string{};
-        const std::string shown = path.empty() ? std::string(Material::kDefaultMaterialPath) : path;
-        const Rect row{x, y, w, kThumb + 4.0f};
+        const bool isDefault = path.empty();
+        const std::string shown = isDefault ? std::string(Material::kDefaultMaterialPath) : path;
+        const usize slash = shown.find_last_of('/');
+        const std::string name = shown.substr(slash + 1);
+        const Rect row{x, y, w, kThumb + 6.0f};
         if (!unused) m_slotRects.push_back(row);
         const std::string key = "insp.mat." + std::to_string(slot);
 
-        // Thumbnail.
-        const Rect thumb{row.x, row.y + 2.0f, kThumb, kThumb};
-        ui.PanelRounded(thumb, t.surface2, t.radius.sm);
-        if (ctx.assetThumbnail) {
-            if (TextureHandle tex = ctx.assetThumbnail(shown)) ui.Image(tex, thumb);
-        }
-        // Label: "Element N" (or Unused N when the mesh has fewer sections).
-        const f32 tx = thumb.Right() + 8.0f;
-        ui.LabelIn({tx, row.y + 1.0f, w - (tx - x), 18.0f},
-                   (unused ? "Unused " : "Element ") + std::to_string(slot),
+        // Label column, centred on the thumbnail.
+        const Rect label{x, row.y + (kThumb - 18.0f) * 0.5f + 3.0f, kLabelW - 4.0f, 18.0f};
+        ui.LabelIn(label, (unused ? "Unused " : "Element ") + std::to_string(slot),
                    unused ? t.textDisabled : t.textDim);
         if (unused) {
-            ui.Tooltip(Slate::Context::ID(key + ".unused"), {tx, row.y, 120.0f, 18.0f},
-                       "Unused slot\nThe mesh has fewer sections; the slot is kept for meshes "
+            ui.Tooltip(Slate::Context::ID(key + ".unused"), label,
+                       "Unused slot\nThe mesh has fewer sections; the slot is kept for meshes "
                        "with more.");
         }
-        // Asset picker + Browse / Clear / Create Instance.
-        const f32 buttons = 3.0f * (kButton + 2.0f);
-        const Rect pick{tx, row.y + 20.0f, std::max(w - (tx - x) - buttons, 40.0f), kButton};
+
+        // Thumbnail: hover border; double-click opens the Material Editor.
+        const Rect thumb{x + kLabelW, row.y + 3.0f, kThumb, kThumb};
+        const bool thumbHover = thumb.Contains(ui.mouse());
+        ui.PanelRoundedBordered(thumb, t.surface2, thumbHover ? t.focusRing : t.outline,
+                                t.radius.sm, thumbHover ? t.border.thick : t.border.hairline);
+        if (ctx.assetThumbnail) {
+            if (TextureHandle tex = ctx.assetThumbnail(shown)) {
+                ui.Image(tex, thumb.Inset(2.0f, 2.0f),
+                         isDefault ? Slate::Color::RGBA(255, 255, 255, 150)
+                                   : Slate::Color::RGB(255, 255, 255));
+            }
+        }
+        if (thumbHover && ui.mouseDoubleClicked(0) && ctx.onOpenAsset) ctx.onOpenAsset(shown);
+        ui.Tooltip(Slate::Context::ID(key + ".thumb"), thumb,
+                   name + "\nDouble-click to open it in the Material Editor.");
+
+        // Asset combo: name + chevron; opens a searchable material list.
+        const f32 cx = thumb.Right() + 6.0f;
+        const Rect pick{cx, row.y + 3.0f, std::max(row.Right() - cx - 2.0f, 60.0f), kButton};
         const u64 pickId = Slate::Context::ID(key + ".pick");
-        const usize slash = shown.find_last_of('/');
-        if (ui.MenuButton(pickId, pick, shown.substr(slash + 1)) && ctx.listMaterials) {
+        const bool pickHover = pick.Contains(ui.mouse());
+        const bool pickOpen = ui.IsMenuOpen(pickId);
+        ui.PanelRoundedBordered(pick, pickHover || pickOpen ? t.surface4 : t.surface3,
+                                pickOpen ? t.focusRing : t.outline, t.radius.sm,
+                                t.border.hairline);
+        ui.LabelIn({pick.x + 8.0f, pick.y, pick.w - 28.0f, pick.h},
+                   isDefault ? std::string("DefaultMaterial") : name,
+                   isDefault ? t.textDim : t.text);
+        Slate::DrawIcon(ui, {pick.Right() - 20.0f, pick.y + 4.0f, 14.0f, 14.0f},
+                        Slate::Icon::ChevronDown, t.textDim);
+        if (pickHover && ui.mousePressed(0) && !pickOpen) {
             Slate::MenuBuilder b;
+            b.BeginSection("Actions");
+            b.AddEntry("Create Material Instance", Slate::Icon::Plus,
+                       [&mr, slot, lib = ctx.materials] {
+                           if (!lib) return;
+                           std::string error;
+                           if (CreateInstanceForSlot(mr, slot, *lib, &error).empty()) {
+                               LUMA_USER_ERROR("Materials",
+                                               "Could not create a Material Instance: {}", error);
+                           }
+                       },
+                       {.tooltip = "Create a Material Instance of this material next to it "
+                                   "and assign it here."});
+            b.EndSection();
             b.BeginSection("Materials");
             b.AddEntry("DefaultMaterial", {}, [&mr, slot] { AssignMaterialSlot(mr, slot, {}); },
                        {.tooltip = std::string(Material::kDefaultMaterialPath)});
-            for (const std::string& candidate : ctx.listMaterials()) {
-                if (candidate == Material::kDefaultMaterialPath) continue;
-                const usize s2 = candidate.find_last_of('/');
-                b.AddEntry(candidate.substr(s2 + 1), {},
-                           [&mr, slot, candidate] { AssignMaterialSlot(mr, slot, candidate); },
-                           {.tooltip = candidate});
+            if (ctx.listMaterials) {
+                for (const std::string& candidate : ctx.listMaterials()) {
+                    if (candidate == Material::kDefaultMaterialPath) continue;
+                    const usize s2 = candidate.find_last_of('/');
+                    b.AddEntry(candidate.substr(s2 + 1), {},
+                               [&mr, slot, candidate] { AssignMaterialSlot(mr, slot, candidate); },
+                               {.tooltip = candidate});
+                }
             }
+            b.EndSection();
             Slate::MenuOptions options;
             options.searchable = true;
             options.searchHint = "Search materials";
             ui.OpenMenuBelow(pickId, pick, b.Build(), options);
         }
-        ui.Tooltip(pickId ^ 0x7177ull, pick, shown);
-        Rect btn{pick.Right() + 2.0f, pick.y, kButton, kButton};
-        if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::FolderOpen,
-                              {}, t.textDim) &&
+        ui.Tooltip(pickId ^ 0x7177ull, pick,
+                   shown + "\n" + (isDefault ? "Default Material" : ctx.materials &&
+                                        ctx.materials->IsInstance(shown) ? "Material Instance"
+                                                                         : "Material"));
+
+        // Second line: Use Selected | Browse to Asset | Reset to Default, then
+        // what kind of asset the slot holds.
+        Rect btn{cx, pick.Bottom() + 4.0f, kButton, kButton};
+        const bool instance = !isDefault && ctx.materials && ctx.materials->IsInstance(shown);
+        const char* kind = isDefault ? "Default Material" : instance ? "Material Instance"
+                                                                     : "Material";
+        const f32 kindX = cx + 3.0f * (kButton + kGap) + 6.0f;
+        if (ui.font().Measure(kind).x <= pick.Right() - kindX) {  // only when it fits
+            ui.LabelIn({kindX, btn.y, pick.Right() - kindX, kButton}, kind, t.textDisabled);
+        }
+        if (ui.IconTextButton(Slate::Context::ID(key + ".use"), btn, Slate::Icon::ArrowLeft, {},
+                              t.textDim) &&
+            ctx.selectedAsset && ctx.materials) {
+            const std::string selected = ctx.selectedAsset();
+            if (UseSelectedAssetForSlot(mr, slot, selected, *ctx.materials)) {
+                LUMA_USER_INFO("Materials", "Assigned '{}' to element {}", selected, slot);
+            } else {
+                LUMA_USER_WARN("Materials",
+                               "Select a Material or Material Instance in the Content Browser "
+                               "first");
+            }
+        }
+        ui.Tooltip(Slate::Context::ID(key + ".use.tip"), btn,
+                   "Use Selected Asset\nAssign the material selected in the Content Browser.");
+        btn.x += kButton + kGap;
+        if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::FolderOpen, {},
+                              t.textDim) &&
             ctx.onBrowseToAsset) {
             ctx.onBrowseToAsset(shown);
         }
         ui.Tooltip(Slate::Context::ID(key + ".browse.tip"), btn,
-                   "Browse to Asset\nShow the material in the Content Browser.");
-        btn.x += kButton + 2.0f;
-        if (ui.IconTextButton(Slate::Context::ID(key + ".clear"), btn, Slate::Icon::Close, {},
-                              t.textDim)) {
+                   "Browse to Asset\nShow the material in the Content Browser.");
+        btn.x += kButton + kGap;
+        if (ui.IconTextButton(Slate::Context::ID(key + ".reset"), btn, Slate::Icon::Reset, {},
+                              isDefault ? t.textDisabled : t.textDim) &&
+            !isDefault) {
             AssignMaterialSlot(mr, slot, {});
         }
-        ui.Tooltip(Slate::Context::ID(key + ".clear.tip"), btn,
-                   "Clear\nUse the Default Material for this slot.");
-        btn.x += kButton + 2.0f;
-        if (ui.IconTextButton(Slate::Context::ID(key + ".inst"), btn, Slate::Icon::Plus, {},
-                              t.textDim) &&
-            ctx.materials) {
-            std::string error;
-            if (CreateInstanceForSlot(mr, slot, *ctx.materials, &error).empty()) {
-                LUMA_USER_ERROR("Materials", "Could not create a Material Instance: {}", error);
-            }
-        }
-        ui.Tooltip(Slate::Context::ID(key + ".inst.tip"), btn,
-                   "Create Instance\nCreate a Material Instance of this material next to it "
-                   "and assign it here.");
+        ui.Tooltip(Slate::Context::ID(key + ".reset.tip"), btn,
+                   "Reset to Default\nUse the Default Material for this slot.");
+
         // Drop target: a material dragged from the Content Browser.
         if (!unused) {
             if (const Slate::DragPayload* drop = ui.AcceptDrop(row, "asset/material")) {
@@ -702,7 +764,7 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
                 LUMA_USER_INFO("Materials", "Assigned '{}' to element {}", drop->data, slot);
             }
         }
-        y += row.h + 4.0f;
+        y += row.h + 6.0f;
     }
 }
 
