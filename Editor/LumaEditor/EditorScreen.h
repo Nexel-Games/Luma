@@ -194,6 +194,13 @@ private:
     void OpenMaterialEditor(const std::string& assetPath);
     void DrawMaterialEditorClosePrompt(Slate::Context& ui);
     TextureHandle AssetThumbnail(const std::string& assetPath);
+    // Content Browser material workflows.
+    void CreateMaterialAsset(const std::filesystem::path& folder);
+    void CreateMaterialInstanceAsset(const std::string& parent, const std::filesystem::path& folder);
+    void CreateMaterialFromTextures(const std::filesystem::path& texture);
+    void DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& path);
+    // `desired` if no material asset uses it, else desired_1, desired_2, ...
+    std::string UniqueMaterialPath(const std::string& desired);
     std::vector<std::string> ListAssets(bool materials) const;
 
     // Entity / asset actions behind the panels' menus (PanelContext hooks).

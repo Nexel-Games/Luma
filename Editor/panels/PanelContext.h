@@ -116,6 +116,19 @@ struct PanelContext {
     std::function<void(const std::string& assetPath)> onOpenAsset;
     // Shows an asset in the Content Browser.
     std::function<void(const std::string& assetPath)> onBrowseToAsset;
+    // Virtual asset path of a file under the project/engine content ("" if
+    // outside both).
+    std::function<std::string(const std::filesystem::path& file)> virtualPathOf;
+    // Content Browser material workflows (each saves the asset and opens it).
+    std::function<void(const std::filesystem::path& folder)> onCreateMaterial;
+    std::function<void(const std::string& parent, const std::filesystem::path& folder)>
+        onCreateMaterialInstance;
+    // Builds a material from the texture set `texture` belongs to.
+    std::function<void(const std::filesystem::path& texture)> onCreateMaterialFromTextures;
+    // A material dropped on the viewport along a world ray.
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir,
+                       const std::string& materialPath)>
+        onDropMaterial;
 };
 
 }  // namespace Luma::Editor::Panels

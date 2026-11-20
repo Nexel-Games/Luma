@@ -39,6 +39,7 @@ add_executable(LumaTests
     Material/MaterialModelTests.cpp
     Material/MaterialSerializerTests.cpp
     Material/MaterialLibraryTests.cpp
+    Material/MaterialFromTexturesTests.cpp
     Editor/ContentBrowserTests.cpp
     Editor/ConsoleTests.cpp
     Editor/MaterialSceneBridgeTests.cpp

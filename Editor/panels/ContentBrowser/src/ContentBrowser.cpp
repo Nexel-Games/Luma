@@ -499,6 +499,20 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
 
         bool selected = (m_selected == a->id);
 
+        // Materials and textures drag onto Inspector slots / the viewport.
+        if (!a->IsFolder() && ctx.virtualPathOf &&
+            (a->type == AssetType::Material || a->type == AssetType::MaterialInstance ||
+             a->type == AssetType::Texture)) {
+            Slate::DragPayload payload;
+            payload.type = a->type == AssetType::Texture ? "asset/texture" : "asset/material";
+            payload.data = ctx.virtualPathOf(a->packagePath);
+            payload.label = a->assetName;
+            if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {
+                payload.icon = th->second;
+            }
+            if (!payload.data.empty()) ui.BeginDrag(cardId ^ 0xD2A6ull, card, payload);
+        }
+
         // Card-body click: single-click selects the asset or enters
         // the folder. If already selected AND the name row is the
         // target, skip the Selectable response so that click falls
@@ -874,6 +888,38 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext&
                    },
                    o);
     }
+    {
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onCreateMaterial) && !folder.empty();
+        o.tooltip = "Create a Material (Default Material values) in this folder and open it.";
+        auto create = ctx.onCreateMaterial;
+        b.AddEntry("Material", Icon::Sphere,
+                   [create, folder] {
+                       if (create) create(folder);
+                   },
+                   o);
+    }
+    {
+        // Instance of the selected Material / Material Instance.
+        std::string parent;
+        if (const AssetData* sel = m_registry ? m_registry->Lookup(m_selected) : nullptr) {
+            if ((sel->type == AssetType::Material || sel->type == AssetType::MaterialInstance) &&
+                ctx.virtualPathOf) {
+                parent = ctx.virtualPathOf(sel->packagePath);
+            }
+        }
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.onCreateMaterialInstance) && !folder.empty() &&
+                    !parent.empty();
+        o.tooltip = parent.empty() ? "Select a Material first: the instance inherits from it."
+                                   : "Create a Material Instance of '" + parent + "' here.";
+        auto create = ctx.onCreateMaterialInstance;
+        b.AddEntry("Material Instance", Icon::Sphere,
+                   [create, parent, folder] {
+                       if (create) create(parent, folder);
+                   },
+                   o);
+    }
 
     b.BeginSection("Folder");
     {
@@ -912,6 +958,43 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
     b.BeginSection(isFolder ? "Folder" : "Asset");
     if (isFolder) {
         b.AddEntry("Open", Icon::FolderOpen, [this, path] { NavigateTo(path); });
+    }
+    const bool isMaterial =
+        asset.type == AssetType::Material || asset.type == AssetType::MaterialInstance;
+    const std::string virtualPath =
+        ctx.virtualPathOf && !isFolder ? ctx.virtualPathOf(path) : std::string{};
+    if (isMaterial && !virtualPath.empty()) {
+        auto open = ctx.onOpenAsset;
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(open);
+        o.tooltip = "Open in the Material Editor.";
+        b.AddEntry("Open", Icon::FolderOpen,
+                   [open, virtualPath] {
+                       if (open) open(virtualPath);
+                   },
+                   o);
+        auto create = ctx.onCreateMaterialInstance;
+        Slate::MenuEntryOptions oi;
+        oi.enabled = static_cast<bool>(create);
+        oi.tooltip = "Create a Material Instance that inherits from this material.";
+        const std::filesystem::path folder = path.parent_path();
+        b.AddEntry("Create Material Instance", Icon::Sphere,
+                   [create, virtualPath, folder] {
+                       if (create) create(virtualPath, folder);
+                   },
+                   oi);
+    }
+    if (asset.type == AssetType::Texture) {
+        auto create = ctx.onCreateMaterialFromTextures;
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(create);
+        o.tooltip = "Create a Material wired to this texture set (textures in this folder "
+                    "sharing its name prefix: diff/normal/rough/metal/ao/arm/emissive/opacity).";
+        b.AddEntry("Create Material from Textures", Icon::Sphere,
+                   [create, path] {
+                       if (create) create(path);
+                   },
+                   o);
     }
     {
         Slate::MenuEntryOptions o;

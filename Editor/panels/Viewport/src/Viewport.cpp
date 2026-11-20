@@ -565,6 +565,33 @@ void ViewportPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelConte
         gizmoBusy = gizmo.Dragging() || gizmo.Hovered() != GizmoHandle::None;
     }
 
+    // World ray through a viewport pixel.
+    auto rayThrough = [&](Slate::Vec2 px, Math::Vec3& origin, Math::Vec3& dir) {
+        const Math::Mat4 inv = Math::Inverse(proj * *ctx.view);
+        const f32 nx = (px.x - body.x) / body.w * 2.0f - 1.0f;
+        const f32 ny = (px.y - body.y) / body.h * 2.0f - 1.0f;
+        auto unproject = [&](f32 z) {
+            const f32 x = inv.m[0] * nx + inv.m[4] * ny + inv.m[8] * z + inv.m[12];
+            const f32 y = inv.m[1] * nx + inv.m[5] * ny + inv.m[9] * z + inv.m[13];
+            const f32 zz = inv.m[2] * nx + inv.m[6] * ny + inv.m[10] * z + inv.m[14];
+            const f32 w = inv.m[3] * nx + inv.m[7] * ny + inv.m[11] * z + inv.m[15];
+            return Math::Vec3(x / w, y / w, zz / w);
+        };
+        origin = unproject(0.0f);
+        dir = Math::Normalize(unproject(1.0f) - origin);
+    };
+    // A material dropped from the Content Browser goes on the actor under the
+    // cursor.
+    if (body.w > 0.0f && body.h > 0.0f) {
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(body, "asset/material")) {
+            if (ctx.onDropMaterial) {
+                Math::Vec3 origin, dir;
+                rayThrough(ui.mouse(), origin, dir);
+                ctx.onDropMaterial(origin, dir, drop->data);
+            }
+        }
+    }
+
     // Click-select: a left press that is released without dragging picks the
     // actor under the cursor (empty space clears the selection).
     if (ui.mousePressed(0) && inView && !navigating && !gizmoBusy) {

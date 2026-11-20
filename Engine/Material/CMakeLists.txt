@@ -7,7 +7,8 @@ add_library(LumaMaterial STATIC
     src/MaterialJson.cpp
     src/MaterialSerializer.cpp
     src/MaterialInstanceSerializer.cpp
-    src/MaterialLibrary.cpp)
+    src/MaterialLibrary.cpp
+    src/MaterialFromTextures.cpp)
 
 add_library(Luma::Material ALIAS LumaMaterial)
 

@@ -18,6 +18,8 @@
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Scene/Components.h"
+#include "Luma/Editor/Panels/MaterialSlots.h"
+#include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
 #include "Luma/VFS/VFS.h"
@@ -359,6 +361,115 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
     }
 }
 
+std::string EditorScreen::UniqueMaterialPath(const std::string& desired) {
+    std::string path = desired;
+    for (int n = 1; m_materials->Exists(path); ++n) path = desired + "_" + std::to_string(n);
+    return path;
+}
+
+void EditorScreen::CreateMaterialAsset(const std::filesystem::path& folder) {
+    const auto folderPath = m_assetPaths.ToVirtual(folder / "M_NewMaterial");
+    if (!folderPath) {
+        LUMA_USER_ERROR("Materials", "Materials can only be created inside the project content");
+        return;
+    }
+    const std::string path = UniqueMaterialPath(*folderPath);
+    Material::Material material = Material::Material::MakeDefault();
+    material.name = path.substr(path.find_last_of('/') + 1);
+    m_materials->SetMaterial(path, material);
+    std::string err;
+    if (!m_materials->Save(path, &err)) {
+        LUMA_USER_ERROR("Materials", "Could not create '{}': {}", path, err);
+        m_materials->Revert(path);
+        return;
+    }
+    m_assetRegistry.Scan();
+    LUMA_USER_INFO("Materials", "Created '{}'", path);
+    OpenMaterialEditor(path);
+}
+
+void EditorScreen::CreateMaterialInstanceAsset(const std::string& parent,
+                                               const std::filesystem::path& folder) {
+    std::string base = parent.substr(parent.find_last_of('/') + 1);
+    if (base.rfind("MI_", 0) == 0) base = base.substr(3);
+    if (base.rfind("M_", 0) == 0) base = base.substr(2);
+    const auto desired = m_assetPaths.ToVirtual(folder / ("MI_" + base));
+    if (!desired || !m_materials->Exists(parent)) {
+        LUMA_USER_ERROR("Materials", "Cannot create an instance of '{}' here", parent);
+        return;
+    }
+    Material::MaterialInstance instance;
+    instance.parent = parent;
+    const std::string path = m_materials->CreateInMemoryInstance(*desired, instance);
+    instance.name = path.substr(path.find_last_of('/') + 1);
+    m_materials->SetInstance(path, instance);
+    std::string err;
+    if (!m_materials->Save(path, &err)) {
+        LUMA_USER_ERROR("Materials", "Could not create '{}': {}", path, err);
+        m_materials->Revert(path);
+        return;
+    }
+    m_assetRegistry.Scan();
+    LUMA_USER_INFO("Materials", "Created '{}' (instance of '{}')", path, parent);
+    OpenMaterialEditor(path);
+}
+
+void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& texture) {
+    const auto clicked = m_assetPaths.ToVirtual(texture);
+    if (!clicked) return;
+    // The texture set: textures in the same folder sharing the clicked
+    // texture's name prefix (the part before its role token).
+    const auto probe = Material::BuildMaterialFromTextures({*clicked});
+    std::string prefix = probe.suggestedName.substr(2);  // drop "M_"
+    std::transform(prefix.begin(), prefix.end(), prefix.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    std::vector<std::string> set;
+    for (const AssetData* a :
+         m_assetRegistry.Filter(AssetType::Texture, texture.parent_path(), {})) {
+        if (a->packagePath.parent_path() != texture.parent_path()) continue;
+        std::string name = a->assetName;
+        std::transform(name.begin(), name.end(), name.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        const bool inSet = name.find(prefix) != std::string::npos;
+        if (!inSet && a->packagePath != texture) continue;
+        if (auto vp = m_assetPaths.ToVirtual(a->packagePath)) set.push_back(*vp);
+    }
+    auto result = Material::BuildMaterialFromTextures(set);
+    for (const std::string& ignored : result.ignored) {
+        LUMA_USER_WARN("Materials", "'{}' matched no material input and was left out", ignored);
+    }
+    const auto desired = m_assetPaths.ToVirtual(texture.parent_path() / result.suggestedName);
+    if (!desired) return;
+    const std::string path = UniqueMaterialPath(*desired);
+    result.material.name = path.substr(path.find_last_of('/') + 1);
+    m_materials->SetMaterial(path, result.material);
+    std::string err;
+    if (!m_materials->Save(path, &err)) {
+        LUMA_USER_ERROR("Materials", "Could not create '{}': {}", path, err);
+        m_materials->Revert(path);
+        return;
+    }
+    m_assetRegistry.Scan();
+    LUMA_USER_INFO("Materials", "Created '{}' from {} texture(s)", path,
+                   set.size() - result.ignored.size());
+    OpenMaterialEditor(path);
+}
+
+void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
+                                const std::string& path) {
+    const Entity e = PickEntity(origin, dir);
+    auto* mesh = m_scene.IsValid(e) ? m_scene.Registry().try_get<MeshRendererComponent>(e)
+                                    : nullptr;
+    if (!mesh) {
+        LUMA_USER_WARN("Materials", "Drop '{}' onto a mesh actor to assign it", path);
+        return;
+    }
+    Editor::Panels::AssignMaterialSlot(*mesh, 0, path);
+    m_selected = e;
+    LUMA_USER_INFO("Materials", "Assigned '{}' to '{}'", path,
+                   m_scene.Registry().get<NameComponent>(e).name);
+}
+
 TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
     if (!m_renderer) return 0;
     auto file = m_assetPaths.ToFile(assetPath, {"png", "jpg", "jpeg", "tga", "bmp", "psd", "gif",
@@ -633,6 +744,21 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.listTextures = [this] { return ListAssets(false); };
     ctx.listMaterials = [this] { return ListAssets(true); };
     ctx.onOpenAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
+    ctx.virtualPathOf = [this](const std::filesystem::path& file) {
+        return m_assetPaths.ToVirtual(file).value_or(std::string{});
+    };
+    ctx.onCreateMaterial = [this](const std::filesystem::path& folder) {
+        CreateMaterialAsset(folder);
+    };
+    ctx.onCreateMaterialInstance = [this](const std::string& parent,
+                                          const std::filesystem::path& folder) {
+        CreateMaterialInstanceAsset(parent, folder);
+    };
+    ctx.onCreateMaterialFromTextures = [this](const std::filesystem::path& texture) {
+        CreateMaterialFromTextures(texture);
+    };
+    ctx.onDropMaterial = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                                const std::string& path) { DropMaterial(origin, dir, path); };
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);
