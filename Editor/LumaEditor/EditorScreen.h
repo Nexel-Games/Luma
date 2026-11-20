@@ -80,6 +80,10 @@ public:
         m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
     }
 
+    // Selects the first entity named `name` (the --select capture flag).
+    // Returns false when no entity has that name.
+    bool SelectEntityByName(const std::string& name);
+
     // Material assets with edits not written to disk yet (e.g. instances
     // created by migrating an old scene). Saving the scene saves them too.
     std::vector<std::string> UnsavedAssets() const;

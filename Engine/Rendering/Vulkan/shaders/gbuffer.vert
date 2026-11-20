@@ -13,7 +13,6 @@ layout(push_constant) uniform Push {
     mat4 model;
     vec4 normalMatrix[3];  // inverse-transpose of the model's 3x3 (columns)
     uint materialIndex;
-    uint selected;
 } pc;
 
 layout(location = 0) in vec3 inPosition;

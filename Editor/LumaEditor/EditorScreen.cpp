@@ -174,6 +174,17 @@ bool EditorScreen::SaveMaterialAssets() {
     return ok;
 }
 
+bool EditorScreen::SelectEntityByName(const std::string& name) {
+    auto view = m_scene.Registry().view<const NameComponent>();
+    for (Entity e : view) {
+        if (view.get<const NameComponent>(e).name == name) {
+            m_selected = e;
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<std::string> EditorScreen::UnsavedAssets() const {
     return m_materials ? m_materials->DirtyAssets() : std::vector<std::string>{};
 }

@@ -13,6 +13,7 @@ add_library(LumaRenderVulkan STATIC
     src/Vulkan/Textures/VulkanTextureCache.cpp
     src/Vulkan/Meshes/VulkanMeshCache.cpp
     src/Vulkan/Materials/VulkanMaterialSystem.cpp
+    src/Vulkan/Selection/VulkanSelectionOutlinePass.cpp
     src/Vulkan/UI/VulkanUIPass.cpp
     src/Vulkan/Grid/VulkanGridPass.cpp
     src/Vulkan/Overlay/VulkanOverlayLinePass.cpp
@@ -47,7 +48,9 @@ foreach(shader ui.vert ui.frag
                skylight_capture.comp skylight_downsample.comp
                skylight_filter.comp skylight_sh.comp
                eye_histogram.comp eye_adapt.comp
-               overlay_line.vert overlay_line.frag)
+               overlay_line.vert overlay_line.frag
+               selection_mask.vert selection_mask.frag
+               selection_outline.vert selection_outline.frag)
     add_custom_command(
         OUTPUT ${_luma_shader_out}/${shader}.spv
         COMMAND ${Vulkan_GLSLC_EXECUTABLE} --target-env=vulkan1.3

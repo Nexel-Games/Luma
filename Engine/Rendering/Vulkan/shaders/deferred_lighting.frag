@@ -9,7 +9,7 @@
 // G-Buffer inputs (set 0):
 //   binding 0: RT0 — base color (RGB, sRGB-stored) + shading model / 255 (A)
 //   binding 1: RT1 — normal (RGB encoded [0,1]) + roughness (A)
-//   binding 2: RT2 — metallic (R) / specular (G) / AO (B) / selection (A)
+//   binding 2: RT2 — metallic (R) / specular (G) / AO (B)
 //   binding 3: depth
 //   binding 9: RT3 — emissive radiance (HDR)
 //

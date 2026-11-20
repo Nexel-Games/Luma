@@ -23,6 +23,7 @@ class VulkanEyeAdaptation;
 class VulkanTextureCache;
 class VulkanMeshCache;
 class VulkanMaterialSystem;
+class VulkanSelectionOutlinePass;
 struct GpuMesh;
 namespace Rendering {
 
@@ -33,7 +34,7 @@ namespace Rendering {
  *   1. G-Buffer pass  - renders every mesh section with its material
  *      (material_common.glsl) into MRT attachments: base color +
  *      shading model R8G8B8A8_SRGB, world-normal+roughness
- *      R16G16B16A16_SFLOAT, metallic/specular/AO/selection R8G8B8A8_UNORM,
+ *      R16G16B16A16_SFLOAT, metallic/specular/AO R8G8B8A8_UNORM,
  *      emissive R16G16B16A16_SFLOAT, plus a D32 depth attachment.
  *   2. Lighting pass  - fullscreen triangle (deferred_lighting shaders)
  *      reads the G-Buffer + lights UBO and writes the lit, tone-mapped,
@@ -63,7 +64,7 @@ public:
         int32_t height = 0;
         Attachment albedo;     // R8G8B8A8_SRGB (base color + shading model)
         Attachment normal;     // R16G16B16A16_SFLOAT (+ roughness in alpha)
-        Attachment material;   // R8G8B8A8_UNORM (metallic/specular/AO/selected)
+        Attachment material;   // R8G8B8A8_UNORM (metallic/specular/AO)
         Attachment emissive;   // R16G16B16A16_SFLOAT (emissive radiance)
         Attachment depth;      // D32_SFLOAT
         Attachment lightAccum; // final lit result shown in the viewport
@@ -116,7 +117,6 @@ private:
         Math::Mat4 model;
         f32 normalMatrix[3][4];  // inverse-transpose 3x3, column vec4s
         u32 materialIndex;
-        u32 selected;
     };
     static_assert(sizeof(MeshPush) <= 128, "push constants must fit 128 bytes");
 
@@ -271,6 +271,8 @@ private:
     // Editor ground grid (created with 1-sample targets matching this pass)
     std::unique_ptr<VulkanGridPass> m_gridPass;
     std::unique_ptr<VulkanOverlayLinePass> m_overlayPass;  // editor gizmo lines
+    // Selected-actor outline (its own module, Vulkan/Selection).
+    std::unique_ptr<VulkanSelectionOutlinePass> m_selectionPass;
 
     // Sky light: atmosphere captured into a GGX-prefiltered cube + diffuse SH
     // (its own module, Vulkan/SkyLight). Feeds the lighting pass's ambient.

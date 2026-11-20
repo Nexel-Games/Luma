@@ -6,8 +6,7 @@
 // RT0 (R8G8B8A8_SRGB):       rgb = base color (linear in, sRGB stored),
 //                            a = shading model / 255
 // RT1 (R16G16B16A16_SFLOAT): rgb = world normal * 0.5 + 0.5, a = roughness
-// RT2 (R8G8B8A8_UNORM):      r = metallic, g = specular, b = AO,
-//                            a = 1 for the selected actor (outline mask)
+// RT2 (R8G8B8A8_UNORM):      r = metallic, g = specular, b = AO
 // RT3 (R16G16B16A16_SFLOAT): rgb = emissive radiance (HDR)
 //
 // Pipeline permutations: kMasked (Masked blend mode: clip below the
@@ -21,7 +20,6 @@ layout(push_constant) uniform Push {
     mat4 model;
     vec4 normalMatrix[3];
     uint materialIndex;
-    uint selected;
 } pc;
 
 layout(location = 0) in vec3 vWorldPos;
@@ -43,6 +41,6 @@ void main() {
     float shadingModel = float(materials[pc.materialIndex].shadingModel);
     outBaseColor = vec4(s.baseColor, shadingModel / 255.0);
     outNormal = vec4(s.normalWS * 0.5 + 0.5, s.roughness);
-    outMaterial = vec4(s.metallic, s.specular, s.ao, pc.selected != 0u ? 1.0 : 0.0);
+    outMaterial = vec4(s.metallic, s.specular, s.ao, 0.0);
     outEmissive = vec4(s.emissive, 1.0);
 }

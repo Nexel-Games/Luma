@@ -23,6 +23,7 @@
 #include "Vulkan/Grid/VulkanGridPass.h"
 #include "Vulkan/Materials/VulkanMaterialSystem.h"
 #include "Vulkan/Meshes/VulkanMeshCache.h"
+#include "Vulkan/Selection/VulkanSelectionOutlinePass.h"
 #include "Vulkan/Textures/VulkanTextureCache.h"
 #include "Vulkan/Overlay/VulkanOverlayLinePass.h"
 #include "Vulkan/EyeAdaptation/VulkanEyeAdaptation.h"
@@ -257,6 +258,10 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     // Editor overlay (transform gizmo), drawn onto the final display image.
     m_overlayPass = std::make_unique<VulkanOverlayLinePass>(
         m_physicalDevice, m_device, m_shaderDir, kLightFormat);
+    // Selection outline over the final image (sized to the viewport).
+    m_selectionPass = std::make_unique<VulkanSelectionOutlinePass>(
+        m_physicalDevice, m_device, m_shaderDir, static_cast<u32>(width),
+        static_cast<u32>(height), m_gBuffer.depth.view, kLightFormat);
 
     // Register the FXAA-resolved texture with the UI pass (the viewport
     // displays this instead of the raw light accumulation buffer).
@@ -284,6 +289,7 @@ void VulkanDeferredRenderer::Cleanup() {
 
     m_gridPass.reset();
     m_overlayPass.reset();
+    m_selectionPass.reset();
     m_skyLight.reset();
     DestroyBloomResources();
     m_eyeAdaptation.reset();
@@ -1604,7 +1610,6 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             for (int row = 0; row < 3; ++row) push.normalMatrix[col][row] = inverse.m[row * 4 + col];
             push.normalMatrix[col][3] = 0.0f;
         }
-        push.selected = inst.selected ? 1u : 0u;
         vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
         vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
         for (u32 s = 0; s < mesh->sections.size(); ++s) {
@@ -1723,10 +1728,25 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
         vkCmdEndRenderPass(m_commandBuffer);
 
-        // Editor overlay lines (gizmo) on top of the final, display-encoded
-        // image: no depth test, so handles stay visible through geometry.
-        if (m_overlayPass && m_overlayPass->Valid() && source.overlayLines &&
-            source.overlayLineVertexCount >= 2) {
+        // Editor decorations on the final, display-encoded image: the
+        // selection outline (Unreal-style), then the gizmo lines on top (no
+        // depth test, so handles stay visible through geometry).
+        std::vector<VulkanSelectionOutlinePass::Draw> selected;
+        for (u32 i = 0; i < source.instanceCount; ++i) {
+            const SceneInstance& inst = source.instances[i];
+            if (!inst.selected) continue;
+            if (const GpuMesh* mesh = ResolveMesh(inst)) {
+                selected.push_back({mesh->vertices.buffer, mesh->indices.buffer, 0,
+                                    mesh->indexCount, inst.model});
+            }
+        }
+        const bool outline = m_selectionPass && m_selectionPass->Valid() && !selected.empty();
+        const bool overlay = m_overlayPass && m_overlayPass->Valid() && source.overlayLines &&
+                             source.overlayLineVertexCount >= 2;
+        if (outline) {
+            m_selectionPass->RecordMask(m_commandBuffer, scene.viewProjectionMatrix, selected);
+        }
+        if (outline || overlay) {
             VkImageMemoryBarrier toColor{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             toColor.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
             toColor.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
@@ -1739,22 +1759,25 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             vkCmdPipelineBarrier(m_commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr,
                                  0, nullptr, 1, &toColor);
-            VkRenderingAttachmentInfo overlayColor{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-            overlayColor.imageView = m_fxaaResolved.view;
-            overlayColor.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            overlayColor.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            overlayColor.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            VkRenderingInfo overlayRendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
-            overlayRendering.renderArea.extent = {static_cast<u32>(m_gBuffer.width),
-                                                  static_cast<u32>(m_gBuffer.height)};
-            overlayRendering.layerCount = 1;
-            overlayRendering.colorAttachmentCount = 1;
-            overlayRendering.pColorAttachments = &overlayColor;
-            vkCmdBeginRendering(m_commandBuffer, &overlayRendering);
-            m_overlayPass->Record(m_commandBuffer, source.overlayLines,
-                                  source.overlayLineVertexCount, scene.viewProjectionMatrix,
-                                  static_cast<u32>(m_gBuffer.width),
-                                  static_cast<u32>(m_gBuffer.height));
+            VkRenderingAttachmentInfo finalColor{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            finalColor.imageView = m_fxaaResolved.view;
+            finalColor.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            finalColor.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            finalColor.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            VkRenderingInfo finalRendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+            finalRendering.renderArea.extent = {static_cast<u32>(m_gBuffer.width),
+                                                static_cast<u32>(m_gBuffer.height)};
+            finalRendering.layerCount = 1;
+            finalRendering.colorAttachmentCount = 1;
+            finalRendering.pColorAttachments = &finalColor;
+            vkCmdBeginRendering(m_commandBuffer, &finalRendering);
+            if (outline) m_selectionPass->RecordOutline(m_commandBuffer);
+            if (overlay) {
+                m_overlayPass->Record(m_commandBuffer, source.overlayLines,
+                                      source.overlayLineVertexCount, scene.viewProjectionMatrix,
+                                      static_cast<u32>(m_gBuffer.width),
+                                      static_cast<u32>(m_gBuffer.height));
+            }
             vkCmdEndRendering(m_commandBuffer);
             VkImageMemoryBarrier toRead = toColor;
             toRead.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;

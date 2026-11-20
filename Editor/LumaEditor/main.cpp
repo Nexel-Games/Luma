@@ -125,6 +125,7 @@ int main(int argc, char** argv) {
     // Parse mode: --project <path.luma> opens the editor; otherwise the browser.
     std::filesystem::path projectFile;
     std::string screenshotPath;
+    std::string selectName;  // --select <EntityName>: preselect for captures
     bool editorMode = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -135,6 +136,8 @@ int main(int argc, char** argv) {
             editorMode = false;
         } else if (arg == "--screenshot" && i + 1 < argc) {
             screenshotPath = argv[++i];
+        } else if (arg == "--select" && i + 1 < argc) {
+            selectName = argv[++i];
         }
     }
 
@@ -350,6 +353,9 @@ int main(int argc, char** argv) {
         editor = std::make_unique<EditorScreen>(projectFile);
         editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
+        if (!selectName.empty() && !editor->SelectEntityByName(selectName)) {
+            LUMA_LOG_WARN("Editor", "--select: no entity named '{}'", selectName);
+        }
         editor->SetToolbarIcons(iconPlay, iconPause, iconStop);
         editor->SetLogoIcon(iconLogo);
         editor->SetEditorIcons(ueIcons);
