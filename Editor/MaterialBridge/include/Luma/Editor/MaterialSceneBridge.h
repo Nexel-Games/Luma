@@ -60,9 +60,6 @@ private:
         MaterialHandle handle = kDefaultMaterialHandle;
         u64 version = 0;
         bool uploaded = false;
-        Math::Vec3 baseColor{0.82f, 0.82f, 0.85f};
-        f32 metallic = 0.0f;
-        f32 roughness = 0.5f;
         std::vector<std::string> textures;  // virtual paths it samples
     };
     struct TextureEntry {

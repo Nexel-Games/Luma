@@ -146,3 +146,40 @@ TEST_CASE("ConvertLumaMesh without submeshes yields one section", "[mesh]") {
         CHECK(std::fabs(Math::Dot(Xyz(v.tangent), v.normal)) < 1e-3f);
     }
 }
+
+// The G-buffer builds the normal-map frame as T, B = cross(N, T) * w and
+// reads OpenGL-style maps (+Y = image up). Pin that convention on every
+// primitive: T follows +u and B follows image-up (-v) across each triangle.
+TEST_CASE("Primitive tangent frames match OpenGL normal maps", "[mesh]") {
+    for (MeshPrimitive p : {MeshPrimitive::Cube, MeshPrimitive::Plane, MeshPrimitive::Sphere,
+                            MeshPrimitive::Cylinder}) {
+        const MeshData m = BuildPrimitive(p);
+        int checked = 0;
+        for (Luma::usize i = 0; i + 2 < m.indices.size(); i += 3) {
+            const MeshVertex& v0 = m.vertices[m.indices[i]];
+            const MeshVertex& v1 = m.vertices[m.indices[i + 1]];
+            const MeshVertex& v2 = m.vertices[m.indices[i + 2]];
+            const Vec3 e1 = v1.position - v0.position, e2 = v2.position - v0.position;
+            const float du1 = v1.uv0.x - v0.uv0.x, dv1 = v1.uv0.y - v0.uv0.y;
+            const float du2 = v2.uv0.x - v0.uv0.x, dv2 = v2.uv0.y - v0.uv0.y;
+            const float det = du1 * dv2 - du2 * dv1;
+            if (std::fabs(det) < 1e-6f) continue;
+            const Vec3 dPdu = (e1 * dv2 - e2 * dv1) * (1.0f / det);
+            const Vec3 dPdv = (e2 * du1 - e1 * du2) * (1.0f / det);
+            // Pole triangles collapse to a point in u (|dP/du| ~ 0) and say
+            // nothing about the frame; skip them.
+            if (Len(dPdu) < 1e-4f || Len(dPdv) < 1e-4f) continue;
+            const Vec3 u = dPdu * (1.0f / Len(dPdu));
+            const Vec3 up = dPdv * (-1.0f / Len(dPdv));
+            for (const MeshVertex* v : {&v0, &v1, &v2}) {
+                const Vec3 t = Xyz(v->tangent);
+                const Vec3 b = Math::Cross(v->normal, t) * v->tangent.w;
+                INFO("primitive " << static_cast<int>(p) << " triangle " << i / 3);
+                CHECK(Math::Dot(t, u) > 0.5f);
+                CHECK(Math::Dot(b, up) > 0.5f);
+            }
+            ++checked;
+        }
+        CHECK(checked > 0);
+    }
+}

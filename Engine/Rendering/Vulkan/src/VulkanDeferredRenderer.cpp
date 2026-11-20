@@ -82,7 +82,6 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
     , m_shaderDir(shaderDir)
     , m_useEnvironment(useEnvironment)
     , m_initialized(false)
-    , m_gbufferPipeline(VK_NULL_HANDLE)
     , m_lightingPipeline(VK_NULL_HANDLE)
     , m_gbufferLayout(VK_NULL_HANDLE)
     , m_lightingLayout(VK_NULL_HANDLE)
@@ -294,14 +293,17 @@ void VulkanDeferredRenderer::Cleanup() {
 
     if (m_lightingPipeline)
         vkDestroyPipeline(m_device, m_lightingPipeline, nullptr);
-    if (m_gbufferPipeline)
-        vkDestroyPipeline(m_device, m_gbufferPipeline, nullptr);
+    for (auto& row : m_gbufferPipelines) {
+        for (VkPipeline& pipeline : row) {
+            if (pipeline) vkDestroyPipeline(m_device, pipeline, nullptr);
+            pipeline = VK_NULL_HANDLE;
+        }
+    }
     if (m_lightingLayout)
         vkDestroyPipelineLayout(m_device, m_lightingLayout, nullptr);
     if (m_gbufferLayout)
         vkDestroyPipelineLayout(m_device, m_gbufferLayout, nullptr);
     m_lightingPipeline = VK_NULL_HANDLE;
-    m_gbufferPipeline = VK_NULL_HANDLE;
     m_lightingLayout = VK_NULL_HANDLE;
     m_gbufferLayout = VK_NULL_HANDLE;
 
@@ -349,6 +351,7 @@ void VulkanDeferredRenderer::Cleanup() {
     DestroyAttachment(m_gBuffer.material);
     DestroyAttachment(m_gBuffer.normal);
     DestroyAttachment(m_gBuffer.albedo);
+    DestroyAttachment(m_gBuffer.emissive);
 
     if (m_gBuffer.sampler)
         vkDestroySampler(m_device, m_gBuffer.sampler, nullptr);
@@ -383,9 +386,14 @@ bool VulkanDeferredRenderer::CreateGBuffer(int32_t width, int32_t height) {
     m_gBuffer.height = height;
 
     // Create MRT attachments
-    if (!CreateAttachment(VK_FORMAT_R8G8B8A8_UNORM,
+    if (!CreateAttachment(kAlbedoFormat,
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                           &m_gBuffer.albedo)) {
+        return false;
+    }
+    if (!CreateAttachment(kEmissiveFormat,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          &m_gBuffer.emissive)) {
         return false;
     }
     if (!CreateAttachment(VK_FORMAT_R16G16B16A16_SFLOAT,
@@ -421,11 +429,11 @@ bool VulkanDeferredRenderer::CreateGBuffer(int32_t width, int32_t height) {
 }
 
 bool VulkanDeferredRenderer::CreateRenderPass() {
-    // MRT attachments: albedo, normal, material, lightAccum, depth
+    // MRT attachments: base color, normal, material, emissive, depth
     std::array<VkAttachmentDescription, 5> attachments{};
 
-    // Albedo
-    attachments[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+    // Base color + shading model
+    attachments[0].format = kAlbedoFormat;
     attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -454,8 +462,8 @@ bool VulkanDeferredRenderer::CreateRenderPass() {
     attachments[2].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[2].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    // Light accumulation (must match the lightAccum image format)
-    attachments[3].format = kLightFormat;
+    // Emissive radiance
+    attachments[3].format = kEmissiveFormat;
     attachments[3].samples = VK_SAMPLE_COUNT_1_BIT;
     attachments[3].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attachments[3].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -481,7 +489,7 @@ bool VulkanDeferredRenderer::CreateRenderPass() {
     colorReferences[1].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colorReferences[2].attachment = 2; // material
     colorReferences[2].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorReferences[3].attachment = 3; // lightAccum
+    colorReferences[3].attachment = 3; // emissive
     colorReferences[3].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference depthReference{};
@@ -649,7 +657,7 @@ bool VulkanDeferredRenderer::CreateFramebuffer() {
     attachments[0] = m_gBuffer.albedo.view;
     attachments[1] = m_gBuffer.normal.view;
     attachments[2] = m_gBuffer.material.view;
-    attachments[3] = m_gBuffer.lightAccum.view;
+    attachments[3] = m_gBuffer.emissive.view;
     attachments[4] = m_gBuffer.depth.view;
 
     VkFramebufferCreateInfo fbufInfo{};
@@ -1078,7 +1086,7 @@ bool VulkanDeferredRenderer::CreateLayouts() {
     gi.bindingCount = 1; gi.pBindings = &gb;
     if (vkCreateDescriptorSetLayout(m_device, &gi, nullptr, &m_gbufferSetLayout) != VK_SUCCESS) return false;
 
-    VkDescriptorSetLayoutBinding lb[9]{};
+    VkDescriptorSetLayoutBinding lb[10]{};
     for (u32 i = 0; i < 4; ++i) { lb[i].binding = i; lb[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[i].descriptorCount = 1; lb[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT; }
     lb[4].binding = 4; lb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; lb[4].descriptorCount = 1; lb[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     lb[5].binding = 5; lb[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[5].descriptorCount = 1; lb[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1086,21 +1094,26 @@ bool VulkanDeferredRenderer::CreateLayouts() {
     // Sky light: 7 = GGX-prefiltered sky cube, 8 = diffuse SH buffer.
     lb[7].binding = 7; lb[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[7].descriptorCount = 1; lb[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     lb[8].binding = 8; lb[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; lb[8].descriptorCount = 1; lb[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // 9 = emissive G-buffer target (RT3).
+    lb[9].binding = 9; lb[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[9].descriptorCount = 1; lb[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    li.bindingCount = 9; li.pBindings = lb;
+    li.bindingCount = 10; li.pBindings = lb;
     if (vkCreateDescriptorSetLayout(m_device, &li, nullptr, &m_lightingSetLayout) != VK_SUCCESS) return false;
 
     VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPush)};
+    // Set 0 = camera, 1 = bindless material textures, 2 = material table.
+    const VkDescriptorSetLayout gbufferSets[3] = {m_gbufferSetLayout, m_textures->Layout(),
+                                                  m_materials->Layout()};
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    pl.setLayoutCount = 1; pl.pSetLayouts = &m_gbufferSetLayout; pl.pushConstantRangeCount = 1; pl.pPushConstantRanges = &push;
+    pl.setLayoutCount = 3; pl.pSetLayouts = gbufferSets; pl.pushConstantRangeCount = 1; pl.pPushConstantRanges = &push;
     if (vkCreatePipelineLayout(m_device, &pl, nullptr, &m_gbufferLayout) != VK_SUCCESS) return false;
-    pl.pSetLayouts = &m_lightingSetLayout; pl.pushConstantRangeCount = 0; pl.pPushConstantRanges = nullptr;
+    pl.setLayoutCount = 1; pl.pSetLayouts = &m_lightingSetLayout; pl.pushConstantRangeCount = 0; pl.pPushConstantRanges = nullptr;
     return vkCreatePipelineLayout(m_device, &pl, nullptr, &m_lightingLayout) == VK_SUCCESS;
 }
 
 bool VulkanDeferredRenderer::CreateDescriptorSets() {
     VkDescriptorPoolSize sizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
-                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 7},
+                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8},
                                      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}};
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = 2; pi.poolSizeCount = 3; pi.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(m_device, &pi, nullptr, &m_lightingPool) != VK_SUCCESS) return false;
@@ -1127,6 +1140,9 @@ bool VulkanDeferredRenderer::CreateDescriptorSets() {
     skyWrites[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; skyWrites[0].dstSet = m_lightingSet; skyWrites[0].dstBinding = 7; skyWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; skyWrites[0].descriptorCount = 1; skyWrites[0].pImageInfo = &skyCube;
     skyWrites[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; skyWrites[1].dstSet = m_lightingSet; skyWrites[1].dstBinding = 8; skyWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; skyWrites[1].descriptorCount = 1; skyWrites[1].pBufferInfo = &skySH;
     vkUpdateDescriptorSets(m_device, 7, writes, 0, nullptr);
+    VkDescriptorImageInfo emissiveInfo{m_gBuffer.sampler, m_gBuffer.emissive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet emissiveWrite{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; emissiveWrite.dstSet = m_lightingSet; emissiveWrite.dstBinding = 9; emissiveWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; emissiveWrite.descriptorCount = 1; emissiveWrite.pImageInfo = &emissiveInfo;
+    vkUpdateDescriptorSets(m_device, 1, &emissiveWrite, 0, nullptr);
     vkUpdateDescriptorSets(m_device, 2, skyWrites, 0, nullptr);
     return true;
 }
@@ -1147,8 +1163,12 @@ bool VulkanDeferredRenderer::CreatePipelines(const std::string& shaderDir) {
     gs[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, gv, "main", nullptr};
     gs[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, gf, "main", nullptr};
     VkVertexInputBindingDescription binding{0, sizeof(MeshVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attrs[2] = {{0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)}, {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, normal)}};
-    VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}; vin.vertexBindingDescriptionCount = 1; vin.pVertexBindingDescriptions = &binding; vin.vertexAttributeDescriptionCount = 2; vin.pVertexAttributeDescriptions = attrs;
+    VkVertexInputAttributeDescription attrs[4] = {
+        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)},
+        {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, normal)},
+        {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(MeshVertex, tangent)},
+        {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshVertex, uv0)}};
+    VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO}; vin.vertexBindingDescriptionCount = 1; vin.pVertexBindingDescriptions = &binding; vin.vertexAttributeDescriptionCount = 4; vin.pVertexAttributeDescriptions = attrs;
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO}; ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO}; vp.viewportCount = 1; vp.scissorCount = 1;
     VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO}; rs.cullMode = VK_CULL_MODE_BACK_BIT; rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; rs.polygonMode = VK_POLYGON_MODE_FILL; rs.lineWidth = 1.0f;
@@ -1158,12 +1178,29 @@ bool VulkanDeferredRenderer::CreatePipelines(const std::string& shaderDir) {
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO}; cb.attachmentCount = 4; VkPipelineColorBlendAttachmentState blends[4] = {blend, blend, blend, blend}; cb.pAttachments = blends;
     VkDynamicState dyn[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR}; VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO}; dynamic.dynamicStateCount = 2; dynamic.pDynamicStates = dyn;
     VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO}; info.stageCount = 2; info.pStages = gs; info.pVertexInputState = &vin; info.pInputAssemblyState = &ia; info.pViewportState = &vp; info.pRasterizationState = &rs; info.pMultisampleState = &ms; info.pDepthStencilState = &ds; info.pColorBlendState = &cb; info.pDynamicState = &dynamic; info.layout = m_gbufferLayout; info.renderPass = m_gBuffer.renderPass;
-    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &info, nullptr, &m_gbufferPipeline) != VK_SUCCESS) {
-        vkDestroyShaderModule(m_device, gv, nullptr);
-        vkDestroyShaderModule(m_device, gf, nullptr);
-        vkDestroyShaderModule(m_device, lv, nullptr);
-        vkDestroyShaderModule(m_device, lf, nullptr);
-        return false;
+    // Permutations: Masked selects the clip path (specialization constant 0);
+    // two-sided materials draw both faces.
+    for (u32 masked = 0; masked < 2; ++masked) {
+        for (u32 twoSided = 0; twoSided < 2; ++twoSided) {
+            const VkBool32 maskedValue = masked ? VK_TRUE : VK_FALSE;
+            VkSpecializationMapEntry entry{0, 0, sizeof(VkBool32)};
+            VkSpecializationInfo spec{1, &entry, sizeof(VkBool32), &maskedValue};
+            VkPipelineShaderStageCreateInfo stages[2] = {gs[0], gs[1]};
+            stages[1].pSpecializationInfo = &spec;
+            VkPipelineRasterizationStateCreateInfo raster = rs;
+            raster.cullMode = twoSided ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
+            VkGraphicsPipelineCreateInfo permutation = info;
+            permutation.pStages = stages;
+            permutation.pRasterizationState = &raster;
+            if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &permutation, nullptr,
+                                          &m_gbufferPipelines[masked][twoSided]) != VK_SUCCESS) {
+                vkDestroyShaderModule(m_device, gv, nullptr);
+                vkDestroyShaderModule(m_device, gf, nullptr);
+                vkDestroyShaderModule(m_device, lv, nullptr);
+                vkDestroyShaderModule(m_device, lf, nullptr);
+                return false;
+            }
+        }
     }
     VkPipelineShaderStageCreateInfo ls[2]{};
     ls[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, lv, "main", nullptr}; ls[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, lf, "main", nullptr};
@@ -1486,7 +1523,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         barrier(m_gBuffer.albedo.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         barrier(m_gBuffer.normal.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         barrier(m_gBuffer.material.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-        barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        barrier(m_gBuffer.emissive.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     }
     barrier(m_gBuffer.depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
             m_gBufferInitialized ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1495,34 +1532,64 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
             m_gBufferInitialized ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
-    VkClearValue clears[5]{}; clears[0].color = {{0, 0, 0, 1}}; clears[1].color = {{0.5f, 0.5f, 1, 1}}; clears[2].color = {{0, 0.5f, 1, 1}}; clears[3].color = {{0, 0, 0, 1}}; clears[4].depthStencil = {1.0f, 0};
+    VkClearValue clears[5]{}; clears[0].color = {{0, 0, 0, 1}}; clears[1].color = {{0.5f, 0.5f, 1, 1}}; clears[2].color = {{0, 0.5f, 1, 0}}; clears[3].color = {{0, 0, 0, 0}}; clears[4].depthStencil = {1.0f, 0};
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO}; rp.renderPass = m_gBuffer.renderPass; rp.framebuffer = m_gBuffer.framebuffer; rp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}; rp.clearValueCount = 5; rp.pClearValues = clears;
     vkCmdBeginRenderPass(m_commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
     VkViewport viewport{0, 0, static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height), 0, 1}; VkRect2D scissor{{0, 0}, {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}}; vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
-    vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline); vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferLayout, 0, 1, &m_gbufferSet, 0, nullptr);
+    {
+        // Set 0 camera, 1 bindless textures, 2 this frame's material table.
+        const VkDescriptorSet sets[3] = {m_gbufferSet, m_textures->Set(),
+                                         m_materials->Set(m_frameSlot)};
+        vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferLayout,
+                                0, 3, sets, 0, nullptr);
+    }
     VkDeviceSize offset = 0;
+    VkPipeline boundPipeline = VK_NULL_HANDLE;
     for (u32 i = 0; i < source.instanceCount; ++i) {
         const SceneInstance& inst = source.instances[i];
         const GpuMesh* mesh = ResolveMesh(inst);
         if (!mesh) continue;
         MeshPush push{};
         push.model = inst.model;
-        push.albedo[0] = inst.albedo.x;
-        push.albedo[1] = inst.albedo.y;
-        push.albedo[2] = inst.albedo.z;
-        push.albedo[3] = inst.metallic;
-        push.material[0] = inst.roughness;
-        push.texIdx[0] = push.texIdx[1] = push.texIdx[2] = push.texIdx[3] = -1;
-        vkCmdPushConstants(m_commandBuffer, m_gbufferLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        // Inverse-transpose of the upper 3x3: correct normals under
+        // non-uniform scale.
+        const Math::Mat4 inverse = Math::Inverse(inst.model);
+        for (int col = 0; col < 3; ++col) {
+            // column `col` of transpose(inverse) = row `col` of inverse
+            for (int row = 0; row < 3; ++row) push.normalMatrix[col][row] = inverse.m[row * 4 + col];
+            push.normalMatrix[col][3] = 0.0f;
+        }
+        push.selected = inst.selected ? 1u : 0u;
         vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
         vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-        for (const MeshSection& section : mesh->sections) {
+        for (u32 s = 0; s < mesh->sections.size(); ++s) {
+            const MeshSection& section = mesh->sections[s];
+            // Section s uses slot s; sections past the slot array reuse the
+            // last slot; slots past the instance's count use the Default.
+            const MaterialHandle handle =
+                s < std::max(inst.sectionCount, 1u)
+                    ? inst.sectionMaterials[std::min(s, kMaxSectionMaterials - 1)]
+                    : kDefaultMaterialHandle;
+            const GpuMaterial& material = m_materials->Entry(handle);
+            VkPipeline pipeline =
+                m_gbufferPipelines[material.blendMode == static_cast<u32>(GpuBlendMode::Masked)]
+                                  [material.twoSided != 0];
+            if (pipeline != boundPipeline) {
+                vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                boundPipeline = pipeline;
+            }
+            push.materialIndex = m_materials->Index(handle);
+            vkCmdPushConstants(m_commandBuffer, m_gbufferLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(push), &push);
             vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
         }
     }
     vkCmdEndRenderPass(m_commandBuffer);
     barrier(m_gBuffer.depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+    // The lighting pass clears the light buffer: its previous contents (last
+    // frame's, or none on the first frame) are discarded.
+    barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     // Sun cascade depth passes (always recorded so every layer is cleared and
     // in SHADER_READ_ONLY before the lighting pass samples it).
     RecordSunShadows(source, cascades, sunShadows);

@@ -176,8 +176,10 @@ TEST_CASE("Bridge gives sections without a slot the Default Material", "[bridge]
     CHECK(inst.sectionMaterials[1] == kDefaultMaterialHandle);
     CHECK(inst.sectionMaterials[2] == kDefaultMaterialHandle);
     CHECK(inst.selected);
-    // Legacy constant path mirrors the first slot until the material pass.
-    CHECK((inst.albedo.x == 0.8f && inst.albedo.y == 0.1f && inst.albedo.z == 0.1f));
+    // The slot's material reached the renderer with its resolved values.
+    const auto& base = f.renderer.descs.at(f.renderer.handles.begin()->first)
+                           .inputs[static_cast<usize>(GpuMaterialInput::BaseColor)].constant;
+    CHECK((base.x == 0.8f && base.y == 0.1f && base.z == 0.1f));
 }
 
 TEST_CASE("Bridge keeps extra slots on the component", "[bridge]") {
@@ -217,9 +219,11 @@ TEST_CASE("Bridge uploads a material once per version", "[bridge]") {
     MaterialInstance edited = RedInstance();
     edited.inputs[static_cast<usize>(MaterialParameter::BaseColor)].constant = {0, 1, 0, 1};
     lib.SetInstance(red, edited);
-    const auto instances = f.Build(lib);
+    f.Build(lib);
     CHECK(f.renderer.materialUpdates == afterFirst + 1);
-    CHECK(instances[0].albedo.y == 1.0f);
+    const auto& base = f.renderer.descs.at(f.renderer.handles.begin()->first)
+                           .inputs[static_cast<usize>(GpuMaterialInput::BaseColor)].constant;
+    CHECK(base.y == 1.0f);
 }
 
 TEST_CASE("Bridge uploads each mesh asset once", "[bridge]") {

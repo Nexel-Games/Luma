@@ -72,7 +72,7 @@ void WriteBumpNormals(const fs::path& file) {
         const f32 cu = std::fmod(u * 4.0f, 1.0f) - 0.5f;
         const f32 cv = std::fmod(v * 4.0f, 1.0f) - 0.5f;
         const f32 r2 = (cu * cu + cv * cv) / 0.16f;
-        return r2 < 1.0f ? std::sqrt(1.0f - r2) * 0.1f : 0.0f;
+        return r2 < 1.0f ? std::sqrt(1.0f - r2) * 0.02f : 0.0f;
     };
     std::vector<u8> px(kSize * kSize * 3);
     const f32 d = 1.0f / kSize;
@@ -139,6 +139,24 @@ void WriteStripes(const fs::path& file) {
     WritePng(file, 3, px);
 }
 
+// Packed ORM data map: R = ambient occlusion (dark cell corners),
+// G = roughness (top-to-bottom ramp), B = metallic (right half metal).
+void WriteORM(const fs::path& file) {
+    std::vector<u8> px(kSize * kSize * 3);
+    for (int y = 0; y < kSize; ++y) {
+        for (int x = 0; x < kSize; ++x) {
+            const f32 cu = std::fmod(x / 64.0f, 1.0f) - 0.5f;
+            const f32 cv = std::fmod(y / 64.0f, 1.0f) - 0.5f;
+            const f32 ao = 1.0f - std::clamp((cu * cu + cv * cv) * 3.0f - 0.2f, 0.0f, 0.8f);
+            u8* p = &px[(y * kSize + x) * 3];
+            p[0] = ToByte(ao);
+            p[1] = ToByte(0.1f + 0.8f * (y / static_cast<f32>(kSize - 1)));
+            p[2] = x >= kSize / 2 ? 255 : 0;
+        }
+    }
+    WritePng(file, 3, px);
+}
+
 MaterialInput Texture(MaterialParameter p, const char* path,
                       TextureChannel channel = TextureChannel::RGB) {
     MaterialInput in = MaterialAsset::DefaultInputs()[static_cast<usize>(p)];
@@ -197,6 +215,7 @@ TEST_CASE("Generate the MaterialShowcase fixture", "[.fixture]") {
     WriteRoughnessGradient(textures / "T_Gradient_rough.png");
     WriteLeaves(textures / "T_Leaves_diff.png");
     WriteStripes(textures / "T_Stripes_emissive.png");
+    WriteORM(textures / "T_Copper_ORM.png");
 
     {  // Tiled checker floor.
         MaterialAsset m = MaterialAsset::MakeDefault();
@@ -246,6 +265,25 @@ TEST_CASE("Generate the MaterialShowcase fixture", "[.fixture]") {
         Set(m, MaterialParameter::EmissiveColor, emissive);
         SaveMaterial(materials, m);
     }
+    {  // Unlit: flat color, no lighting.
+        MaterialAsset m = MaterialAsset::MakeDefault();
+        m.name = "M_Unlit";
+        m.settings.shadingModel = Luma::Material::ShadingModel::Unlit;
+        Set(m, MaterialParameter::BaseColor, Constant(MaterialParameter::BaseColor, {0.95f, 0.45f, 0.1f, 1.0f}));
+        SaveMaterial(materials, m);
+    }
+    {  // Copper with a packed occlusion/roughness/metallic map.
+        MaterialAsset m = MaterialAsset::MakeDefault();
+        m.name = "M_CopperORM";
+        Set(m, MaterialParameter::BaseColor, Constant(MaterialParameter::BaseColor, {0.95f, 0.64f, 0.54f, 1.0f}));
+        Set(m, MaterialParameter::AmbientOcclusion,
+            Texture(MaterialParameter::AmbientOcclusion, "/Game/Textures/T_Copper_ORM", TextureChannel::R));
+        Set(m, MaterialParameter::Roughness,
+            Texture(MaterialParameter::Roughness, "/Game/Textures/T_Copper_ORM", TextureChannel::G));
+        Set(m, MaterialParameter::Metallic,
+            Texture(MaterialParameter::Metallic, "/Game/Textures/T_Copper_ORM", TextureChannel::B));
+        SaveMaterial(materials, m);
+    }
     {  // Instance: a blue-tinted checker.
         MaterialInstance mi;
         mi.name = "MI_Checker_Blue";
@@ -275,6 +313,8 @@ TEST_CASE("Generate the MaterialShowcase fixture", "[.fixture]") {
     Actor(scene, "Emissive", MeshPrimitive::Cylinder, {4.5f, 1, 0}, {1.6f, 2, 1.6f}, {"/Game/Materials/M_Emissive"});
     Actor(scene, "BlueChecker", MeshPrimitive::Cube, {0, 1, -4}, {2, 2, 2}, {"/Game/Materials/MI_Checker_Blue"});
     Actor(scene, "Default", MeshPrimitive::Sphere, {3, 1, -4}, {2, 2, 2}, {});
+    Actor(scene, "Unlit", MeshPrimitive::Cube, {-3, 1, -4}, {2, 2, 2}, {"/Game/Materials/M_Unlit"});
+    Actor(scene, "CopperORM", MeshPrimitive::Sphere, {-6, 1, -4}, {2, 2, 2}, {"/Game/Materials/M_CopperORM"});
     // The leaf card stands upright facing the camera.
     auto names = scene.Registry().view<NameComponent>();
     for (Entity e : names) {

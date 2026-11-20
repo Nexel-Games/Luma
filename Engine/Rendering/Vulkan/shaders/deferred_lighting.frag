@@ -7,10 +7,11 @@
 // colour to the output render target.
 //
 // G-Buffer inputs (set 0):
-//   binding 0: RT0 — albedo (RGB)
+//   binding 0: RT0 — base color (RGB, sRGB-stored) + shading model / 255 (A)
 //   binding 1: RT1 — normal (RGB encoded [0,1]) + roughness (A)
-//   binding 2: RT2 — metallic (R) / specular (G) / AO (B)
+//   binding 2: RT2 — metallic (R) / specular (G) / AO (B) / selection (A)
 //   binding 3: depth
+//   binding 9: RT3 — emissive radiance (HDR)
 //
 // Lighting UBO (set 0, binding 4):
 //   Sun direction, colour, ambient, shadow params, etc. Background fragments
@@ -34,6 +35,9 @@ layout(set = 0, binding = 0) uniform sampler2D gAlbedo;
 layout(set = 0, binding = 1) uniform sampler2D gNormal;
 layout(set = 0, binding = 2) uniform sampler2D gMaterial;
 layout(set = 0, binding = 3) uniform sampler2D gDepth;
+layout(set = 0, binding = 9) uniform sampler2D gEmissive;
+
+const uint kShadingUnlit = 1u;
 
 layout(set = 0, binding = 4) uniform LightingUBO {
     mat4  invViewProj;
@@ -266,15 +270,19 @@ vec3 SRGBToLinearApprox(vec3 c) {
 
 void main() {
     // Sample G-Buffer
-    vec3  albedo    = texture(gAlbedo, vUV).rgb;
+    vec4  baseData  = texture(gAlbedo, vUV);
+    vec3  albedo    = baseData.rgb;
+    uint  shading   = uint(baseData.a * 255.0 + 0.5);
     vec4  normalR   = texture(gNormal, vUV);
     vec4  matData   = texture(gMaterial, vUV);
+    vec3  emissive  = texture(gEmissive, vUV).rgb;
     float depth     = texture(gDepth, vUV).r;
 
     // Decode normal from [0,1] → [-1,1]
     vec3 N = normalize(normalR.rgb * 2.0 - 1.0);
     float roughness = clamp(normalR.a, 0.04, 1.0);
     float metallic  = clamp(matData.r, 0.0, 1.0);
+    float specular  = clamp(matData.g, 0.0, 1.0);
     float ao        = clamp(matData.b, 0.0, 1.0);
 
     // ---- View modes (editor viewport) ----
@@ -296,9 +304,13 @@ void main() {
         return;
     }
     if (viewMode == 2) {
-        // Lighting Only: every surface becomes a neutral rough dielectric.
+        // Lighting Only: every surface becomes a neutral rough dielectric;
+        // unlit and emissive contributions are not lighting.
         albedo = vec3(0.5);
         metallic = 0.0;
+        specular = 0.5;
+        emissive = vec3(0.0);
+        shading = 0u;
     }
 
     // The material renderer uses the HDR environment. The main editor renderer
@@ -321,11 +333,18 @@ void main() {
         return;
     }
 
+    // Unlit shading model: the base color plus emissive, no lighting.
+    if (shading == kShadingUnlit) {
+        outColor = vec4(albedo + emissive, 1.0);
+        return;
+    }
+
     vec3 worldPos = ReconstructWorldPos(vUV, depth);
     vec3 V = normalize(u.camPos.xyz - worldPos);
 
-    // Fresnel F0 — dielectrics use 0.04, metals use albedo.
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    // Fresnel F0 (Unreal convention): dielectrics reflect 0.08 * Specular
+    // (Specular 0.5 -> 4%), metals tint the reflection with the base color.
+    vec3 F0 = mix(vec3(0.08 * specular), albedo, metallic);
 
     // ---- Directional light (sun) ----
     vec3 L = normalize(u.sunDir.xyz);
@@ -339,11 +358,11 @@ void main() {
     float G = GeometrySmith(NdotV, NdotL, roughness);
     vec3  F = FresnelSchlick(HdotV, F0);
 
-    vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
+    vec3 sunSpecular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
     vec3 kD = (1.0 - F) * (1.0 - metallic);
     vec3 diffuse = kD * albedo / PI;
 
-    vec3 sunContrib = (diffuse + specular) * u.sunColor.rgb * u.sunColor.w *
+    vec3 sunContrib = (diffuse + sunSpecular) * u.sunColor.rgb * u.sunColor.w *
                       NdotL * sunShadow(worldPos, N, L);
 
     // ---- Punctual lights ----
@@ -448,6 +467,8 @@ void main() {
     // Scene-referred linear HDR radiance. Exposure, bloom, tone mapping and
     // the sRGB transfer all happen in the post chain (bloom_composite.frag),
     // so highlights keep their full range for bloom to work with.
-    vec3 color = sunContrib + punctualContrib + ambient;
+    // Material AO darkens only the ambient (sky light) term, as in Unreal;
+    // emissive adds on top of the lit result.
+    vec3 color = sunContrib + punctualContrib + ambient + emissive;
     outColor = vec4(max(color, vec3(0.0)), 1.0);
 }

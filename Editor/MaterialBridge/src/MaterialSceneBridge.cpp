@@ -164,10 +164,6 @@ void MaterialSceneBridge::SyncMaterial(const std::string& path, SceneRenderer& r
     entry.handle = renderer.UpdateMaterial(MaterialKey(path), desc);
     entry.version = resolved.version;
     entry.uploaded = true;
-    const auto& base = resolved.inputs[static_cast<usize>(MaterialParameter::BaseColor)].constant;
-    entry.baseColor = {base.x, base.y, base.z};
-    entry.metallic = resolved.inputs[static_cast<usize>(MaterialParameter::Metallic)].constant.x;
-    entry.roughness = resolved.inputs[static_cast<usize>(MaterialParameter::Roughness)].constant.x;
 }
 
 const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(
@@ -246,13 +242,6 @@ void MaterialSceneBridge::BuildInstances(const Scene& scene, Entity selected,
         for (u32 s = 0; s < slots; ++s) {
             inst.sectionMaterials[s] =
                 s < mr.materials.size() ? HandleFor(mr.materials[s]) : kDefaultMaterialHandle;
-        }
-        // Constant-color path of the current G-buffer: the first slot's values.
-        const std::string first = mr.materials.empty() ? std::string{} : SlotKey(mr.materials[0]);
-        if (auto it = m_materials.find(first); it != m_materials.end()) {
-            inst.albedo = it->second.baseColor;
-            inst.metallic = it->second.metallic;
-            inst.roughness = it->second.roughness;
         }
         out.push_back(inst);
     }

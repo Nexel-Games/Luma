@@ -73,23 +73,10 @@ constexpr u32 kMaxSectionMaterials = 16;
 struct SceneInstance {
     Math::Mat4 model = Math::Mat4::Identity();
     MeshHandle mesh = kInvalidHandle;  // invalid = the `primitive` shape
+    MeshPrimitive primitive = MeshPrimitive::Cube;
     std::array<MaterialHandle, kMaxSectionMaterials> sectionMaterials{};  // Default
     u32 sectionCount = 0;
     bool selected = false;
-
-    // Legacy constant-color path read by the G-buffer until the material
-    // pass lands (removed with it).
-    MeshPrimitive primitive = MeshPrimitive::Cube;
-    Math::Vec3 albedo{0.82f, 0.82f, 0.85f};  // base color (linear)
-    f32 metallic = 0.0f;
-    f32 roughness = 0.5f;
-
-    // Legacy imported-mesh fields (replaced by `mesh` in the editor bridge).
-    const Math::Vec3* customVertices = nullptr;
-    u32 customVertexCount = 0;
-    const u32* customIndices = nullptr;
-    u32 customIndexCount = 0;
-    bool customMeshValid = false;
 };
 
 // A punctual light fed to the scene shader. `type`: 0 = directional, 1 = point,

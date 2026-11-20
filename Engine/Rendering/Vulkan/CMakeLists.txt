@@ -57,6 +57,7 @@ foreach(shader ui.vert ui.frag
         DEPENDS ${_luma_shader_src}/${shader}
                 ${_luma_shader_src}/sky_atmosphere.glsl
                 ${_luma_shader_src}/skylight_common.glsl
+                ${_luma_shader_src}/material_common.glsl
         COMMENT "glslc ${shader}"
         VERBATIM)
     list(APPEND _luma_spv_outputs ${_luma_shader_out}/${shader}.spv)

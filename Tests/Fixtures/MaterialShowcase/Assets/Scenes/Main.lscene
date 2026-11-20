@@ -4,6 +4,66 @@
     {
       "components": {
         "Name": {
+          "name": "CopperORM"
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            -4
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 2,
+          "materials": [
+            "/Game/Materials/M_CopperORM"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Unlit"
+        },
+        "Transform": {
+          "position": [
+            -3,
+            1,
+            -4
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 0,
+          "materials": [
+            "/Game/Materials/M_Unlit"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
           "name": "Default"
         },
         "Transform": {
