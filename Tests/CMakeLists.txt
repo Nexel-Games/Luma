@@ -43,7 +43,10 @@ add_executable(LumaTests
     VFS/VFSTests.cpp
     VFS/FileWatcherTests.cpp
     Rendering/RHIAdapterTests.cpp
-    Rendering/MeshGeometryTests.cpp)
+    Rendering/MeshGeometryTests.cpp
+    Rendering/MaterialGpuDescTests.cpp
+    Rendering/VulkanTextureCacheTests.cpp
+    Rendering/VulkanMaterialSystemTests.cpp)
 
 target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::RenderVulkan Catch2::Catch2WithMain)
 
@@ -54,3 +57,7 @@ set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 add_test(NAME LumaTests COMMAND LumaTests)
 
 target_compile_definitions(LumaTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+# Backend tests drive the Vulkan module's internal classes on a real device.
+target_include_directories(LumaTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src)
+target_link_libraries(LumaTests PRIVATE Vulkan::Vulkan)

@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
 #include <string>
 
 #include "Luma/Core/Types.h"
 #include "Luma/Math/Math.h"
+#include "Luma/RHI/MaterialGpuDesc.h"
 
 // Rendering Hardware Interface (RHI): the abstract surface the engine renders
 // through. Concrete backends (VulkanRenderer today; D3D12/Metal later) implement
@@ -63,16 +65,26 @@ struct UIDrawData {
 // the asset pipeline lands; feature modules generate the geometry (Luma::Mesh).
 enum class MeshPrimitive { Cube, Plane, Sphere, Cylinder };
 
-// One mesh instance: world transform, which primitive, and a PBR material.
-// For custom meshes, set customMeshData and customMeshValid = true.
+// One mesh instance: world transform, an uploaded mesh (SceneRenderer) and
+// one material per mesh section. Sections beyond kMaxSectionMaterials use the
+// last material slot; a section with no slot uses the Default Material.
+constexpr u32 kMaxSectionMaterials = 16;
+
 struct SceneInstance {
     Math::Mat4 model = Math::Mat4::Identity();
+    MeshHandle mesh = kInvalidHandle;  // invalid = the `primitive` shape
+    std::array<MaterialHandle, kMaxSectionMaterials> sectionMaterials{};  // Default
+    u32 sectionCount = 0;
+    bool selected = false;
+
+    // Legacy constant-color path read by the G-buffer until the material
+    // pass lands (removed with it).
     MeshPrimitive primitive = MeshPrimitive::Cube;
     Math::Vec3 albedo{0.82f, 0.82f, 0.85f};  // base color (linear)
     f32 metallic = 0.0f;
     f32 roughness = 0.5f;
-    
-    // Custom mesh data (optional)
+
+    // Legacy imported-mesh fields (replaced by `mesh` in the editor bridge).
     const Math::Vec3* customVertices = nullptr;
     u32 customVertexCount = 0;
     const u32* customIndices = nullptr;
@@ -310,6 +322,10 @@ public:
     
     // Get the Vulkan deferred renderer (opaque pointer to keep Vulkan types confined)
     virtual void* GetVulkanDeferredRenderer() const { return nullptr; }
+
+    // Mesh/texture/material residency for the main scene viewport (null when
+    // the backend has no scene renderer).
+    virtual class SceneRenderer* GetSceneRenderer() const { return nullptr; }
 
     // Dedicated Vulkan deferred renderer for secondary editor viewports such
     // as the Material Editor preview scene. Kept separate so it owns its own

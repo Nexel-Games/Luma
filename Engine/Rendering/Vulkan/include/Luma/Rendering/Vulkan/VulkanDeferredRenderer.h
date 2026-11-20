@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Luma/Math/Math.h"
+#include "Luma/RHI/SceneRenderer.h"
 #include "Luma/Renderer/CascadeShadows.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Sky/AtmosphereParams.h"
@@ -19,6 +20,10 @@ class VulkanGridPass;
 class VulkanOverlayLinePass;
 class VulkanSkyLight;
 class VulkanEyeAdaptation;
+class VulkanTextureCache;
+class VulkanMeshCache;
+class VulkanMaterialSystem;
+struct GpuMesh;
 namespace Rendering {
 
 /**
@@ -37,8 +42,12 @@ namespace Rendering {
  *
  * The light-accumulation image is registered with the UI pass as an external
  * texture so the viewport panel can display it (see GetViewportTextureHandle).
+ *
+ * Scene content (meshes, textures, materials) is resident in caches owned for
+ * the renderer's whole lifetime, so it survives viewport resizes; the
+ * SceneRenderer interface is how the editor uploads it.
  */
-class VulkanDeferredRenderer {
+class VulkanDeferredRenderer final : public SceneRenderer {
 public:
     struct Attachment {
         VkImage image = VK_NULL_HANDLE;
@@ -85,26 +94,17 @@ public:
     // Owned by this renderer; stays valid across resizes.
     uint64_t GetViewportTextureHandle() const { return m_textureHandle; }
 
-    // --- Material texture cache -------------------------------------------------
-    // Uploads an RGBA8 texture and returns a stable index for SceneInstance's
-    // baseColorTex/normalTex/roughnessTex/metallicTex (-1 = none). The GBuffer
-    // samples the map only when the instance's index >= 0, so materials with no
-    // map assigned keep using their constant values. The index is stable for the
-    // lifetime of this renderer; textures are never evicted.
-    //
-    // `key` dedupes: uploading the same key again returns the existing index
-    // (the pixels are ignored). Returns -1 on failure.
-    i32 UploadMaterialTexture(const std::string& key, u32 width, u32 height,
-                              const void* rgba8Pixels);
-
-    // Increments every time the texture cache is rebuilt (Cleanup+Initialize,
-    // e.g. on viewport resize). Callers that cache texture indices can compare
-    // this value against the generation they uploaded at and re-upload when it
-    // changes, since stale indices point at destroyed/recreated GPU resources.
-    u32 GetMaterialTextureGeneration() const { return m_materialTextureGeneration; }
+    // --- SceneRenderer -----------------------------------------------------------
+    MeshHandle UploadMesh(u64 key, const MeshData& mesh) override;
+    void ReleaseMesh(MeshHandle mesh) override;
+    GpuTextureHandle UploadTexture(u64 key, const TextureUploadDesc& texture) override;
+    void ReleaseTexture(GpuTextureHandle texture) override;
+    MaterialHandle UpdateMaterial(u64 key, const MaterialGpuDesc& material) override;
+    void ReleaseMaterial(MaterialHandle material) override;
+    MeshHandle PrimitiveMesh(MeshPrimitive primitive) const override;
 
     // True once Initialize() succeeded (resources exist: command pool, GBuffer
-    // descriptor set, samplers). UploadMaterialTexture is only valid then.
+    // descriptor set, samplers).
     bool IsInitialized() const { return m_initialized; }
 
 private:
@@ -180,8 +180,8 @@ private:
     bool CreateLayouts();
     bool CreateDescriptorSets();
     bool CreatePipelines(const std::string& shaderDir);
-    void CreatePrimitives();
-    void CleanupPrimitives();
+    // The instance's uploaded mesh, else its built-in primitive shape.
+    const GpuMesh* ResolveMesh(const SceneInstance& instance) const;
 
     // Cascaded shadow maps (sun / directional light)
     bool CreateShadowResources();
@@ -192,35 +192,13 @@ private:
     void RecordSunShadows(const SceneView& source,
                           const Renderer2::SunCascades& cascades, bool enabled);
 
-    // Custom mesh support (same contract as VulkanSceneView). `normals` and
-    // `uvs` are optional (null → defaults); both are `vertexCount` long when set.
-    struct CustomMesh {
-        GpuBuffer vertexBuffer;
-        GpuBuffer indexBuffer;
-        u32 vertexCount = 0;
-        u32 indexCount = 0;
-        bool valid = false;
-    };
-    const CustomMesh* GetOrCreateCustomMesh(const Math::Vec3* vertices,
-                                            u32 vertexCount,
-                                            const u32* indices,
-                                            u32 indexCount,
-                                            const Math::Vec3* normals = nullptr,
-                                            const Math::Vec2* uvs = nullptr,
-                                            const Math::Vec3* tangents = nullptr);
-    void CleanupCustomMeshes();
-
-    // Material texture cache entries: one GPU texture per slot.
-    struct MaterialTexture {
-        VkImage image = VK_NULL_HANDLE;
-        VkDeviceMemory memory = VK_NULL_HANDLE;
-        VkImageView view = VK_NULL_HANDLE;
-    };
-    static constexpr u32 kMaxMaterialTextures = 32;
-    std::vector<MaterialTexture> m_materialTextures;
-    std::unordered_map<std::string, i32> m_materialTextureIndex;
-    VkSampler m_materialSampler = VK_NULL_HANDLE;
-    u32 m_materialTextureGeneration = 0;  // bumped in Initialize (cache rebuild)
+    // Scene content residency (lives as long as the renderer).
+    std::unique_ptr<VulkanTextureCache> m_textures;
+    std::unique_ptr<VulkanMeshCache> m_meshes;
+    std::unique_ptr<VulkanMaterialSystem> m_materials;
+    static constexpr u32 kPrimitiveCount = 4;
+    std::array<MeshHandle, kPrimitiveCount> m_primitiveMeshes{};
+    u32 m_frameSlot = 0;  // material table copy used by the current frame
 
     // Equirectangular HDR environment used by the deferred background pass.
     VkImage m_environmentImage = VK_NULL_HANDLE;
@@ -266,18 +244,6 @@ private:
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
     VkFence m_fence = VK_NULL_HANDLE;
-
-    // Built-in primitive meshes (indexed by MeshPrimitive)
-    struct Primitive {
-        GpuBuffer vertexBuffer;
-        GpuBuffer indexBuffer;
-        u32 indexCount = 0;
-    };
-    static constexpr u32 kPrimitiveCount = 4;
-    Primitive m_primitives[kPrimitiveCount];
-
-    // Custom mesh cache (keyed by the scene instance's vertex pointer)
-    std::unordered_map<const Math::Vec3*, CustomMesh> m_customMeshes;
 
     // Cascaded shadow map resources (sun / directional light)
     VkImage m_shadowImage = VK_NULL_HANDLE;

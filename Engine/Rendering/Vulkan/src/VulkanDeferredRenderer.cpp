@@ -21,6 +21,9 @@
 #include "Luma/Mesh/Mesh.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Grid/VulkanGridPass.h"
+#include "Vulkan/Materials/VulkanMaterialSystem.h"
+#include "Vulkan/Meshes/VulkanMeshCache.h"
+#include "Vulkan/Textures/VulkanTextureCache.h"
 #include "Vulkan/Overlay/VulkanOverlayLinePass.h"
 #include "Vulkan/EyeAdaptation/VulkanEyeAdaptation.h"
 #include "Vulkan/SkyLight/VulkanSkyLight.h"
@@ -101,10 +104,65 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
     m_gBuffer.material = {};
     m_gBuffer.depth = {};
     m_gBuffer.lightAccum = {};
+
+    m_textures = std::make_unique<VulkanTextureCache>(physicalDevice, device, graphicsQueue,
+                                                      graphicsQueueFamilyIndex);
+    m_meshes = std::make_unique<VulkanMeshCache>(physicalDevice, device, graphicsQueue,
+                                                 graphicsQueueFamilyIndex);
+    m_materials = std::make_unique<VulkanMaterialSystem>(physicalDevice, device);
+    if (!m_textures->IsValid() || !m_materials->IsValid()) {
+        LUMA_LOG_ERROR("VulkanDeferredRenderer", "Scene content caches failed to initialize");
+    }
+    const MeshPrimitive kinds[kPrimitiveCount] = {MeshPrimitive::Cube, MeshPrimitive::Plane,
+                                                  MeshPrimitive::Sphere, MeshPrimitive::Cylinder};
+    for (u32 i = 0; i < kPrimitiveCount; ++i) {
+        // Reserved keys: the top bits mark built-in content.
+        m_primitiveMeshes[i] = m_meshes->Upload(0xB1170000'00000000ull | i, BuildPrimitive(kinds[i]));
+    }
 }
 
 VulkanDeferredRenderer::~VulkanDeferredRenderer() {
     Cleanup();
+    // Caches are released after the frame resources (members, reverse order).
+}
+
+MeshHandle VulkanDeferredRenderer::UploadMesh(u64 key, const MeshData& mesh) {
+    return m_meshes->Upload(key, mesh);
+}
+
+void VulkanDeferredRenderer::ReleaseMesh(MeshHandle mesh) {
+    for (MeshHandle primitive : m_primitiveMeshes) {
+        if (primitive == mesh) return;  // built-in shapes stay resident
+    }
+    m_meshes->Release(mesh);
+}
+
+GpuTextureHandle VulkanDeferredRenderer::UploadTexture(u64 key, const TextureUploadDesc& texture) {
+    return m_textures->Upload(key, texture);
+}
+
+void VulkanDeferredRenderer::ReleaseTexture(GpuTextureHandle texture) {
+    m_textures->Release(texture);
+}
+
+MaterialHandle VulkanDeferredRenderer::UpdateMaterial(u64 key, const MaterialGpuDesc& material) {
+    return m_materials->Update(key, material, *m_textures);
+}
+
+void VulkanDeferredRenderer::ReleaseMaterial(MaterialHandle material) {
+    m_materials->Release(material);
+}
+
+MeshHandle VulkanDeferredRenderer::PrimitiveMesh(MeshPrimitive primitive) const {
+    const u32 i = static_cast<u32>(primitive);
+    return i < kPrimitiveCount ? m_primitiveMeshes[i] : m_primitiveMeshes[0];
+}
+
+const GpuMesh* VulkanDeferredRenderer::ResolveMesh(const SceneInstance& instance) const {
+    if (instance.mesh != kInvalidHandle) {
+        if (const GpuMesh* mesh = m_meshes->Get(instance.mesh)) return mesh;
+    }
+    return m_meshes->Get(PrimitiveMesh(instance.primitive));
 }
 
 bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
@@ -173,7 +231,6 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     if (!CreateDescriptorSets()) return false;
     if (!CreatePipelines(m_shaderDir)) return false;
     if (!CreateShadowPipeline(m_shaderDir)) return false;
-    CreatePrimitives();
     if (!CreateFXAAPass()) return false;
     // The bloom chain also hosts the final tone-mapping composite. Don't fail
     // the renderer without it (the viewport stays usable, just untonemapped),
@@ -224,8 +281,6 @@ void VulkanDeferredRenderer::Cleanup() {
     DestroyBloomResources();
     m_eyeAdaptation.reset();
     DestroyFXAAPass();
-    CleanupCustomMeshes();
-    CleanupPrimitives();
     DestroyEnvironmentTexture();
     DestroyBuffer(m_device, m_gbufferUBO);
     DestroyBuffer(m_device, m_lightingUBO);
@@ -1123,48 +1178,6 @@ bool VulkanDeferredRenderer::CreatePipelines(const std::string& shaderDir) {
     return ok;
 }
 
-void VulkanDeferredRenderer::CreatePrimitives() {
-    const MeshPrimitive kinds[kPrimitiveCount] = {MeshPrimitive::Cube, MeshPrimitive::Plane, MeshPrimitive::Sphere, MeshPrimitive::Cylinder};
-    for (u32 i = 0; i < kPrimitiveCount; ++i) {
-        MeshData data = BuildPrimitive(kinds[i]);
-        m_primitives[i].vertexBuffer = CreateBuffer(m_physicalDevice, m_device, sizeof(MeshVertex) * data.vertices.size(), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, true);
-        std::memcpy(m_primitives[i].vertexBuffer.mapped, data.vertices.data(), sizeof(MeshVertex) * data.vertices.size());
-        m_primitives[i].indexBuffer = CreateBuffer(m_physicalDevice, m_device, sizeof(u32) * data.indices.size(), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, true);
-        std::memcpy(m_primitives[i].indexBuffer.mapped, data.indices.data(), sizeof(u32) * data.indices.size());
-        m_primitives[i].indexCount = static_cast<u32>(data.indices.size());
-    }
-}
-
-void VulkanDeferredRenderer::CleanupPrimitives() {
-    for (Primitive& p : m_primitives) { DestroyBuffer(m_device, p.vertexBuffer); DestroyBuffer(m_device, p.indexBuffer); p.indexCount = 0; }
-}
-
-void VulkanDeferredRenderer::CleanupCustomMeshes() {
-    // Clean up custom mesh cache
-    for (auto& [key, mesh] : m_customMeshes) {
-        if (mesh.valid) {
-            DestroyBuffer(m_device, mesh.vertexBuffer);
-            DestroyBuffer(m_device, mesh.indexBuffer);
-        }
-    }
-    m_customMeshes.clear();
-}
-
-const VulkanDeferredRenderer::CustomMesh* VulkanDeferredRenderer::GetOrCreateCustomMesh(
-    const Math::Vec3* vertices, u32 vertexCount, const u32* indices, u32 indexCount,
-    const Math::Vec3* normals, const Math::Vec2* uvs, const Math::Vec3* tangents) {
-    (void)vertices;
-    (void)vertexCount;
-    (void)indices;
-    (void)indexCount;
-    (void)normals;
-    (void)uvs;
-    (void)tangents;
-    
-    // Simplified implementation - return nullptr for now
-    return nullptr;
-}
-
 bool VulkanDeferredRenderer::CreateShadowResources() {
     // Cascaded sun shadow map: one kShadowSize^2 depth layer per cascade.
     VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -1326,15 +1339,14 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
             VkDeviceSize offset = 0;
             for (u32 i = 0; i < source.instanceCount; ++i) {
                 const SceneInstance& inst = source.instances[i];
-                u32 prim = static_cast<u32>(inst.primitive);
-                if (prim >= kPrimitiveCount) prim = 0;
-                const Primitive& mesh = m_primitives[prim];
+                const GpuMesh* mesh = ResolveMesh(inst);
+                if (!mesh) continue;
                 const Math::Mat4 mvp = cascades.viewProj[c] * inst.model;
                 vkCmdPushConstants(m_commandBuffer, m_shadowLayout, VK_SHADER_STAGE_VERTEX_BIT,
                                    0, sizeof(Math::Mat4), &mvp);
-                vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh.vertexBuffer.buffer, &offset);
-                vkCmdBindIndexBuffer(m_commandBuffer, mesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-                vkCmdDrawIndexed(m_commandBuffer, mesh.indexCount, 1, 0, 0, 0);
+                vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
+                vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(m_commandBuffer, mesh->indexCount, 1, 0, 0, 0);
             }
         }
         vkCmdEndRendering(m_commandBuffer);
@@ -1367,6 +1379,13 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, std::numeric_limits<u64>::max());
     vkResetFences(m_device, 1, &m_fence);
     vkResetCommandBuffer(m_commandBuffer, 0);
+
+    // The previous frame has finished: content released since is unused now,
+    // and this frame's material table copy can be published.
+    m_meshes->CollectGarbage();
+    m_textures->CollectGarbage();
+    m_frameSlot = (m_frameSlot + 1) % VulkanMaterialSystem::kFramesInFlight;
+    m_materials->Flush(m_frameSlot, *m_textures);
 
     const SceneView& source = *scene.sceneData;
     GbufferUBO camera{};
@@ -1482,7 +1501,25 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     VkViewport viewport{0, 0, static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height), 0, 1}; VkRect2D scissor{{0, 0}, {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}}; vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
     vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferPipeline); vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gbufferLayout, 0, 1, &m_gbufferSet, 0, nullptr);
     VkDeviceSize offset = 0;
-    for (u32 i = 0; i < source.instanceCount; ++i) { const SceneInstance& inst = source.instances[i]; u32 prim = static_cast<u32>(inst.primitive); if (prim >= kPrimitiveCount) prim = 0; MeshPush push{}; push.model = inst.model; push.albedo[0] = inst.albedo.x; push.albedo[1] = inst.albedo.y; push.albedo[2] = inst.albedo.z; push.albedo[3] = inst.metallic; push.material[0] = inst.roughness; push.texIdx[0] = push.texIdx[1] = push.texIdx[2] = push.texIdx[3] = -1; vkCmdPushConstants(m_commandBuffer, m_gbufferLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push); const Primitive& mesh = m_primitives[prim]; vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh.vertexBuffer.buffer, &offset); vkCmdBindIndexBuffer(m_commandBuffer, mesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32); vkCmdDrawIndexed(m_commandBuffer, mesh.indexCount, 1, 0, 0, 0); }
+    for (u32 i = 0; i < source.instanceCount; ++i) {
+        const SceneInstance& inst = source.instances[i];
+        const GpuMesh* mesh = ResolveMesh(inst);
+        if (!mesh) continue;
+        MeshPush push{};
+        push.model = inst.model;
+        push.albedo[0] = inst.albedo.x;
+        push.albedo[1] = inst.albedo.y;
+        push.albedo[2] = inst.albedo.z;
+        push.albedo[3] = inst.metallic;
+        push.material[0] = inst.roughness;
+        push.texIdx[0] = push.texIdx[1] = push.texIdx[2] = push.texIdx[3] = -1;
+        vkCmdPushConstants(m_commandBuffer, m_gbufferLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
+        vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+        for (const MeshSection& section : mesh->sections) {
+            vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
+        }
+    }
     vkCmdEndRenderPass(m_commandBuffer);
     barrier(m_gBuffer.depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -1630,16 +1667,6 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
 
 const VulkanDeferredRenderer::Attachment* VulkanDeferredRenderer::GetLightAccumulationBuffer() const {
     return &m_gBuffer.lightAccum;
-}
-
-i32 VulkanDeferredRenderer::UploadMaterialTexture(const std::string& key, u32 width, u32 height,
-                                                  const void* rgba8Pixels) {
-    (void)key;
-    (void)width;
-    (void)height;
-    (void)rgba8Pixels;
-    // Simplified implementation - return -1 for now
-    return -1;
 }
 
 // --- Bloom Resources -----------------------------------------------------------

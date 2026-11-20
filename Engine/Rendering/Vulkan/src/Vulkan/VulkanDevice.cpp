@@ -59,10 +59,39 @@ bool SupportsDynamicRendering(VkPhysicalDevice device) {
     return features13.dynamicRendering == VK_TRUE;
 }
 
+// Material system requirements: bindless texture arrays (descriptor
+// indexing, core in Vulkan 1.2) and anisotropic filtering. Returns the name of
+// the first missing feature, or nullptr when everything is supported.
+const char* MissingMaterialFeature(VkPhysicalDevice device) {
+    VkPhysicalDeviceVulkan12Features f12{};
+    f12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &f12;
+    vkGetPhysicalDeviceFeatures2(device, &features2);
+    if (!features2.features.samplerAnisotropy) return "samplerAnisotropy";
+    if (!f12.runtimeDescriptorArray) return "runtimeDescriptorArray";
+    if (!f12.descriptorBindingPartiallyBound) return "descriptorBindingPartiallyBound";
+    if (!f12.descriptorBindingVariableDescriptorCount)
+        return "descriptorBindingVariableDescriptorCount";
+    if (!f12.shaderSampledImageArrayNonUniformIndexing)
+        return "shaderSampledImageArrayNonUniformIndexing";
+    if (!f12.descriptorBindingSampledImageUpdateAfterBind)
+        return "descriptorBindingSampledImageUpdateAfterBind";
+    return nullptr;
+}
+
 int ScoreDevice(VkPhysicalDevice device, VkSurfaceKHR surface) {
     if (!FindQueueFamilies(device, surface).Complete()) return -1;
     if (!SupportsExtensions(device)) return -1;
     if (!SupportsDynamicRendering(device)) return -1;
+    if (const char* missing = MissingMaterialFeature(device)) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(device, &props);
+        LUMA_LOG_ERROR("Vulkan", "GPU '{}' rejected: missing required feature {}",
+                       props.deviceName, missing);
+        return -1;
+    }
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(device, &props);
@@ -118,9 +147,24 @@ VulkanDevice::VulkanDevice(VkInstance instance, VkSurfaceKHR surface)
     // glslc lowers `discard` (grid/sky shaders) to OpDemoteToHelperInvocation.
     features13.shaderDemoteToHelperInvocation = VK_TRUE;
 
+    // Bindless material textures (one sampler2D[] indexed per material).
+    VkPhysicalDeviceVulkan12Features features12{};
+    features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    features12.pNext = &features13;
+    features12.runtimeDescriptorArray = VK_TRUE;
+    features12.descriptorBindingPartiallyBound = VK_TRUE;
+    features12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &features12;
+    features2.features.samplerAnisotropy = VK_TRUE;
+
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pNext = &features13;
+    createInfo.pNext = &features2;
     createInfo.queueCreateInfoCount = static_cast<u32>(queueInfos.size());
     createInfo.pQueueCreateInfos = queueInfos.data();
     createInfo.enabledExtensionCount =

@@ -10,6 +10,9 @@ add_library(LumaRenderVulkan STATIC
     src/Vulkan/VulkanShader.cpp
     src/Vulkan/VulkanMemory.cpp
     src/Vulkan/VulkanTexture.cpp
+    src/Vulkan/Textures/VulkanTextureCache.cpp
+    src/Vulkan/Meshes/VulkanMeshCache.cpp
+    src/Vulkan/Materials/VulkanMaterialSystem.cpp
     src/Vulkan/UI/VulkanUIPass.cpp
     src/Vulkan/Grid/VulkanGridPass.cpp
     src/Vulkan/Overlay/VulkanOverlayLinePass.cpp

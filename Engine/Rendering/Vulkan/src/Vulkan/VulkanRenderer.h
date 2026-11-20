@@ -51,6 +51,7 @@ public:
     
     // Get the Vulkan-based deferred renderer (reference implementation)
     void* GetVulkanDeferredRenderer() const override { return m_vulkanDeferredRenderer.get(); }
+    SceneRenderer* GetSceneRenderer() const override { return m_vulkanDeferredRenderer.get(); }
     void* GetVulkanMaterialDeferredRenderer() const override { return m_vulkanMaterialDeferredRenderer.get(); }
 
 private:
