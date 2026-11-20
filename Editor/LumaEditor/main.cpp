@@ -237,6 +237,8 @@ int main(int argc, char** argv) {
     type.headingSize = 18.0f;   // increased from 16.0f
     type.titleSize = 28.0f;     // increased from 26.0f
     type.displaySize = 38.0f;   // increased from 36.0f
+    ui.SetClipboardHandlers([&window] { return window->GetClipboardText(); },
+                            [&window](const std::string& text) { window->SetClipboardText(text); });
     if (!ui.Init(*renderer, type, window->ContentScale())) {
         LUMA_LOG_ERROR("Editor", "failed to load UI font");
     }
@@ -476,6 +478,15 @@ int main(int argc, char** argv) {
 
         renderer->DrawUI(ui.EndFrame());
         window->SetCursor(ui.RequestedCursor());
+        // Spin-box scrubbing: hide + lock the pointer while a drag wants it;
+        // when the drag ends, unlock and put the cursor back where it began.
+        if (auto restore = ui.TakePointerRestore()) {
+            window->SetPointerLocked(false);
+            window->SetCursorPosition(restore->x, restore->y);
+            ui.WarpMouse(restore->x, restore->y);
+        } else {
+            window->SetPointerLocked(ui.PointerLockRequested());
+        }
 
         if (!screenshotPath.empty() && frameCount == kCaptureFrame) {
             renderer->CaptureFrame(screenshotPath);

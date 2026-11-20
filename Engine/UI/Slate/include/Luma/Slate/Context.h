@@ -2,6 +2,7 @@
 
 #include <bitset>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -53,10 +54,34 @@ public:
 
     // --- Input feed (call from the app's event callback) --------------------
     void OnMouseMove(f32 x, f32 y);
+    // Moves the pointer without producing motion (after the app warps the
+    // OS cursor, e.g. at the end of a pointer-locked drag).
+    void WarpMouse(f32 x, f32 y) { m_mouse = m_prevMouse = {x, y}; }
     void OnMouseButton(int button, bool down);  // 0=left,1=right,2=middle
     void OnScroll(f32 y);
     void OnText(u32 codepoint);
     void OnKey(int glfwKey, bool down);
+
+    // --- Platform services (the app wires these to its window) -------------
+    // Clipboard: with no handlers set, an internal store is used (tests).
+    using ClipboardGet = std::function<std::string()>;
+    using ClipboardSet = std::function<void(const std::string&)>;
+    void SetClipboardHandlers(ClipboardGet get, ClipboardSet set);
+    std::string ClipboardText() const;
+    void SetClipboardText(const std::string& text);
+    // Pointer lock (hidden, unbounded pointer) for scrubbing drags. A widget
+    // calls RequestPointerLock(true) every frame it wants the lock; the
+    // request resets at BeginFrame. When a drag ends the widget sets a
+    // restore point with RequestPointerRestore; the app moves the cursor
+    // there (TakePointerRestore) and unlocks.
+    void RequestPointerLock(bool locked) { m_pointerLock = m_pointerLock || locked; }
+    bool PointerLockRequested() const { return m_pointerLock; }
+    void RequestPointerRestore(Vec2 pos) { m_pointerRestore = pos; }
+    std::optional<Vec2> TakePointerRestore() {
+        auto p = m_pointerRestore;
+        m_pointerRestore.reset();
+        return p;
+    }
 
     // --- Frame --------------------------------------------------------------
     void BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt);
@@ -310,6 +335,9 @@ public:
     bool keyEscape() const { return m_keyEscape; }
     bool keyHome() const { return m_keyHome; }
     bool keyEnd() const { return m_keyEnd; }
+    // Edge-triggered Tab / Space (focus navigation, checkbox toggle).
+    bool keyTab() const { return keyPressed(kGlfwKeyTab); }
+    bool keySpace() const { return keyPressed(kGlfwKeySpace); }
     // Edge-triggered Delete key (cleared every BeginFrame). Used by the
     // Material Editor to remove the selected node.
     bool keyDelete() const { return m_keyDelete; }
@@ -397,6 +425,13 @@ private:
     std::bitset<kMaxKeys> m_keysHeld;
 
     CursorShape m_requestedCursor = CursorShape::Arrow;
+    static constexpr int kGlfwKeyTab = 258;
+    static constexpr int kGlfwKeySpace = 32;
+    ClipboardGet m_clipboardGet;
+    ClipboardSet m_clipboardSet;
+    std::string m_clipboard;  // used when no handlers are set
+    bool m_pointerLock = false;
+    std::optional<Vec2> m_pointerRestore;
     u64 m_hot = 0;
     u64 m_active = 0;
     u64 m_focus = 0;

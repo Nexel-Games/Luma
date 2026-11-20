@@ -51,6 +51,16 @@ public:
     // Sets the mouse cursor shape.
     virtual void SetCursor(CursorShape shape) = 0;
 
+    // System clipboard (UTF-8 text).
+    virtual std::string GetClipboardText() const = 0;
+    virtual void SetClipboardText(const std::string& text) = 0;
+
+    // Pointer lock: hides the cursor and reports unbounded relative motion
+    // (spin-box scrubbing). No-op when already in the requested state.
+    virtual void SetPointerLocked(bool locked) = 0;
+    // Moves the cursor (window coordinates, same space as mouse events).
+    virtual void SetCursorPosition(f32 x, f32 y) = 0;
+
     // Native OS handle (GLFWwindow* today) for interop; nullptr if unavailable.
     virtual void* NativeHandle() const = 0;
 

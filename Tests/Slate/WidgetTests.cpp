@@ -291,3 +291,49 @@ TEST_CASE("No double-click when presses are far apart", "[slate][widget]") {
     ctx.OnMouseButton(0, false);
     ctx.EndFrame();
 }
+
+TEST_CASE("Clipboard falls back to an internal store", "[slate][widget]") {
+    Context ctx;
+    ctx.SetClipboardText("x");
+    CHECK(ctx.ClipboardText() == "x");
+}
+
+TEST_CASE("Clipboard handlers are used when set", "[slate][widget]") {
+    Context ctx;
+    std::string system = "from os";
+    ctx.SetClipboardHandlers([&] { return system; },
+                             [&](const std::string& s) { system = s; });
+    CHECK(ctx.ClipboardText() == "from os");
+    ctx.SetClipboardText("copied");
+    CHECK(system == "copied");
+}
+
+TEST_CASE("Tab and Space are edge-triggered", "[slate][widget]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    ctx.OnKey(258, true);  // Tab
+    ctx.OnKey(32, true);   // Space
+    ctx.BeginFrame(800, 600, 0.0166f);
+    CHECK(ctx.keyTab());
+    CHECK(ctx.keySpace());
+    ctx.EndFrame();
+    ctx.BeginFrame(800, 600, 0.0166f);
+    CHECK_FALSE(ctx.keyTab());
+    CHECK_FALSE(ctx.keySpace());
+    ctx.EndFrame();
+}
+
+TEST_CASE("Pointer lock request resets each frame", "[slate][widget]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    ctx.BeginFrame(800, 600, 0.0166f);
+    ctx.RequestPointerLock(true);
+    ctx.EndFrame();
+    CHECK(ctx.PointerLockRequested());
+    ctx.BeginFrame(800, 600, 0.0166f);
+    ctx.EndFrame();
+    CHECK_FALSE(ctx.PointerLockRequested());
+    CHECK_FALSE(ctx.TakePointerRestore().has_value());
+}

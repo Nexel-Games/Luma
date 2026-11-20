@@ -85,6 +85,28 @@ GlfwWindow::~GlfwWindow() {
     }
 }
 
+std::string GlfwWindow::GetClipboardText() const {
+    const char* text = m_window ? glfwGetClipboardString(m_window) : nullptr;
+    return text ? std::string(text) : std::string{};
+}
+
+void GlfwWindow::SetClipboardText(const std::string& text) {
+    if (m_window) glfwSetClipboardString(m_window, text.c_str());
+}
+
+void GlfwWindow::SetPointerLocked(bool locked) {
+    if (!m_window || locked == m_pointerLocked) return;
+    m_pointerLocked = locked;
+    glfwSetInputMode(m_window, GLFW_CURSOR, locked ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    if (glfwRawMouseMotionSupported()) {
+        glfwSetInputMode(m_window, GLFW_RAW_MOUSE_MOTION, locked ? GLFW_TRUE : GLFW_FALSE);
+    }
+}
+
+void GlfwWindow::SetCursorPosition(f32 x, f32 y) {
+    if (m_window) glfwSetCursorPos(m_window, static_cast<double>(x), static_cast<double>(y));
+}
+
 void GlfwWindow::SetCursor(CursorShape shape) {
     if (!m_window || shape == m_currentCursor) return;
     m_currentCursor = shape;

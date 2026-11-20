@@ -29,6 +29,10 @@ public:
     f32 ContentScale() const override;
     void SetIcon(u32 width, u32 height, const void* rgba8Pixels) override;
     void SetCursor(CursorShape shape) override;
+    std::string GetClipboardText() const override;
+    void SetClipboardText(const std::string& text) override;
+    void SetPointerLocked(bool locked) override;
+    void SetCursorPosition(f32 x, f32 y) override;
     void* NativeHandle() const override;
 
     std::vector<const char*> RequiredVulkanInstanceExtensions() const override;
@@ -48,6 +52,7 @@ private:
     void InstallCallbacks();
 
     GLFWwindow* m_window = nullptr;
+    bool m_pointerLocked = false;
     WindowData m_data;
 
     GLFWcursor* m_cursors[5] = {};  // indexed by CursorShape

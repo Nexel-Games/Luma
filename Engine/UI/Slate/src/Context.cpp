@@ -110,6 +110,23 @@ void Context::OnMouseButton(int button, bool down) {
 
 void Context::OnScroll(f32 y) { m_scroll += y; }
 
+void Context::SetClipboardHandlers(ClipboardGet get, ClipboardSet set) {
+    m_clipboardGet = std::move(get);
+    m_clipboardSet = std::move(set);
+}
+
+std::string Context::ClipboardText() const {
+    return m_clipboardGet ? m_clipboardGet() : m_clipboard;
+}
+
+void Context::SetClipboardText(const std::string& text) {
+    if (m_clipboardSet) {
+        m_clipboardSet(text);
+    } else {
+        m_clipboard = text;
+    }
+}
+
 void Context::OnText(u32 codepoint) {
     if (codepoint >= 32 && codepoint < 127) {
         m_textInput.push_back(static_cast<char>(codepoint));
@@ -143,6 +160,7 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     m_time += dt;
     m_hot = 0;
     m_requestedCursor = CursorShape::Arrow;
+    m_pointerLock = false;
     m_mouseDelta = {m_mouse.x - m_prevMouse.x, m_mouse.y - m_prevMouse.y};
     m_prevMouse = m_mouse;
     m_draw.Begin(displayWidth, displayHeight);
