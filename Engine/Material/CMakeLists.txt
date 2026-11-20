@@ -1,8 +1,12 @@
-# Luma::Material - flat PBR material properties + .lmat serializer.
-# Node graph removed; to be rebuilt later.
+# Luma::Material - Unreal-style material assets: Material (.lmat), Material
+# Instance (.lmatinst), resolution of instance chains, and serialization.
+# Renderer-agnostic; the editor bridges resolved materials to the renderer.
 
 add_library(LumaMaterial STATIC
-    src/MaterialSerializer.cpp)
+    src/MaterialTypes.cpp
+    src/MaterialJson.cpp
+    src/MaterialSerializer.cpp
+    src/MaterialInstanceSerializer.cpp)
 
 add_library(Luma::Material ALIAS LumaMaterial)
 

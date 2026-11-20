@@ -8,6 +8,7 @@ const char* AssetTypeName(AssetType t) noexcept {
         case AssetType::Texture: return "Texture";
         case AssetType::Mesh: return "Mesh";
         case AssetType::Material: return "Material";
+        case AssetType::MaterialInstance: return "MaterialInstance";
         case AssetType::Shader: return "Shader";
         case AssetType::Script: return "Script";
         case AssetType::Prefab: return "Prefab";
@@ -25,6 +26,7 @@ std::string_view AssetTypeSlug(AssetType t) noexcept {
         case AssetType::Texture: return "texture";
         case AssetType::Mesh: return "mesh";
         case AssetType::Material: return "material";
+        case AssetType::MaterialInstance: return "material-instance";
         case AssetType::Shader: return "shader";
         case AssetType::Script: return "script";
         case AssetType::Prefab: return "prefab";
@@ -53,6 +55,7 @@ AssetType AssetTypeFromExtension(std::string_view ext) noexcept {
     if (ExtIn(ext, TypeExtensions{}.texture)) return AssetType::Texture;
     if (ExtIn(ext, TypeExtensions{}.mesh)) return AssetType::Mesh;
     if (ExtIn(ext, TypeExtensions{}.material)) return AssetType::Material;
+    if (ExtIn(ext, TypeExtensions{}.materialInstance)) return AssetType::MaterialInstance;
     if (ExtIn(ext, TypeExtensions{}.shader)) return AssetType::Shader;
     if (ExtIn(ext, TypeExtensions{}.script)) return AssetType::Script;
     if (ExtIn(ext, TypeExtensions{}.prefab)) return AssetType::Prefab;
@@ -69,6 +72,7 @@ std::string_view AssetTypeIconHint(AssetType t) noexcept {
         case AssetType::Texture: return "Image";
         case AssetType::Mesh: return "Cube";
         case AssetType::Material: return "Sphere";
+        case AssetType::MaterialInstance: return "Sphere";
         case AssetType::Shader: return "Plane";
         case AssetType::Script: return "Cylinder";
         case AssetType::Prefab: return "Cube";

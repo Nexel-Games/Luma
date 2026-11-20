@@ -136,3 +136,36 @@ TEST_CASE("MaterialThumbnailRenderer CanRender rejects non-material files",
     REQUIRE_FALSE(renderer.RenderThumbnail(
         AssetId{}, "D:/luma_missing_material.lmat", "D:/out.png", 128, 128));
 }
+
+TEST_CASE("MaterialThumbnailRenderer reads the v3 inputs layout",
+          "[asset][thumbnail]") {
+    // Two v3 materials that differ only in inputs.baseColor.constant must
+    // produce different thumbnails (the legacy parser ignored "inputs").
+    auto writeV3 = [](const fs::path& path, float r, float g, float b) {
+        std::string json =
+            "{\"version\": 3, \"type\": \"Material\", \"name\": \"M\","
+            "\"inputs\": {\"baseColor\": {\"constant\": [" +
+            std::to_string(r) + ", " + std::to_string(g) + ", " +
+            std::to_string(b) + ", 1.0]}}}";
+        std::ofstream f(path, std::ios::binary);
+        f.write(json.data(), static_cast<std::streamsize>(json.size()));
+    };
+    fs::path red = TempPath("v3red");
+    fs::path blue = TempPath("v3blue");
+    fs::path outRed = TempOut("v3red");
+    fs::path outBlue = TempOut("v3blue");
+    writeV3(red, 0.9f, 0.05f, 0.05f);
+    writeV3(blue, 0.05f, 0.05f, 0.9f);
+
+    MaterialThumbnailRenderer renderer;
+    REQUIRE(renderer.RenderThumbnail(AssetId{}, red, outRed, 64, 64));
+    REQUIRE(renderer.RenderThumbnail(AssetId{}, blue, outBlue, 64, 64));
+    std::vector<char> redBytes, blueBytes;
+    REQUIRE(ReadFile(outRed, redBytes));
+    REQUIRE(ReadFile(outBlue, blueBytes));
+    REQUIRE(redBytes != blueBytes);
+    fs::remove(red);
+    fs::remove(blue);
+    fs::remove(outRed);
+    fs::remove(outBlue);
+}

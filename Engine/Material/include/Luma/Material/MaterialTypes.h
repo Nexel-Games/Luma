@@ -1,91 +1,50 @@
 #pragma once
 
-#include <cstdint>
+#include "Luma/Core/Types.h"
+
+// Core enums of the Luma material model (Unreal UMaterial-style, PBR
+// metallic/roughness). Persisted by name (see ParameterKey), never by value,
+// so the enums may be extended freely.
 
 namespace Luma::Material {
 
-// Material properties — the named PBR slots. Node graph removed.
-// IMPORTANT: persisted as ints in .lmat files — append only, never reorder.
-enum class MaterialProperty : u8 {
-    // UE MP_BaseColor / MP_DiffuseColor
-    BaseColor = 0,
-    // UE MP_Metallic
+// The material's inputs (Unreal "material attributes" for Default Lit).
+enum class MaterialParameter : u8 {
+    BaseColor,
     Metallic,
-    // UE MP_Specular
     Specular,
-    // UE MP_Roughness
     Roughness,
-    // UE MP_Normal
     Normal,
-    // UE MP_Tangent
-    Tangent,
-    // UE MP_EmissiveColor
     EmissiveColor,
-    // UE MP_Opacity
-    Opacity,
-    // UE MP_OpacityMask
-    OpacityMask,
-    // UE MP_WorldPositionOffset
-    WorldPositionOffset,
-    // UE MP_SubsurfaceColor
-    SubsurfaceColor,
-    // UE MP_AmbientOcclusion
     AmbientOcclusion,
-    // UE MP_Refraction
-    Refraction,
-    // UE MP_PixelDepthOffset
-    PixelDepthOffset,
-
-    // --- Blender-style Material Output volume + thickness inputs -----------
-    // The Material Output node's Volume section (smoke/fluid shading) and the
-    // EEVEE Thickness input. Appended so existing .lmat files stay valid.
-    VolumeColor,      // volume scatter/emission color
-    VolumeDensity,    // volume density
-    VolumeFlame,      // fire density
-    VolumeTemperature,// 0..1 maps to 0..1000 kelvin
-    Thickness,        // EEVEE SSS thickness approximation
-
+    OpacityMask,
     Count,
 };
 
-// Render target for the Material Output node (Blender's Target property).
-// Cycles = offline path, EEVEE = real-time path; stored per material.
-enum class MaterialTarget : u8 {
-    Cycles = 0,
-    EEVEE = 1,
-    Count,
-};
+inline constexpr usize kMaterialParameterCount =
+    static_cast<usize>(MaterialParameter::Count);
 
-// Human-readable label for a material property (the pin label on the
-// Material Output node, e.g. "Base Color").
-inline const char* MaterialPropertyName(MaterialProperty p) {
-    switch (p) {
-        case MaterialProperty::BaseColor: return "Base Color";
-        case MaterialProperty::Metallic: return "Metallic";
-        case MaterialProperty::Specular: return "Specular";
-        case MaterialProperty::Roughness: return "Roughness";
-        case MaterialProperty::Normal: return "Normal";
-        case MaterialProperty::Tangent: return "Tangent";
-        case MaterialProperty::EmissiveColor: return "Emissive Color";
-        case MaterialProperty::Opacity: return "Opacity";
-        case MaterialProperty::OpacityMask: return "Opacity Mask";
-        case MaterialProperty::WorldPositionOffset:
-            return "World Position Offset";
-        case MaterialProperty::SubsurfaceColor:
-            return "Subsurface Color";
-        case MaterialProperty::AmbientOcclusion:
-            return "Ambient Occlusion";
-        case MaterialProperty::Refraction: return "Refraction";
-        case MaterialProperty::VolumeColor: return "Volume Color";
-        case MaterialProperty::VolumeDensity: return "Volume Density";
-        case MaterialProperty::VolumeFlame: return "Volume Flame";
-        case MaterialProperty::VolumeTemperature:
-            return "Volume Temperature";
-        case MaterialProperty::Thickness: return "Thickness";
-        case MaterialProperty::PixelDepthOffset:
-            return "Pixel Depth Offset";
-        default: return "";
-    }
-}
+// Stable JSON key for a parameter ("baseColor", ...).
+const char* ParameterKey(MaterialParameter p);
+// Display name for UI ("Base Color", ...).
+const char* ParameterDisplayName(MaterialParameter p);
+// Color inputs are sampled through an sRGB view when their texture is sRGB;
+// every other input is data and always sampled linear.
+bool IsColorParameter(MaterialParameter p);
+
+// Which texture channel(s) feed an input. RGB for colors/normals; a single
+// channel lets one packed (ORM/ARM) texture drive several scalar inputs.
+enum class TextureChannel : u8 { RGB, R, G, B, A };
+
+enum class BlendMode : u8 { Opaque, Masked };
+enum class ShadingModel : u8 { DefaultLit, Unlit };
+
+// How a material input's texture is viewed by the GPU.
+enum class TextureView : u8 { SRGB, Linear };
+
+// Color inputs use the SRGB view when the texture is sRGB; data inputs
+// (normal, roughness, metallic, AO, specular, opacity mask) are always linear
+// so they stay correct regardless of how the texture was flagged on import.
+TextureView SelectTextureView(MaterialParameter p, bool textureIsSRGB);
 
 }  // namespace Luma::Material

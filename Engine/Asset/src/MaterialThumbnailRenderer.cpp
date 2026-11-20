@@ -87,6 +87,25 @@ bool MaterialThumbnailRenderer::ParseMaterialFile(const std::filesystem::path& p
                 outMaterial.metallic = static_cast<f32>(m->AsFloat(0.0));
             }
         }
+        // v3 layout (Luma::Material serializer): one object per input with
+        // its constant under "constant".
+        if (auto* inputs = jsonVal->Find("inputs"); inputs && inputs->IsObject()) {
+            auto constantOf = [inputs](const char* key) -> const SerialValue* {
+                const SerialValue* in = inputs->Find(key);
+                return in && in->IsObject() ? in->Find("constant") : nullptr;
+            };
+            readVec3(constantOf("baseColor"), outMaterial.baseColor);
+            readVec3(constantOf("emissiveColor"), outMaterial.emissive);
+            auto scalar = [&constantOf](const char* key, f32& dst) {
+                const SerialValue* c = constantOf(key);
+                if (c && c->IsArray() && c->Size() >= 1) {
+                    dst = static_cast<f32>(c->At(0).AsFloat(dst));
+                }
+            };
+            scalar("roughness", outMaterial.roughness);
+            scalar("metallic", outMaterial.metallic);
+            scalar("specular", outMaterial.specular);
+        }
         // Legacy / hand-written materials may keep these at the top level.
         readVec3(jsonVal->Find("baseColor"), outMaterial.baseColor);
         readVec3(jsonVal->Find("color"), outMaterial.baseColor);

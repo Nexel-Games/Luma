@@ -174,6 +174,7 @@ std::optional<AssetMetadata> Read(const std::filesystem::path& metaPath) {
         if (typeStr == "Mesh") meta.type = AssetType::Mesh;
         else if (typeStr == "Texture") meta.type = AssetType::Texture;
         else if (typeStr == "Material") meta.type = AssetType::Material;
+        else if (typeStr == "MaterialInstance") meta.type = AssetType::MaterialInstance;
         else if (typeStr == "Shader") meta.type = AssetType::Shader;
         else if (typeStr == "Audio") meta.type = AssetType::Sound;
         else meta.type = AssetType::Unknown;

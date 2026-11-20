@@ -1,71 +1,32 @@
 #include "Luma/Material/MaterialSerializer.h"
 
-#include <fstream>
-#include <sstream>
-
-#include "Luma/Core/Log.h"
-#include "Luma/Serialization/Json.h"
+#include "MaterialJson.h"
 
 namespace Luma::Material {
 
 namespace {
 
-SerialValue Vec3Value(const Math::Vec3& v) {
-    SerialValue arr = SerialValue::MakeArray();
-    arr.PushBack(SerialValue(v.x));
-    arr.PushBack(SerialValue(v.y));
-    arr.PushBack(SerialValue(v.z));
-    return arr;
-}
-
-SerialValue Vec4Value(const Math::Vec4& v) {
-    SerialValue arr = SerialValue::MakeArray();
-    arr.PushBack(SerialValue(v.x));
-    arr.PushBack(SerialValue(v.y));
-    arr.PushBack(SerialValue(v.z));
-    arr.PushBack(SerialValue(v.w));
-    return arr;
-}
-
-bool ReadVec3(const SerialValue& v, Math::Vec3& out) {
-    if (!v.IsArray() || v.Size() < 3) return false;
-    out.x = static_cast<f32>(v.At(0).AsFloat(0.0));
-    out.y = static_cast<f32>(v.At(1).AsFloat(0.0));
-    out.z = static_cast<f32>(v.At(2).AsFloat(0.0));
-    return true;
-}
-
-bool ReadVec4(const SerialValue& v, Math::Vec4& out) {
-    if (!v.IsArray() || v.Size() < 4) return false;
-    out.x = static_cast<f32>(v.At(0).AsFloat(0.0));
-    out.y = static_cast<f32>(v.At(1).AsFloat(0.0));
-    out.z = static_cast<f32>(v.At(2).AsFloat(0.0));
-    out.w = static_cast<f32>(v.At(3).AsFloat(0.0));
-    return true;
-}
-
-const char* PropertyKey(MaterialProperty p) {
-    switch (p) {
-        case MaterialProperty::BaseColor: return "baseColor";
-        case MaterialProperty::Metallic: return "metallic";
-        case MaterialProperty::Specular: return "specular";
-        case MaterialProperty::Roughness: return "roughness";
-        case MaterialProperty::Normal: return "normal";
-        case MaterialProperty::Tangent: return "tangent";
-        case MaterialProperty::EmissiveColor: return "emissive";
-        case MaterialProperty::Opacity: return "opacity";
-        case MaterialProperty::OpacityMask: return "opacityMask";
-        case MaterialProperty::WorldPositionOffset: return "worldPositionOffset";
-        case MaterialProperty::SubsurfaceColor: return "subsurfaceColor";
-        case MaterialProperty::AmbientOcclusion: return "ambientOcclusion";
-        case MaterialProperty::Refraction: return "refraction";
-        case MaterialProperty::PixelDepthOffset: return "pixelDepthOffset";
-        case MaterialProperty::VolumeColor: return "volumeColor";
-        case MaterialProperty::VolumeDensity: return "volumeDensity";
-        case MaterialProperty::VolumeFlame: return "volumeFlame";
-        case MaterialProperty::VolumeTemperature: return "volumeTemperature";
-        case MaterialProperty::Thickness: return "thickness";
-        default: return "";
+// Legacy (pre-v3) files stored flat constants under "constants"; texture
+// "maps" were raw AssetIds (path hashes) and are not carried forward.
+void ReadLegacyConstants(const SerialValue& constants, Material& out) {
+    struct Key {
+        const char* key;
+        MaterialParameter param;
+    };
+    static const Key kKeys[] = {
+        {"baseColor", MaterialParameter::BaseColor},
+        {"metallic", MaterialParameter::Metallic},
+        {"specular", MaterialParameter::Specular},
+        {"roughness", MaterialParameter::Roughness},
+        {"normal", MaterialParameter::Normal},
+        {"emissive", MaterialParameter::EmissiveColor},
+        {"ambientOcclusion", MaterialParameter::AmbientOcclusion},
+        {"opacityMask", MaterialParameter::OpacityMask},
+    };
+    for (const Key& k : kKeys) {
+        if (const SerialValue* v = constants.Find(k.key)) {
+            Json::ReadVec4(*v, out.Input(k.param).constant);
+        }
     }
 }
 
@@ -73,114 +34,76 @@ const char* PropertyKey(MaterialProperty p) {
 
 SerialValue MaterialSerializer::ToJson(const Material& material) {
     SerialValue root = SerialValue::MakeObject();
-    root["version"] = SerialValue(2);
+    root["version"] = SerialValue(Json::kFormatVersion);
+    root["type"] = SerialValue(std::string("Material"));
     root["name"] = SerialValue(material.name);
-    root["blendMode"] = SerialValue(static_cast<i64>(material.blendMode));
-    root["opacityThreshold"] = SerialValue(material.opacityThreshold);
-
-    // Property values (flat PBR constants).
-    SerialValue constants = SerialValue::MakeObject();
-    constexpr usize kPropCount = static_cast<usize>(MaterialProperty::Count);
-    for (usize i = 0; i < kPropCount; ++i) {
-        auto p = static_cast<MaterialProperty>(i);
-        const char* key = PropertyKey(p);
-        if (key[0] == '\0') continue;
-        constants[key] = Vec4Value(material.propertyValues[i]);
+    SerialValue settings = SerialValue::MakeObject();
+    settings["blendMode"] = SerialValue(std::string(Json::BlendModeName(material.settings.blendMode)));
+    settings["shadingModel"] =
+        SerialValue(std::string(Json::ShadingModelName(material.settings.shadingModel)));
+    settings["twoSided"] = SerialValue(material.settings.twoSided);
+    settings["opacityMaskClip"] = SerialValue(material.settings.opacityMaskClip);
+    root["settings"] = settings;
+    SerialValue inputs = SerialValue::MakeObject();
+    for (usize i = 0; i < kMaterialParameterCount; ++i) {
+        inputs[ParameterKey(static_cast<MaterialParameter>(i))] =
+            Json::InputToJson(material.inputs[i]);
     }
-    root["constants"] = constants;
-
-    // Texture map slots.
-    SerialValue maps = SerialValue::MakeObject();
-    auto putMap = [&](const char* key, const AssetId& id) {
-        if (id.IsValid()) maps[key] = SerialValue(ToString(id));
-    };
-    putMap("baseColor", material.baseColorMap);
-    putMap("normal", material.normalMap);
-    putMap("roughness", material.roughnessMap);
-    putMap("metallic", material.metallicMap);
-    root["maps"] = maps;
-
+    root["inputs"] = inputs;
     return root;
 }
 
 bool MaterialSerializer::FromJson(Material& out, const SerialValue& root,
                                   std::string* outError) {
-    auto fail = [&](const std::string& msg) {
-        if (outError) *outError = msg;
+    if (!root.IsObject()) {
+        if (outError) *outError = "material file is not a JSON object";
         return false;
-    };
-    if (!root.IsObject()) return fail("material file is not a JSON object");
-
+    }
     out = Material{};
-    out.name = root.Find("name") ? root.Find("name")->AsString() : "Material";
+    if (const SerialValue* n = root.Find("name"); n && n->IsString()) out.name = n->AsString();
 
-    const SerialValue* blend = root.Find("blendMode");
-    if (blend && blend->IsNumber()) {
-        out.blendMode = static_cast<BlendMode>(blend->AsInt(0));
-    }
-    const SerialValue* thr = root.Find("opacityThreshold");
-    if (thr) out.opacityThreshold = static_cast<f32>(thr->AsFloat(0.5));
-
-    // Texture map slots.
-    const SerialValue* maps = root.Find("maps");
-    if (maps && maps->IsObject()) {
-        auto getMap = [&](const char* key, AssetId& dst) {
-            const SerialValue* v = maps->Find(key);
-            if (v && v->IsString()) dst = FromString(v->AsString());
-        };
-        getMap("baseColor", out.baseColorMap);
-        getMap("normal", out.normalMap);
-        getMap("roughness", out.roughnessMap);
-        getMap("metallic", out.metallicMap);
+    // Legacy layout (versions 1-2): flat constants + numeric blend mode.
+    if (const SerialValue* constants = root.Find("constants"); constants && constants->IsObject()) {
+        ReadLegacyConstants(*constants, out);
+        if (const SerialValue* b = root.Find("blendMode"); b && b->IsNumber()) {
+            out.settings.blendMode = b->AsInt(0) == 1 ? BlendMode::Masked : BlendMode::Opaque;
+        }
+        return true;
     }
 
-    // Property values.
-    const SerialValue* constants = root.Find("constants");
-    if (constants && constants->IsObject()) {
-        constexpr usize kPropCount = static_cast<usize>(MaterialProperty::Count);
-        for (usize i = 0; i < kPropCount; ++i) {
-            auto p = static_cast<MaterialProperty>(i);
-            const char* key = PropertyKey(p);
-            if (key[0] == '\0') continue;
-            const SerialValue* v = constants->Find(key);
-            if (v && v->IsArray() && v->Size() >= 3) {
-                ReadVec4(*v, out.propertyValues[i]);
+    if (const SerialValue* s = root.Find("settings"); s && s->IsObject()) {
+        if (const SerialValue* v = s->Find("blendMode"); v && v->IsString()) {
+            Json::ParseBlendMode(v->AsString(), out.settings.blendMode);
+        }
+        if (const SerialValue* v = s->Find("shadingModel"); v && v->IsString()) {
+            Json::ParseShadingModel(v->AsString(), out.settings.shadingModel);
+        }
+        if (const SerialValue* v = s->Find("twoSided")) {
+            out.settings.twoSided = v->AsBool(out.settings.twoSided);
+        }
+        if (const SerialValue* v = s->Find("opacityMaskClip"); v && v->IsNumber()) {
+            out.settings.opacityMaskClip = static_cast<f32>(v->AsFloat(0.3333));
+        }
+    }
+    if (const SerialValue* inputs = root.Find("inputs"); inputs && inputs->IsObject()) {
+        for (usize i = 0; i < kMaterialParameterCount; ++i) {
+            if (const SerialValue* v = inputs->Find(ParameterKey(static_cast<MaterialParameter>(i)))) {
+                Json::InputFromJson(*v, out.inputs[i]);
             }
         }
     }
-
     return true;
 }
 
 bool MaterialSerializer::SaveToFile(const Material& material,
                                     const std::filesystem::path& path,
                                     std::string* outError) {
-    std::string json = WriteJson(ToJson(material), true);
-    std::ofstream file(path, std::ios::binary);
-    if (!file) {
-        if (outError) *outError = "cannot open file for writing: " + path.string();
-        return false;
-    }
-    file.write(json.data(), static_cast<std::streamsize>(json.size()));
-    file.close();
-    if (!file) {
-        if (outError) *outError = "failed writing file: " + path.string();
-        return false;
-    }
-    return true;
+    return Json::WriteFile(ToJson(material), path, outError);
 }
 
-bool MaterialSerializer::LoadFromFile(Material& out,
-                                      const std::filesystem::path& path,
+bool MaterialSerializer::LoadFromFile(Material& out, const std::filesystem::path& path,
                                       std::string* outError) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        if (outError) *outError = "cannot open file for reading: " + path.string();
-        return false;
-    }
-    std::stringstream ss;
-    ss << file.rdbuf();
-    auto parsed = ParseJson(ss.str(), outError);
+    auto parsed = Json::ReadFile(path, outError);
     if (!parsed) return false;
     return FromJson(out, *parsed, outError);
 }

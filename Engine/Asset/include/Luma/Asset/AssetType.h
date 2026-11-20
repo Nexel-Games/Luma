@@ -16,6 +16,7 @@ enum class AssetType : u8 {
     Texture,
     Mesh,
     Material,
+    MaterialInstance,  // .lmatinst (parent material + overrides)
     Shader,
     Script,
     Prefab,
@@ -39,6 +40,7 @@ struct TypeExtensions {
                                             "ltex"};
     std::array<std::string_view, 5> mesh{"obj", "gltf", "glb", "fbx", "lmesh"};
     std::array<std::string_view, 3> material{"mat", "lumat", "lmat"};
+    std::array<std::string_view, 1> materialInstance{"lmatinst"};
     std::array<std::string_view, 5> shader{"hlsl", "glsl", "frag", "vert", "lshader"};
     std::array<std::string_view, 4> script{"lua", "py", "js", "cs"};
     std::array<std::string_view, 3> prefab{"prefab", "lumapfb", "lasset"};
