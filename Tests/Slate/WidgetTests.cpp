@@ -337,3 +337,55 @@ TEST_CASE("Pointer lock request resets each frame", "[slate][widget]") {
     CHECK_FALSE(ctx.PointerLockRequested());
     CHECK_FALSE(ctx.TakePointerRestore().has_value());
 }
+
+TEST_CASE("Clicking an Undetermined checkbox checks it", "[slate][widget]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    Luma::Slate::CheckState state = Luma::Slate::CheckState::Undetermined;
+    Click(ctx, 15.0f, 15.0f, 0, [&] { ctx.Checkbox(3, {10, 10, 16, 16}, "Mixed", state); });
+    CHECK(state == Luma::Slate::CheckState::Checked);
+    Click(ctx, 15.0f, 15.0f, 0, [&] { ctx.Checkbox(3, {10, 10, 16, 16}, "Mixed", state); });
+    CHECK(state == Luma::Slate::CheckState::Unchecked);
+}
+
+TEST_CASE("Space toggles a Tab-focused checkbox", "[slate][widget]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    std::string text;
+    bool on = false;
+    auto draw = [&] {
+        ctx.EditableText(1, {10, 10, 200, 24}, text);
+        ctx.Checkbox(2, {10, 50, 16, 16}, "Cast Shadows", on);
+    };
+    Click(ctx, 100.0f, 20.0f, 0, draw);
+    REQUIRE(ctx.textFieldFocused());
+    ctx.OnKey(258, true);  // Tab
+    ctx.OnKey(258, false);
+    ctx.BeginFrame(800, 600, 0.0166f);
+    draw();
+    ctx.EndFrame();
+    CHECK(ctx.IsFieldFocused(2));
+    CHECK_FALSE(ctx.textFieldFocused());  // menus keep their arrow keys
+    ctx.OnKey(32, true);  // Space
+    ctx.OnKey(32, false);
+    ctx.BeginFrame(800, 600, 0.0166f);
+    draw();
+    ctx.EndFrame();
+    CHECK(on);
+}
+
+TEST_CASE("A checked box draws its tick glyph", "[slate][widget]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    auto vertices = [&](bool value) {
+        ctx.BeginFrame(800, 600, 0.0166f);
+        ctx.Checkbox(4, {10, 10, 16, 16}, {}, value);
+        return ctx.EndFrame().vertexCount;
+    };
+    const auto unchecked = vertices(false);
+    const auto checked = vertices(true);
+    CHECK(checked > unchecked);
+}

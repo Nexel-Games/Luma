@@ -149,6 +149,10 @@ struct Theme {
     f32 caretWidth = 1.5f;  // text caret thickness, px
     f32 fieldPadX = 12.0f;  // text inset inside a field, px
 
+    // -- Checkbox --
+    Color checkGlyph;            // tick / dash drawn on the accent fill
+    f32 checkGlyphWidth = 2.0f;  // tick stroke, px
+
     // -- Numeric entry (SpinBox) --
     Color spinFill;              // slider-range fill bar
     Color spinFillHover;         // fill bar while hovered / scrubbing

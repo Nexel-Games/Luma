@@ -1003,38 +1003,66 @@ bool Context::Selectable(u64 id, const Rect& rect, std::string_view label,
 
 bool Context::Checkbox(u64 id, const Rect& box, std::string_view label,
                        bool& value) {
+    CheckState state = value ? CheckState::Checked : CheckState::Unchecked;
+    const bool changed = Checkbox(id, box, label, state);
+    if (changed) value = (state == CheckState::Checked);
+    return changed;
+}
+
+bool Context::Checkbox(u64 id, const Rect& box, std::string_view label,
+                       CheckState& state) {
+    RegisterFocusable(id, false);
     // Clickable region spans the box plus the label, with token padding.
-    f32 labelW = m_font.Measure(label).x;
-    f32 padX = m_theme.space.md;
-    Rect hitRect{box.x, box.y, box.w + padX + labelW, box.h};
-    bool hovered = hitRect.Contains(m_mouse);
+    const f32 labelW = label.empty() ? 0.0f : m_font.Measure(label).x;
+    const f32 padX = m_theme.space.md;
+    const Rect hitRect{box.x, box.y, box.w + (label.empty() ? 0.0f : padX + labelW), box.h};
+    const bool hovered = hitRect.Contains(m_mouse);
     if (hovered) m_hot = id;
-    bool changed = false;
+    bool toggle = false;
     if (hovered && m_mousePressed[0]) m_active = id;
     if (m_active == id && m_mouseReleased[0]) {
-        if (hovered) {
-            value = !value;
-            changed = true;
-        }
+        toggle = hovered;
         m_active = 0;
     }
-
-    // Rounded square, hairline border, accent fill when checked. Hover swaps
-    // the border to accent as a focus-ring hint.
-    m_draw.AddRectFilledRounded(box, m_theme.fieldBg, m_theme.radius.sm);
-    m_draw.AddRectOutline(
-        Rect{box.x + 0.5f, box.y + 0.5f, box.w - 1.0f, box.h - 1.0f},
-        hovered ? m_theme.focusRing : m_theme.fieldBorder,
-        m_theme.border.hairline);
-    if (value) {
-        m_draw.AddRectFilledRounded(
-            box.Inset(3.0f, 3.0f), m_theme.accent,
-            std::max(0.0f, m_theme.radius.sm - 1.0f));
+    const bool focused = (m_focus == id);
+    if (focused && keySpace()) toggle = true;
+    if (toggle) {
+        state = (state == CheckState::Checked) ? CheckState::Unchecked : CheckState::Checked;
     }
-    m_draw.AddText(m_font, {box.Right() + padX,
-                           box.y + (box.h - m_font.LineHeight()) * 0.5f},
-                   label, m_theme.text);
-    return changed;
+
+    // Box: field well with a hairline (accent when hovered / focused);
+    // checked and undetermined fill with the accent and carry a glyph.
+    const bool pressed = (m_active == id && m_mouseDown[0]);
+    const f32 r = m_theme.radius.sm;
+    const bool filled = state != CheckState::Unchecked;
+    Color fill = filled ? (pressed ? m_theme.accentActive : hovered ? m_theme.accentHover
+                                                                   : m_theme.accent)
+                        : (pressed ? m_theme.surface3 : m_theme.fieldBg);
+    m_draw.AddRectFilledRounded(box, (hovered || focused) && !filled ? m_theme.focusRing
+                                                                      : (filled ? fill
+                                                                                : m_theme.fieldBorder),
+                                r);
+    m_draw.AddRectFilledRounded(box.Inset(m_theme.border.hairline, m_theme.border.hairline), fill,
+                                std::max(0.0f, r - m_theme.border.hairline));
+    const f32 w = m_theme.checkGlyphWidth;
+    if (state == CheckState::Checked) {
+        auto p = [&box](f32 fx, f32 fy) { return Vec2{box.x + box.w * fx, box.y + box.h * fy}; };
+        m_draw.AddLine(p(0.24f, 0.52f), p(0.43f, 0.71f), m_theme.checkGlyph, w);
+        m_draw.AddLine(p(0.43f, 0.71f), p(0.78f, 0.30f), m_theme.checkGlyph, w);
+    } else if (state == CheckState::Undetermined) {
+        const f32 cy = box.y + box.h * 0.5f;
+        m_draw.AddRectFilled({box.x + box.w * 0.25f, cy - w * 0.5f, box.w * 0.5f, w},
+                             m_theme.checkGlyph);
+    }
+    if (focused) {
+        const f32 t = m_theme.border.thick;
+        m_draw.AddRectOutlineRounded(box.Inset(-t, -t), m_theme.focusRing, t, r + t);
+    }
+    if (!label.empty()) {
+        m_draw.AddText(m_font, {box.Right() + padX, box.y + (box.h - m_font.LineHeight()) * 0.5f},
+                       label, m_theme.text);
+    }
+    return toggle;
 }
 
 bool Context::DragFloat(u64 id, const Rect& rect, f32& value, f32 speed,

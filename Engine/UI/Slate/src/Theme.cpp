@@ -68,6 +68,8 @@ Theme DarkTheme() {
     t.textSelection = Color::RGBA(186, 98, 8, 140);
     t.caretWidth = 1.5f;
     t.fieldPadX = t.space.lg;
+    t.checkGlyph = Color::RGB(255, 255, 255);
+    t.checkGlyphWidth = 2.0f;
     t.spinFill = Color::RGB(48, 48, 48);
     t.spinFillHover = Color::RGB(62, 62, 62);
     t.dragThreshold = 4.0f;

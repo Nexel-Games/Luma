@@ -72,6 +72,9 @@ struct NumericResult {
     bool dragEnded = false;    // a scrub ended (... and close it)
 };
 
+// Checkbox state; Undetermined shows a dash (mixed values in a multi-selection).
+enum class CheckState { Unchecked, Checked, Undetermined };
+
 // Horizontal text alignment for LabelIn.
 enum class Align { Left, Center, Right };
 
@@ -199,6 +202,9 @@ public:
     // A button showing a centered icon.
     bool IconButton(u64 id, const Rect& rect, TextureHandle icon);
     bool Checkbox(u64 id, const Rect& box, std::string_view label, bool& value);
+    // Tri-state checkbox: a click on Undetermined checks it, then toggles.
+    // Focusable with Tab; Space toggles while it has focus.
+    bool Checkbox(u64 id, const Rect& box, std::string_view label, CheckState& state);
     // A numeric field you scrub by dragging horizontally. Returns true if the
     // value changed this frame. When `accent` is non-null, a small colored
     // square (Unreal-style channel marker) is drawn at the field's left edge
