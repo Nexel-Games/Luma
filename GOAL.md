@@ -273,24 +273,31 @@ Buffers, images, textures, staging/upload.
   in-editor; no manual SPIR-V steps.
 - **Log:** _pipeline creation done; compile pipeline + reflection + hot-reload pending._
 
-### 2.4 Materials  ·  🟡 PARTIAL
-PBR material params on `MeshRendererComponent` (albedo/metallic/roughness) + sky IBL.
-- [x] PBR shading model (metallic-roughness) with image-based lighting from sky
-- [x] **Material object model** — `Engine/Material`: kind-driven expression graph
-      (UE5.8 `UMaterialExpression` model), typed property sinks on `Material`,
-      `MaterialGraph` with stable ids, `MaterialCompiler` GLSL emitter
-      (UE `FMaterialCompiler`/`HLSLMaterialTranslator`), `.lmat` JSON serializer
-      (`MaterialSerializer`). Tests: `Tests/Material/MaterialTests.cpp`.
-- [ ] **Material Editor window** (Phase 2 — see 5.10)
-- [ ] Material Instance overrides / **Shader** / **Texture** / **Parameter** asset
-      wiring — textures bind through the material, not component fields
-- [ ] Texture-backed params (albedo/normal/metallic-roughness/AO/emissive maps)
-- [ ] Shader permutations by feature set
-- **DoD:** materials are assets referenced by meshes; a material instance overrides
-  params; textures bind through the material, not hard-coded component fields.
-- **Log:** _shading model done; material graph + GLSL compiler + .lmat serializer
-  landed; editor window + renderer wiring pending (architecture in
-  `Luma_UE5_Material_Research/17_Architecture/luma_material_editor_architecture.md`)._
+### 2.4 Materials  ·  ✅ DONE (Phase 1)  *(graph authoring = 5.10, Phase 2)*
+Unreal-style PBR materials as assets (spec/plan:
+`docs/superpowers/{specs,plans}/2026-11-20-pbr-material-system*`).
+- [x] PBR shading (metallic/roughness/specular, F0 = 0.08 × Specular) + sky IBL
+- [x] **Assets** — Material (`.lmat` v3) and Material Instance (`.lmatinst`,
+      per-parameter overrides, parent chains, cycle-safe) referenced by
+      Unreal-style virtual paths (`/Game/...`, `/Engine/...`); engine
+      Default Material; `MaterialLibrary` resolve/edit/save/revert/hot-reload
+- [x] **Inputs** — Base Color, Metallic, Specular, Roughness, Normal (OpenGL,
+      flip green, strength), Emissive (HDR), AO, Opacity Mask; each a constant
+      or a texture (channel select, tint/scale, tiling/offset)
+- [x] **Textures** — color space as a flag (sRGB/linear by name), bindless
+      cache with full mip chains and per-texture sRGB/linear views
+- [x] **Renderer** — `material_common.glsl` (`EvaluateMaterial`, the Phase-2
+      graph insertion point), material table SSBO, per-section draws,
+      Opaque/Masked × one/two-sided permutations, emissive G-buffer target,
+      Unlit shading model, masked shadows
+- [x] **Scenes** — per-section material slots on Mesh Renderer; legacy inline
+      colors migrate to Material Instances
+- [x] **Editor** — Material Editor tab (details + live preview), Inspector
+      slots, Content Browser create/from-textures/drag-and-drop, GPU thumbnails
+- **DoD:** ✅ materials are assets referenced by meshes; instances override
+  params; textures bind through the material.
+- **Log:** _2026-11-20 — Phase 1 complete on `feature/pbr-material-system`
+  (Tasks 0–19). Node-graph authoring is Phase 2 (5.10)._
 
 ### 2.5 Meshes  ·  🟡 PARTIAL
 `Engine/Rendering/Mesh` — built-in primitives (cube/sphere/plane…) + PBR draw.
@@ -590,21 +597,25 @@ Dockable panels + branded menu bar exist.
 - **DoD:** users rearrange docks and restore layouts across sessions.
 - **Log:** _docking + menu bar done; layout persistence pending._
 
-### 5.10 Material Editor  ·  🔲 TODO  *(architecture done — see
-`Luma_UE5_Material_Research/17_Architecture/luma_material_editor_architecture.md`)*
-The UE5.8-mapped material graph editor: dockable panel opened from a `.lmat`
-asset (Content Browser double-click), backed by the Phase-1 `Engine/Material`
-module (graph + GLSL compiler + serializer).
-- [ ] Panel shell — canvas viewport + material header, open from Content Browser
-- [ ] Node canvas — procedural nodes, drag-move, select, pan/zoom
-- [ ] Searchable node palette (right-click canvas / `+`) → `AddNode` at cursor
+### 5.10 Material Editor  ·  🟡 PARTIAL  *(Phase 1 done; node graph = Phase 2)*
+Phase 1 (done): `Editor/panels/MaterialEditor` — one dock tab per Material /
+Material Instance, opened by Content Browser double-click: toolbar (Save,
+Browse, preview shape, sky), orbitable live preview, Details for settings and
+every input, instance Parent picker + per-row overrides, `*` dirty marker,
+Save / Don't Save / Cancel on close. Edits are live in every viewport.
+Phase 2 (next): the Unreal-style **node graph** — graph canvas centre,
+details/properties + preview, compiled into `EvaluateMaterial`.
+- [x] Panel shell, opened from the Content Browser, one tab per asset
+- [x] Details pane (settings + inputs) and live preview
+- [x] Dirty tracking + save (Ctrl+S / close prompt)
+- [ ] Node canvas — nodes, drag-move, select, pan/zoom
+- [ ] Searchable node palette (right-click canvas) → add node at cursor
 - [ ] Pin wiring — drag wire, type-checked connects, Bézier links
-- [ ] Details pane — node/material params via existing Inspector widgets
-- [ ] Live preview — recompile on edit, feed deferred renderer, error list
-- [ ] Dirty tracking + save (Ctrl+S / close prompt), comments, keyboard nav
+- [ ] Graph → GLSL compiler generating `EvaluateMaterial`; graph in `.lmat`
 - **DoD:** edit a material graph in the dock, see live preview, save/reload `.lmat`
   without leaving the editor.
-- **Log:** _data model + compiler + serializer done; UI phased per the doc._
+- **Log:** _2026-11-20 — Phase 1 (instance-style editor) shipped with the PBR
+  material system; node graph is the next project._
 
 ---
 ---
