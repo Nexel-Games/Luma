@@ -619,6 +619,10 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
         m_selected = PickEntity(origin, dir);
     };
     ctx.materials = m_materials.get();
+    ctx.sectionCount = [this](Entity e) -> u32 {
+        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        return mesh ? m_bridge.SectionCount(*mesh) : 1u;
+    };
     ctx.renderMaterialPreview = [this](const std::string& path, int shape, f32 yaw, f32 pitch,
                                        u32 width, u32 height, bool sky) -> TextureHandle {
         if (!m_preview) return 0;

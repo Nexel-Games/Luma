@@ -280,3 +280,15 @@ TEST_CASE("Bridge samples color textures as sRGB and data textures as linear", "
     CHECK(f.renderer.textures.size() == 3);
     CHECK(f.renderer.materialUpdates == updates + 1);
 }
+
+TEST_CASE("Bridge reports a mesh's section count", "[bridge]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    MeshRendererComponent mesh;
+    mesh.meshAsset = f.WriteMesh("FourParts", 4);
+    MeshRendererComponent primitive;
+    f.Spawn(mesh);
+    f.Build(lib);
+    CHECK(f.bridge.SectionCount(mesh) == 4);
+    CHECK(f.bridge.SectionCount(primitive) == 1);
+}

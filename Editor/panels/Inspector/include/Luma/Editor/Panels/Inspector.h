@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Luma/Scene/Components.h"
 #include "PanelContext.h"
 #include "Luma/Slate/ColorPickerPopup.h"
 #include "Luma/Slate/Context.h"
@@ -28,6 +29,10 @@ public:
     // Closes any open popup (e.g. after the selection changes).
     void ClosePopups();
 
+    // Material slot rows laid out by the last Draw (drop targets), one per
+    // mesh section.
+    const std::vector<Slate::Rect>& MaterialSlotRects() const { return m_slotRects; }
+
     // Components the Details panel knows how to add/remove/reset.
     enum class ComponentKind { Transform, MeshRenderer, Camera, Light,
                                Environment, PostProcess };
@@ -39,6 +44,11 @@ private:
     // Right-click menu on a component header: reset / remove.
     std::vector<Slate::MenuEntry> BuildComponentMenu(Scene* scene, Entity e,
                                                      ComponentKind kind);
+
+    // Mesh Renderer "Materials" list: one row per section (thumbnail, picker,
+    // browse, clear, create instance; drop target), extra slots as Unused.
+    void DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx, MeshRendererComponent& mr,
+                           f32 x, f32& y, f32 w);
 
     // Floating color pickers for the color property rows. State lives here so
     // each picker's edit buffers + open state persist across frames.
@@ -53,6 +63,8 @@ private:
     // Vertical scroll offset of the component content (px). Reset to the top
     // when the selection changes so a new entity starts scrolled at zero.
     f32 m_scroll = 0.0f;
+
+    std::vector<Slate::Rect> m_slotRects;
 };
 
 }  // namespace Luma::Editor::Panels

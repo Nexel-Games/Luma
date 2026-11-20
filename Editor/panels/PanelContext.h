@@ -99,6 +99,8 @@ struct PanelContext {
     // ---- Materials ----------------------------------------------------------
     // The editor's material assets (edits are live in every viewport).
     Material::MaterialLibrary* materials = nullptr;
+    // Number of material sections of an actor's mesh (1 for primitives).
+    std::function<u32(Entity)> sectionCount;
     // Renders a material on a preview shape (0 sphere, 1 cube, 2 plane,
     // 3 cylinder) orbiting by yaw/pitch at width x height; `sky` shows the sky
     // backdrop (else a dark studio). Returns the UI texture (0 = unavailable).

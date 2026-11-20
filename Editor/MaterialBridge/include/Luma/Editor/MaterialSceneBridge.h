@@ -49,6 +49,10 @@ public:
     // Local-space bounds of a loaded mesh asset (picking, framing).
     const MeshBounds* Bounds(const AssetId& mesh) const;
 
+    // Material sections of a Mesh Renderer's mesh (1 for primitives and for
+    // mesh assets not loaded yet).
+    u32 SectionCount(const MeshRendererComponent& mesh) const;
+
     // Renderer handle for a material slot path ("" = Default Material).
     MaterialHandle HandleFor(std::string_view materialPath) const;
 

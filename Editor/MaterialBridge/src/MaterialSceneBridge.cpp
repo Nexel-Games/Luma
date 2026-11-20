@@ -262,6 +262,12 @@ const MeshBounds* MaterialSceneBridge::Bounds(const AssetId& mesh) const {
     return it != m_meshes.end() && !it->second.failed ? &it->second.bounds : nullptr;
 }
 
+u32 MaterialSceneBridge::SectionCount(const MeshRendererComponent& mesh) const {
+    if (!mesh.UsesMeshAsset()) return 1;
+    auto it = m_meshes.find(mesh.meshAsset);
+    return it != m_meshes.end() && !it->second.failed ? it->second.sectionCount : 1u;
+}
+
 MaterialHandle MaterialSceneBridge::HandleFor(std::string_view materialPath) const {
     auto it = m_materials.find(SlotKey(materialPath));
     return it != m_materials.end() && it->second.uploaded ? it->second.handle
