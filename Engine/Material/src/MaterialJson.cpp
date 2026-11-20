@@ -89,6 +89,7 @@ SerialValue InputToJson(const MaterialInput& in) {
     o["uvOffset"] = Vec2Value(in.uvOffset);
     o["normalStrength"] = SerialValue(in.normalStrength);
     o["flipGreen"] = SerialValue(in.flipGreen);
+    o["invert"] = SerialValue(in.invert);
     o["emissiveIntensity"] = SerialValue(in.emissiveIntensity);
     return o;
 }
@@ -107,6 +108,7 @@ void InputFromJson(const SerialValue& v, MaterialInput& out) {
         out.normalStrength = static_cast<f32>(t->AsFloat(out.normalStrength));
     }
     if (const SerialValue* t = v.Find("flipGreen")) out.flipGreen = t->AsBool(out.flipGreen);
+    if (const SerialValue* t = v.Find("invert")) out.invert = t->AsBool(out.invert);
     if (const SerialValue* t = v.Find("emissiveIntensity"); t && t->IsNumber()) {
         out.emissiveIntensity = static_cast<f32>(t->AsFloat(out.emissiveIntensity));
     }

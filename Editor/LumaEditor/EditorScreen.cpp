@@ -438,6 +438,10 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
     for (const std::string& ignored : result.ignored) {
         LUMA_USER_WARN("Materials", "'{}' matched no material input and was left out", ignored);
     }
+    for (const std::string& redundant : result.redundant) {
+        LUMA_USER_INFO("Materials", "'{}' was not used: the set already has a better map for it",
+                       redundant);
+    }
     const auto desired = m_assetPaths.ToVirtual(texture.parent_path() / result.suggestedName);
     if (!desired) return;
     const std::string path = UniqueMaterialPath(*desired);
@@ -451,7 +455,7 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
     }
     m_assetRegistry.Scan();
     LUMA_USER_INFO("Materials", "Created '{}' from {} texture(s)", path,
-                   set.size() - result.ignored.size());
+                   set.size() - result.ignored.size() - result.redundant.size());
     OpenMaterialEditor(path);
 }
 

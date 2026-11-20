@@ -22,7 +22,10 @@ struct MaterialInput {
     Math::Vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
     Math::Vec2 uvTiling{1.0f, 1.0f};
     Math::Vec2 uvOffset{0.0f, 0.0f};
-    // Normal input only.
+    // Scalar inputs: use 1 - value (e.g. a gloss map driving Roughness).
+    bool invert = false;
+    // Strength: Normal (normal strength), Height (height scale, UV units),
+    // Bump (bump strength).
     f32 normalStrength = 1.0f;
     bool flipGreen = false;  // DirectX-style (-Y) normal maps
     // Emissive input only: HDR multiplier.

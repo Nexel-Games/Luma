@@ -166,3 +166,36 @@ TEST_CASE(".lmatinst is the Material Instance asset type", "[material][serializa
     CHECK(std::string(Luma::AssetTypeName(Luma::AssetType::MaterialInstance)) ==
           "MaterialInstance");
 }
+
+TEST_CASE("Height, bump, cavity and invert round-trip", "[material][serialize]") {
+    Material m = Material::MakeDefault();
+    m.name = "M_Rock";
+    auto& rough = m.inputs[static_cast<size_t>(MaterialParameter::Roughness)];
+    rough.texture = "/Game/T/Rock_Gloss";
+    rough.invert = true;
+    auto& height = m.inputs[static_cast<size_t>(MaterialParameter::Height)];
+    height.texture = "/Game/T/Rock_Displacement";
+    height.normalStrength = 0.08f;
+    m.inputs[static_cast<size_t>(MaterialParameter::Cavity)].texture = "/Game/T/Rock_Cavity";
+    m.inputs[static_cast<size_t>(MaterialParameter::Bump)].texture = "/Game/T/Rock_Bump";
+    const auto file = std::filesystem::temp_directory_path() / "luma_height_roundtrip.lmat";
+    REQUIRE(MaterialSerializer::SaveToFile(m, file));
+    Material loaded;
+    REQUIRE(MaterialSerializer::LoadFromFile(loaded, file));
+    CHECK(loaded.inputs[static_cast<size_t>(MaterialParameter::Roughness)].invert);
+    CHECK(loaded.inputs[static_cast<size_t>(MaterialParameter::Height)].texture ==
+          "/Game/T/Rock_Displacement");
+    CHECK(loaded.inputs[static_cast<size_t>(MaterialParameter::Height)].normalStrength == 0.08f);
+    CHECK(loaded.inputs[static_cast<size_t>(MaterialParameter::Cavity)].texture == "/Game/T/Rock_Cavity");
+    CHECK(loaded.inputs[static_cast<size_t>(MaterialParameter::Bump)].texture == "/Game/T/Rock_Bump");
+    std::filesystem::remove(file);
+}
+
+TEST_CASE("New inputs have neutral defaults", "[material][serialize]") {
+    const Material m = Material::MakeDefault();
+    CHECK(m.inputs[static_cast<size_t>(MaterialParameter::Cavity)].constant.x == 1.0f);
+    CHECK(m.inputs[static_cast<size_t>(MaterialParameter::Height)].texture.empty());
+    CHECK(m.inputs[static_cast<size_t>(MaterialParameter::Bump)].texture.empty());
+    CHECK_FALSE(IsColorParameter(MaterialParameter::Height));
+    CHECK(std::string(ParameterKey(MaterialParameter::Height)) == "height");
+}

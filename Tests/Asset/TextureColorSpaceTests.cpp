@@ -29,6 +29,11 @@ TEST_CASE("Texture color space is inferred from token-delimited names", "[textur
         {"rough_plaster_diff.png", true},
         {"metal_plate_albedo.jpg", true},
         {"rough_plaster_rough.png", false},
+        {"Rocky_Ground_2K_Cavity.jpg", false},
+        {"Rocky_Ground_2K_Displacement.exr", false},
+        {"Rocky_Ground_2K_Bump.jpg", false},
+        {"Rocky_Ground_2K_Gloss.jpg", false},
+        {"Rocky_Ground_2K_Specular.jpg", false},
     };
     for (const Row& r : rows) {
         INFO(r.name);

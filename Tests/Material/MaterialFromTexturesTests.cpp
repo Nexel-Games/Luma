@@ -56,9 +56,9 @@ TEST_CASE("Opacity maps make the material masked", "[material][fromtextures]") {
 }
 
 TEST_CASE("Unknown texture names are ignored and reported", "[material][fromtextures]") {
-    const auto r = BuildMaterialFromTextures({"/Game/T/wood_diff", "/Game/T/wood_height",
+    const auto r = BuildMaterialFromTextures({"/Game/T/wood_diff", "/Game/T/wood_sss",
                                               "/Game/T/random_thing"});
-    CHECK(r.ignored == std::vector<std::string>{"/Game/T/wood_height", "/Game/T/random_thing"});
+    CHECK(r.ignored == std::vector<std::string>{"/Game/T/wood_sss", "/Game/T/random_thing"});
     CHECK(In(r.material, MaterialParameter::BaseColor).texture == "/Game/T/wood_diff");
 }
 
@@ -70,4 +70,27 @@ TEST_CASE("The last role token decides the input", "[material][fromtextures]") {
     CHECK(In(r.material, MaterialParameter::Roughness).texture == "/Game/T/rough_plaster_rough");
     CHECK(In(r.material, MaterialParameter::Normal).texture == "/Game/T/rusty_metal_02_nor_gl");
     CHECK(r.suggestedName == "M_rough_plaster");
+}
+
+TEST_CASE("Megascans sets wire specular, cavity, height and bump", "[material][fromtextures]") {
+    const std::string d = "/Game/T/Rocky_Ground_vl0hccalw_2K_";
+    const auto r = BuildMaterialFromTextures({d + "Albedo", d + "AO", d + "Normal", d + "Roughness",
+                                              d + "Cavity", d + "Displacement", d + "Bump",
+                                              d + "Gloss", d + "Specular"});
+    CHECK(r.ignored.empty());
+    CHECK(In(r.material, MaterialParameter::Specular).texture == d + "Specular");
+    CHECK(In(r.material, MaterialParameter::Cavity).texture == d + "Cavity");
+    CHECK(In(r.material, MaterialParameter::Height).texture == d + "Displacement");
+    CHECK(In(r.material, MaterialParameter::Bump).texture == d + "Bump");
+    // A roughness map wins; the gloss map is redundant (reported, not wired).
+    CHECK(In(r.material, MaterialParameter::Roughness).texture == d + "Roughness");
+    CHECK_FALSE(In(r.material, MaterialParameter::Roughness).invert);
+    CHECK(r.redundant == std::vector<std::string>{d + "Gloss"});
+}
+
+TEST_CASE("A gloss map drives roughness inverted", "[material][fromtextures]") {
+    const auto r = BuildMaterialFromTextures({"/Game/T/Metal_Gloss", "/Game/T/Metal_Albedo"});
+    CHECK(In(r.material, MaterialParameter::Roughness).texture == "/Game/T/Metal_Gloss");
+    CHECK(In(r.material, MaterialParameter::Roughness).invert);
+    CHECK(r.redundant.empty());
 }

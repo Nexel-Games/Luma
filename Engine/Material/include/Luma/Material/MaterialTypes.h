@@ -18,6 +18,10 @@ enum class MaterialParameter : u8 {
     EmissiveColor,
     AmbientOcclusion,
     OpacityMask,
+    // Megascans-style detail maps:
+    Cavity,  // fine occlusion, multiplies ambient occlusion
+    Height,  // displacement: parallax occlusion mapping (strength = height scale)
+    Bump,    // fine height detail: perturbs the normal (strength = bump strength)
     Count,
 };
 

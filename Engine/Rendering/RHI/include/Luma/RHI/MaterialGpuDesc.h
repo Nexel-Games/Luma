@@ -31,6 +31,9 @@ enum class GpuMaterialInput : u8 {
     EmissiveColor,
     AmbientOcclusion,
     OpacityMask,
+    Cavity,
+    Height,
+    Bump,
     Count
 };
 constexpr usize kMaterialGpuInputCount = static_cast<usize>(GpuMaterialInput::Count);
@@ -54,8 +57,9 @@ struct MaterialGpuDesc {
         Math::Vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
         Math::Vec2 tiling{1.0f, 1.0f};
         Math::Vec2 offset{0.0f, 0.0f};
-        f32 normalStrength = 1.0f;
+        f32 normalStrength = 1.0f;  // Normal / Height (scale) / Bump strength
         bool flipGreen = false;
+        bool invert = false;         // scalar inputs: 1 - value
         f32 emissiveIntensity = 1.0f;
     };
     std::array<Input, kMaterialGpuInputCount> inputs{};
@@ -78,6 +82,10 @@ inline MaterialGpuDesc MakeDefaultMaterialGpuDesc() {
     set(GpuMaterialInput::EmissiveColor, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::RGB);
     set(GpuMaterialInput::AmbientOcclusion, {1.0f, 1.0f, 1.0f, 1.0f}, GpuTextureChannel::R);
     set(GpuMaterialInput::OpacityMask, {1.0f, 1.0f, 1.0f, 1.0f}, GpuTextureChannel::R);
+    set(GpuMaterialInput::Cavity, {1.0f, 1.0f, 1.0f, 1.0f}, GpuTextureChannel::R);
+    set(GpuMaterialInput::Height, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::R);
+    set(GpuMaterialInput::Bump, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::R);
+    d.inputs[static_cast<usize>(GpuMaterialInput::Height)].normalStrength = 0.05f;
     return d;
 }
 

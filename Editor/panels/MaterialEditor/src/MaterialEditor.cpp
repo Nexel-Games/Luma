@@ -51,6 +51,12 @@ const char* InputTooltip(MaterialParameter p) {
             return "Ambient Occlusion\nDarkens indirect (sky) light in crevices.";
         case MaterialParameter::OpacityMask:
             return "Opacity Mask\nMasked blend mode: pixels below the clip value are cut out.";
+        case MaterialParameter::Cavity:
+            return "Cavity\nFine occlusion in small cracks; multiplies Ambient Occlusion.";
+        case MaterialParameter::Height:
+            return "Height\nDisplacement map (white = high). Drives parallax occlusion mapping.";
+        case MaterialParameter::Bump:
+            return "Bump\nFine height detail that perturbs the surface normal.";
         case MaterialParameter::Count: break;
     }
     return "";
@@ -496,11 +502,20 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
             };
             picker.SetColor(ToColor(input.tint));
             picker.DrawSwatch(ui, {ft.x, ft.y + 2.0f, ft.w, ft.h - 4.0f});
-        } else if (p != MaterialParameter::Normal) {
+        } else if (p != MaterialParameter::Normal && p != MaterialParameter::Height &&
+                   p != MaterialParameter::Bump) {
             const Rect fs = l.Row(ui, "Scale", "Scale\nMultiplies the texture value.", dim);
             f32 scale = input.tint.x;
             if (DragClamped(ui, Context::ID("mated.scale." + key), fs, scale, 0.005f, 0.0f, 4.0f)) {
                 input.tint = {scale, scale, scale, scale};
+                changed = true;
+            }
+        }
+        if (!isColor && p != MaterialParameter::Normal) {
+            const Rect finv = l.Row(ui, "Invert",
+                                    "Invert\nUses 1 - value (e.g. a Gloss map feeding Roughness).", dim);
+            if (ui.Checkbox(Context::ID("mated.inv." + key), {finv.x, finv.y + 3.0f, 16.0f, 16.0f}, {},
+                            input.invert)) {
                 changed = true;
             }
         }
@@ -528,6 +543,19 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
                                  "Flip Green\nFor DirectX-style (-Y) normal maps.", dim);
         if (ui.Checkbox(Context::ID("mated.flip." + key), {fflip.x, fflip.y + 3.0f, 16.0f, 16.0f}, {},
                         input.flipGreen)) {
+            changed = true;
+        }
+    }
+    if (p == MaterialParameter::Height) {
+        const Rect fh = l.Row(ui, "Scale",
+                              "Height Scale\nParallax depth in UV units (0 disables parallax).", dim);
+        if (DragClamped(ui, Context::ID("mated.hscale." + key), fh, input.normalStrength, 0.001f, 0.0f, 0.3f)) {
+            changed = true;
+        }
+    }
+    if (p == MaterialParameter::Bump) {
+        const Rect fb = l.Row(ui, "Strength", "Bump Strength\nHeight change per texel (like a normal-from-height filter).", dim);
+        if (DragClamped(ui, Context::ID("mated.bstr." + key), fb, input.normalStrength, 0.01f, 0.0f, 16.0f)) {
             changed = true;
         }
     }

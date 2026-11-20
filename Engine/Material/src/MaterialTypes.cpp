@@ -13,6 +13,9 @@ const char* ParameterKey(MaterialParameter p) {
         case MaterialParameter::EmissiveColor: return "emissiveColor";
         case MaterialParameter::AmbientOcclusion: return "ambientOcclusion";
         case MaterialParameter::OpacityMask: return "opacityMask";
+        case MaterialParameter::Cavity: return "cavity";
+        case MaterialParameter::Height: return "height";
+        case MaterialParameter::Bump: return "bump";
         case MaterialParameter::Count: break;
     }
     return "";
@@ -28,6 +31,9 @@ const char* ParameterDisplayName(MaterialParameter p) {
         case MaterialParameter::EmissiveColor: return "Emissive Color";
         case MaterialParameter::AmbientOcclusion: return "Ambient Occlusion";
         case MaterialParameter::OpacityMask: return "Opacity Mask";
+        case MaterialParameter::Cavity: return "Cavity";
+        case MaterialParameter::Height: return "Height";
+        case MaterialParameter::Bump: return "Bump";
         case MaterialParameter::Count: break;
     }
     return "";
@@ -54,11 +60,17 @@ MaterialInputs Material::DefaultInputs() {
     set(MaterialParameter::EmissiveColor, {0.0f, 0.0f, 0.0f, 0.0f});
     set(MaterialParameter::AmbientOcclusion, {1.0f, 0.0f, 0.0f, 0.0f});
     set(MaterialParameter::OpacityMask, {1.0f, 0.0f, 0.0f, 0.0f});
+    set(MaterialParameter::Cavity, {1.0f, 0.0f, 0.0f, 0.0f});
+    // Height and Bump only act through a texture.
+    set(MaterialParameter::Height, {0.0f, 0.0f, 0.0f, 0.0f});
+    set(MaterialParameter::Bump, {0.0f, 0.0f, 0.0f, 0.0f});
+    in[static_cast<usize>(MaterialParameter::Height)].normalStrength = 0.05f;  // height scale
     // Scalar inputs read a single channel when textured.
     for (MaterialParameter p : {MaterialParameter::Metallic, MaterialParameter::Specular,
                                 MaterialParameter::Roughness,
                                 MaterialParameter::AmbientOcclusion,
-                                MaterialParameter::OpacityMask}) {
+                                MaterialParameter::OpacityMask, MaterialParameter::Cavity,
+                                MaterialParameter::Height, MaterialParameter::Bump}) {
         in[static_cast<usize>(p)].channel = TextureChannel::R;
     }
     return in;

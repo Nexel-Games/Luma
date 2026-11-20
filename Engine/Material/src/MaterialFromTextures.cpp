@@ -38,7 +38,10 @@ bool Is(const std::string& token, std::initializer_list<const char*> names) {
     return false;
 }
 
-enum class Role { None, BaseColor, Normal, Roughness, Metallic, AO, Packed, Emissive, Opacity };
+enum class Role {
+    None, BaseColor, Normal, Roughness, Metallic, AO, Packed, Emissive, Opacity,
+    Specular, Gloss, Cavity, Height, Bump
+};
 
 Role RoleOf(const std::string& token) {
     if (Is(token, {"diff", "diffuse", "albedo", "basecolor", "color", "col"})) return Role::BaseColor;
@@ -49,6 +52,11 @@ Role RoleOf(const std::string& token) {
     if (Is(token, {"arm", "orm"})) return Role::Packed;
     if (Is(token, {"emiss", "emissive", "emission"})) return Role::Emissive;
     if (Is(token, {"opacity", "mask", "alpha"})) return Role::Opacity;
+    if (Is(token, {"spec", "specular"})) return Role::Specular;
+    if (Is(token, {"gloss", "glossiness"})) return Role::Gloss;
+    if (Is(token, {"cavity"})) return Role::Cavity;
+    if (Is(token, {"disp", "displacement", "height"})) return Role::Height;
+    if (Is(token, {"bump"})) return Role::Bump;
     return Role::None;
 }
 
@@ -66,6 +74,17 @@ MaterialFromTexturesResult BuildMaterialFromTextures(
     MaterialFromTexturesResult r;
     r.material = Material::MakeDefault();
     std::string prefix;
+    // A gloss map only stands in for roughness when the set has none.
+    bool hasRoughness = false;
+    for (const std::string& path : textureVirtualPaths) {
+        const std::vector<std::string> tokens = Tokens(path);
+        for (usize i = tokens.size(); i-- > 0;) {
+            const Role role = RoleOf(tokens[i]);
+            if (role == Role::None) continue;
+            hasRoughness = hasRoughness || role == Role::Roughness || role == Role::Packed;
+            break;
+        }
+    }
     for (const std::string& path : textureVirtualPaths) {
         const std::vector<std::string> tokens = Tokens(path);
         Role role = Role::None;
@@ -102,6 +121,18 @@ MaterialFromTexturesResult BuildMaterialFromTextures(
                 SetTexture(m, MaterialParameter::OpacityMask, path, TextureChannel::R);
                 m.settings.blendMode = BlendMode::Masked;
                 break;
+            case Role::Specular: SetTexture(m, MaterialParameter::Specular, path, TextureChannel::R); break;
+            case Role::Gloss:
+                if (hasRoughness) {
+                    r.redundant.push_back(path);
+                    continue;
+                }
+                SetTexture(m, MaterialParameter::Roughness, path, TextureChannel::R);
+                m.inputs[static_cast<usize>(MaterialParameter::Roughness)].invert = true;
+                break;
+            case Role::Cavity: SetTexture(m, MaterialParameter::Cavity, path, TextureChannel::R); break;
+            case Role::Height: SetTexture(m, MaterialParameter::Height, path, TextureChannel::R); break;
+            case Role::Bump: SetTexture(m, MaterialParameter::Bump, path, TextureChannel::R); break;
             case Role::None:
                 r.ignored.push_back(path);
                 continue;

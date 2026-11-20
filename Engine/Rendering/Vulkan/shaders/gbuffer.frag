@@ -16,6 +16,11 @@
 
 layout(constant_id = 0) const bool kMasked = false;
 
+layout(set = 0, binding = 0) uniform CameraUBO {
+    mat4 viewProj;
+    vec4 camPos;
+} u;
+
 layout(push_constant) uniform Push {
     mat4 model;
     vec4 normalMatrix[3];
@@ -33,8 +38,8 @@ layout(location = 2) out vec4 outMaterial;
 layout(location = 3) out vec4 outEmissive;
 
 void main() {
-    MaterialSample s = EvaluateMaterial(pc.materialIndex, vUV, vNormal, vTangent,
-                                        gl_FrontFacing);
+    MaterialSample s = EvaluateMaterial(pc.materialIndex, vUV, vWorldPos, vNormal, vTangent,
+                                        u.camPos.xyz - vWorldPos, gl_FrontFacing);
     if (kMasked && s.opacityMask < materials[pc.materialIndex].opacityMaskClip) {
         discard;
     }

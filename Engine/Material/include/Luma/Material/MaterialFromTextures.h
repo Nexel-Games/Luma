@@ -15,6 +15,13 @@
 //   arm | orm                        -> AO = R, Roughness = G, Metallic = B
 //   emiss | emissive                 -> Emissive Color
 //   opacity | mask | alpha           -> Opacity Mask (R), blend mode Masked
+//   spec | specular                  -> Specular (R)
+//   gloss | glossiness               -> Roughness (R, inverted) unless a
+//                                       roughness map is present (then it is
+//                                       reported in `redundant`)
+//   cavity                           -> Cavity (R)
+//   disp | displacement | height     -> Height (R, parallax occlusion)
+//   bump                             -> Bump (R)
 // Textures matching none of these are left out and reported in `ignored`.
 // Color space needs no setting: the importer marks data maps linear by the
 // same names (IsTextureSRGB).
@@ -23,7 +30,8 @@ namespace Luma::Material {
 
 struct MaterialFromTexturesResult {
     Material material;
-    std::vector<std::string> ignored;  // virtual paths that matched no input
+    std::vector<std::string> ignored;    // virtual paths that matched no input
+    std::vector<std::string> redundant;  // recognized, but a better map won
     std::string suggestedName;         // "M_<shared prefix>"
 };
 

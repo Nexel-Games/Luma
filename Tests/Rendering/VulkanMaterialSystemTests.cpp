@@ -128,3 +128,23 @@ TEST_CASE("Mesh cache rejects out-of-range indices", "[vulkan][material]") {
     CHECK(meshes.Upload(1, data) == kInvalidHandle);
     CHECK(meshes.Upload(2, MeshData{}) == kInvalidHandle);
 }
+
+TEST_CASE("Material table carries invert and the detail-map strengths", "[vulkan][material]") {
+    VulkanTestFixture f;
+    VulkanTextureCache textures(f.Physical(), f.Logical(), f.Queue(), f.QueueFamily());
+    VulkanMaterialSystem materials(f.Physical(), f.Logical());
+    const GpuTextureHandle tex = UploadWhite(textures, 3);
+    MaterialGpuDesc desc = MakeDefaultMaterialGpuDesc();
+    auto& rough = desc.inputs[Slot(GpuMaterialInput::Roughness)];
+    rough.texture = tex;
+    rough.invert = true;
+    auto& height = desc.inputs[Slot(GpuMaterialInput::Height)];
+    height.texture = tex;
+    height.normalStrength = 0.07f;
+    const MaterialHandle h = materials.Update(11, desc, textures);
+    const GpuMaterial& gpu = materials.Entry(h);
+    CHECK((gpu.inputs[Slot(GpuMaterialInput::Roughness)].flags & GpuMaterial::kInvert) != 0);
+    CHECK(gpu.inputs[Slot(GpuMaterialInput::Height)].scalar == 0.07f);
+    CHECK(gpu.inputs[Slot(GpuMaterialInput::Cavity)].constant[0] == 1.0f);
+    CHECK(kMaterialGpuInputCount == 11);
+}

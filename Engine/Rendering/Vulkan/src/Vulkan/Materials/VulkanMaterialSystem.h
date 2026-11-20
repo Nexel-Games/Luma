@@ -19,8 +19,8 @@ struct GpuMaterialInputData {
     f32 tilingOffset[4];  // xy tiling, zw offset
     u32 texIndex;         // bindless sampler2D index (white when no texture)
     u32 channel;          // GpuTextureChannel
-    f32 scalar;           // normal strength (Normal) / intensity (Emissive)
-    u32 flags;            // GpuMaterial::kHasTexture | kFlipGreen
+    f32 scalar;           // strength (Normal/Height/Bump) / intensity (Emissive)
+    u32 flags;            // GpuMaterial::kHasTexture | kFlipGreen | kInvert
 };
 static_assert(sizeof(GpuMaterialInputData) == 64);
 
@@ -29,6 +29,7 @@ static_assert(sizeof(GpuMaterialInputData) == 64);
 struct GpuMaterial {
     static constexpr u32 kHasTexture = 1u << 0;
     static constexpr u32 kFlipGreen = 1u << 1;
+    static constexpr u32 kInvert = 1u << 2;
 
     u32 blendMode;     // GpuBlendMode
     u32 shadingModel;  // GpuShadingModel

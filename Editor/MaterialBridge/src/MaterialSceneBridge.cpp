@@ -152,6 +152,7 @@ void MaterialSceneBridge::SyncMaterial(const std::string& path, SceneRenderer& r
         out.offset = in.uvOffset;
         out.normalStrength = in.normalStrength;
         out.flipGreen = in.flipGreen;
+        out.invert = in.invert;
         out.emissiveIntensity = in.emissiveIntensity;
         if (in.texture.empty()) continue;
         entry.textures.push_back(in.texture);

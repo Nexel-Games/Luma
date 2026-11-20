@@ -1125,7 +1125,7 @@ bool VulkanDeferredRenderer::CreateUBOs() {
 bool VulkanDeferredRenderer::CreateLayouts() {
     VkDescriptorSetLayoutBinding gb{};
     gb.binding = 0; gb.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    gb.descriptorCount = 1; gb.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    gb.descriptorCount = 1; gb.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo gi{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     gi.bindingCount = 1; gi.pBindings = &gb;
     if (vkCreateDescriptorSetLayout(m_device, &gi, nullptr, &m_gbufferSetLayout) != VK_SUCCESS) return false;

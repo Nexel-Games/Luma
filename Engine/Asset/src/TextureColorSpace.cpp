@@ -10,10 +10,11 @@ namespace {
 
 // Short forms from the naming convention plus the full words texture
 // libraries spell out (T_Rock_Roughness, Metallic, Displacement).
-constexpr std::array<std::string_view, 18> kDataTokens = {
+constexpr std::array<std::string_view, 26> kDataTokens = {
     "normal", "nor", "nrm", "rough", "roughness", "metal", "metallic", "metalness",
     "ao", "occlusion", "orm", "arm", "mask", "opacity", "height", "disp",
-    "displacement", "normals"};
+    "displacement", "normals", "bump", "cavity", "gloss", "glossiness", "spec",
+    "specular", "alpha", "translucency"};
 
 // Color maps: a color token wins over data words that are part of the asset
 // name ("rusty_metal_02_diff" is a color map).

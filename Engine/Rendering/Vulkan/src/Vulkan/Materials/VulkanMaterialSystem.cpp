@@ -117,7 +117,8 @@ GpuMaterial VulkanMaterialSystem::Build(const MaterialGpuDesc& desc,
         out.texIndex = resident ? textures->BindlessIndex(in.texture, in.view)
                                 : WhiteIndex(in.view);
         out.flags = (resident ? GpuMaterial::kHasTexture : 0u) |
-                    (in.flipGreen ? GpuMaterial::kFlipGreen : 0u);
+                    (in.flipGreen ? GpuMaterial::kFlipGreen : 0u) |
+                    (in.invert ? GpuMaterial::kInvert : 0u);
     }
     return m;
 }
