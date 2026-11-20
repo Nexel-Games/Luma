@@ -54,6 +54,13 @@ void ContentBrowserPanel::ResetNavigation() {
     m_selected = AssetId{};
 }
 
+void ContentBrowserPanel::BrowseTo(const std::filesystem::path& file) {
+    NavigateTo(file.parent_path());
+    if (m_registry) {
+        if (const AssetData* data = m_registry->LookupByPath(file)) m_selected = data->id;
+    }
+}
+
 void ContentBrowserPanel::NavigateTo(const std::filesystem::path& folder) {
     m_currentFolder = folder.lexically_normal();
     m_tree.SetSelectedFolder(m_currentFolder);
@@ -508,17 +515,16 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
                 m_selected = (selected ? AssetId{} : a->id);
             }
         }
-        // Double-click on any selected tile opens folder or starts inline
-        // rename on an asset.
-        if (selected && hover && ui.mouseDoubleClicked(0)) {
+        // Double-click opens (Unreal): folders navigate, assets activate (the
+        // editor opens their asset editor). Rename is F2 / the context menu.
+        if (hover && ui.mouseDoubleClicked(0)) {
             if (a->IsFolder()) {
                 m_currentFolder = a->packagePath;
+                m_selected = AssetId{};
             } else {
-                m_renaming = a->id;
-                m_renameBuf = a->assetName;
+                m_selected = a->id;
                 m_activated = a->id;
             }
-            m_selected = AssetId{};
         }
         (void)selected;
 

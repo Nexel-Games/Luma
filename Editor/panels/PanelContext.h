@@ -2,10 +2,16 @@
 
 #include <filesystem>
 #include <functional>
+#include <string>
+#include <vector>
 
 #include "Luma/Math/Math.h"
 #include "Luma/Scene/Scene.h"
 #include "Luma/Slate/Context.h"
+
+namespace Luma::Material {
+class MaterialLibrary;
+}
 
 namespace Luma {
 // Forward declarations keep PanelContext.h lightweight; only the panels that
@@ -89,6 +95,25 @@ struct PanelContext {
     // Viewport click-select: a world-space ray through the clicked pixel.
     // EditorScreen selects the nearest actor it hits (or clears selection).
     std::function<void(const Math::Vec3& origin, const Math::Vec3& dir)> onPickRay;
+
+    // ---- Materials ----------------------------------------------------------
+    // The editor's material assets (edits are live in every viewport).
+    Material::MaterialLibrary* materials = nullptr;
+    // Renders a material on a preview shape (0 sphere, 1 cube, 2 plane,
+    // 3 cylinder) orbiting by yaw/pitch at width x height; `sky` shows the sky
+    // backdrop (else a dark studio). Returns the UI texture (0 = unavailable).
+    std::function<TextureHandle(const std::string& materialPath, int shape, f32 yaw,
+                                f32 pitch, u32 width, u32 height, bool sky)>
+        renderMaterialPreview;
+    // Thumbnail texture for an asset virtual path (0 while unavailable).
+    std::function<TextureHandle(const std::string& assetPath)> assetThumbnail;
+    // Virtual paths of every texture / material (+ instance) asset.
+    std::function<std::vector<std::string>()> listTextures;
+    std::function<std::vector<std::string>()> listMaterials;
+    // Opens an asset's editor (e.g. a Material Editor tab).
+    std::function<void(const std::string& assetPath)> onOpenAsset;
+    // Shows an asset in the Content Browser.
+    std::function<void(const std::string& assetPath)> onBrowseToAsset;
 };
 
 }  // namespace Luma::Editor::Panels

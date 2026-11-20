@@ -284,6 +284,111 @@ void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
     }
 }
 
+void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
+    const std::string id = "mated:" + assetPath;
+    if (m_dock.HasPanel(id)) {
+        m_dock.FocusPanel(id);
+        return;
+    }
+    if (!m_materials->Exists(assetPath)) {
+        LUMA_USER_ERROR("Materials", "Cannot open '{}': not a material", assetPath);
+        return;
+    }
+    auto panel = std::make_unique<Editor::Panels::MaterialEditorPanel>(assetPath);
+    panel->Bind(*m_materials);
+    Editor::Panels::MaterialEditorPanel* raw = panel.get();
+    m_materialEditors.push_back(std::move(panel));
+    m_dock.AddPanel(id, raw->Title(),
+                    [this, raw](Slate::Context& c, const Rect& r) {
+                        auto ctx = BuildPanelContext();
+                        raw->Draw(c, r, ctx);
+                    },
+                    m_icons.tabDetails);
+    m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
+    m_dock.SetCloseHandler(id, [this, assetPath, raw] {
+        if (raw->IsDirty()) {
+            m_closingEditor = assetPath;  // ask Save / Don't Save / Cancel
+            return false;
+        }
+        raw->ClosePopups();
+        m_editorsToDelete.push_back(assetPath);
+        return true;
+    });
+    LUMA_USER_INFO("Materials", "Opened '{}' in the Material Editor", assetPath);
+}
+
+void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
+    if (m_closingEditor.empty()) return;
+    const u64 id = Slate::Context::ID("editor.closematerial");
+    Slate::Theme& t = ui.theme();
+    const Rect content = ui.BeginModal(id, "Save Changes?", {460.0f, 150.0f});
+    ui.LabelIn({content.x, content.y, content.w, 22.0f},
+               "'" + m_closingEditor + "' has unsaved changes.", t.text);
+    const f32 bw = 110.0f, bh = 26.0f, gap = 8.0f;
+    const f32 by = content.Bottom() + gap;
+    const Rect save{content.Right() - bw, by, bw, bh};
+    const Rect discard{save.x - bw - gap, by, bw, bh};
+    const Rect cancel{discard.x - bw - gap, by, bw, bh};
+    auto close = [this] {
+        const std::string path = m_closingEditor;
+        for (const auto& e : m_materialEditors) {
+            if (e->AssetPath() == path) e->ClosePopups();
+        }
+        m_dock.ClosePanel("mated:" + path);
+        m_editorsToDelete.push_back(path);
+        m_closingEditor.clear();
+    };
+    if (ui.Button(id ^ 0x5A5Eull, save, "Save")) {
+        std::string err;
+        if (m_materials->Save(m_closingEditor, &err)) {
+            LUMA_USER_INFO("Materials", "Saved '{}'", m_closingEditor);
+            close();
+        } else {
+            LUMA_USER_ERROR("Materials", "Failed to save '{}': {}", m_closingEditor, err);
+            m_closingEditor.clear();
+        }
+        ui.EndModal();
+    } else if (ui.Button(id ^ 0xD15Cull, discard, "Don't Save")) {
+        // Drop the in-memory edits: reload the asset from disk.
+        m_materials->Revert(m_closingEditor);
+        close();
+        ui.EndModal();
+    } else if (ui.Button(id ^ 0xCA9Cull, cancel, "Cancel")) {
+        m_closingEditor.clear();
+        ui.EndModal();
+    }
+}
+
+TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
+    if (!m_renderer) return 0;
+    auto file = m_assetPaths.ToFile(assetPath, {"png", "jpg", "jpeg", "tga", "bmp", "psd", "gif",
+                                                "lmat", "lmatinst"});
+    if (!file) return 0;
+    const AssetData* data = m_assetRegistry.LookupByPath(*file);
+    return data ? static_cast<TextureHandle>(
+                      m_contentBrowser.GetThumbnailTexture(data->id, *file, m_renderer))
+                : 0;
+}
+
+std::vector<std::string> EditorScreen::ListAssets(bool materials) const {
+    std::vector<std::string> out;
+    auto collect = [&](AssetType type) {
+        for (const AssetData* a : m_assetRegistry.Filter(type, std::nullopt, {})) {
+            if (auto vp = m_assetPaths.ToVirtual(a->packagePath)) out.push_back(*vp);
+        }
+    };
+    if (materials) {
+        collect(AssetType::Material);
+        collect(AssetType::MaterialInstance);
+    } else {
+        collect(AssetType::Texture);
+    }
+    if (materials) out.push_back(std::string(Material::kDefaultMaterialPath));
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 void EditorScreen::RefreshAssetWatches() {
     if (!m_project) return;
     m_watchedRegistrySize = m_assetRegistry.Size();
@@ -512,6 +617,25 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onFocusEntity = [this](Entity e) { FocusEntity(e); };
     ctx.onPickRay = [this](const Math::Vec3& origin, const Math::Vec3& dir) {
         m_selected = PickEntity(origin, dir);
+    };
+    ctx.materials = m_materials.get();
+    ctx.renderMaterialPreview = [this](const std::string& path, int shape, f32 yaw, f32 pitch,
+                                       u32 width, u32 height, bool sky) -> TextureHandle {
+        if (!m_preview) return 0;
+        return m_preview->Render(path, static_cast<PreviewShape>(std::clamp(shape, 0, 3)), yaw,
+                                 pitch, width, height, sky);
+    };
+    ctx.assetThumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
+    ctx.listTextures = [this] { return ListAssets(false); };
+    ctx.listMaterials = [this] { return ListAssets(true); };
+    ctx.onOpenAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
+    ctx.onBrowseToAsset = [this](const std::string& path) {
+        if (m_materials->IsInstance(path)) {
+            if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);
+        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "png", "jpg", "jpeg", "tga",
+                                                          "bmp", "psd", "gif"})) {
+            m_contentBrowser.BrowseTo(*file);
+        }
     };
     ctx.onResetCamera = [this] {
         m_camYaw = kDefaultCamYaw;
@@ -1010,7 +1134,16 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     ui.Tooltip(Slate::Context::ID("tip.stop"), stopR,
                "Stop\nPlay-in-editor is not implemented yet.");
 
+    for (const auto& editor : m_materialEditors) {
+        m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
+    }
     m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f});
+    // Tabs closed during the dock draw are freed now (the dock dropped them).
+    for (const std::string& path : m_editorsToDelete) {
+        std::erase_if(m_materialEditors,
+                      [&](const auto& e) { return e->AssetPath() == path; });
+    }
+    m_editorsToDelete.clear();
     HandleShortcuts(ui);
 
     // Content Browser double-click: open the right editor for the activated
@@ -1018,8 +1151,11 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     {
         AssetId activated = m_contentBrowser.Activated();
         m_contentBrowser.ClearActivated();
-        if (activated.IsValid()) {
-            (void)m_assetRegistry.Lookup(activated);
+        if (const AssetData* data = activated.IsValid() ? m_assetRegistry.Lookup(activated)
+                                                        : nullptr) {
+            if (data->type == AssetType::Material || data->type == AssetType::MaterialInstance) {
+                if (auto path = m_assetPaths.ToVirtual(data->packagePath)) OpenMaterialEditor(*path);
+            }
         }
     }
 
@@ -1028,7 +1164,9 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     {
         auto ctx = BuildPanelContext();
         m_inspectorPanel.DrawFloatingPickers(ui, ctx);
+        for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
     }
+    DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
 }
 

@@ -17,6 +17,7 @@
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
+#include "Luma/Editor/Panels/MaterialEditor.h"
 #include "Luma/Editor/Panels/Viewport.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "MaterialPreview.h"
@@ -189,6 +190,12 @@ private:
     void OnAssetFileChanged(const std::filesystem::path& file);
     void DrawClosePrompt(Slate::Context& ui);
 
+    // Material Editor tabs (one per open asset).
+    void OpenMaterialEditor(const std::string& assetPath);
+    void DrawMaterialEditorClosePrompt(Slate::Context& ui);
+    TextureHandle AssetThumbnail(const std::string& assetPath);
+    std::vector<std::string> ListAssets(bool materials) const;
+
     // Entity / asset actions behind the panels' menus (PanelContext hooks).
     void HandleShortcuts(Slate::Context& ui);
     // Nearest actor hit by a world ray (bounds of its mesh / a small sphere
@@ -260,6 +267,9 @@ private:
     f32 m_watchTimer = 0.0f;
     // Preview scene for material/mesh thumbnails and the Material Editor.
     std::unique_ptr<MaterialPreview> m_preview;
+    std::vector<std::unique_ptr<Editor::Panels::MaterialEditorPanel>> m_materialEditors;
+    std::string m_closingEditor;                // dirty tab awaiting Save/Discard/Cancel
+    std::vector<std::string> m_editorsToDelete;  // closed tabs, freed after the dock draws
     bool m_closeRequested = false;
     bool m_closeConfirmed = false;
 

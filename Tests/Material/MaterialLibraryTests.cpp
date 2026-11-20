@@ -268,3 +268,27 @@ TEST_CASE("Shipped Default Material content matches MakeDefault", "[material][li
     CHECK(loaded.settings.blendMode == def.settings.blendMode);
     CHECK(loaded.settings.opacityMaskClip == def.settings.opacityMaskClip);
 }
+
+TEST_CASE("Revert drops unsaved edits", "[material][library]") {
+    Fixture f;
+    MaterialInstance mi;
+    mi.parent = std::string(kDefaultMaterialPath);
+    mi.Override(MaterialParameter::BaseColor, Color(1.0f, 0.0f, 0.0f));
+    f.WriteInstance("MI_Red", mi);
+    MaterialInstance edited = *f.library->GetInstance("/Game/Materials/MI_Red");
+    edited.Override(MaterialParameter::BaseColor, Color(0.0f, 1.0f, 0.0f));
+    f.library->SetInstance("/Game/Materials/MI_Red", edited);
+    REQUIRE(f.library->IsDirty("/Game/Materials/MI_Red"));
+    const auto version = f.library->Version("/Game/Materials/MI_Red");
+
+    f.library->Revert("/Game/Materials/MI_Red");
+    CHECK_FALSE(f.library->IsDirty("/Game/Materials/MI_Red"));
+    CHECK(f.library->Resolve("/Game/Materials/MI_Red").inputs[0].constant.x == 1.0f);
+    CHECK(f.library->Version("/Game/Materials/MI_Red") > version);
+
+    // A never-saved asset disappears.
+    const std::string fresh = f.library->CreateInMemoryInstance("/Game/Materials/MI_New", mi);
+    f.library->Revert(fresh);
+    CHECK_FALSE(f.library->Exists(fresh));
+    CHECK(f.library->DirtyAssets().empty());
+}

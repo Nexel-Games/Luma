@@ -249,6 +249,13 @@ void MaterialLibrary::Reload(std::string_view rawPath) {
     Load(path);  // fresh version for the reloaded asset
 }
 
+void MaterialLibrary::Revert(std::string_view rawPath) {
+    const std::string path = Normalize(rawPath);
+    m_entries.erase(path);
+    m_missing.erase(path);
+    Load(path);  // fresh version from disk; never-saved assets stay missing
+}
+
 void MaterialLibrary::InvalidateTextures() { ++m_textureEpoch; }
 
 bool MaterialLibrary::CanSetParent(std::string_view rawInstance, std::string_view rawParent) {

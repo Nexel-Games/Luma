@@ -25,7 +25,7 @@ target_link_libraries(LumaEditor
             Luma::PanelConsole Luma::PanelContentBrowser
             Luma::PanelFileSystemTree
             Luma::PanelProjectSettings
-            Luma::Material Luma::MaterialBridge
+            Luma::Material Luma::MaterialBridge Luma::PanelMaterialEditor
             Vulkan::Vulkan)  # main.cpp drives VulkanDeferredRenderer directly
 
 set_target_properties(LumaEditor PROPERTIES

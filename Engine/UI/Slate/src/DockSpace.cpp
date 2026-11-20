@@ -50,6 +50,26 @@ void DockSpace::AddPanel(const std::string& id, const std::string& title,
     m_panels[id] = PanelInfo{title, std::move(drawer), icon};
 }
 
+void DockSpace::SetTitle(const std::string& id, const std::string& title) {
+    if (auto it = m_panels.find(id); it != m_panels.end()) it->second.title = title;
+}
+
+void DockSpace::FocusPanel(const std::string& id) {
+    Node* leaf = FindLeafWithPanel(m_root.get(), id);
+    if (!leaf) return;
+    for (usize i = 0; i < leaf->tabs.size(); ++i) {
+        if (leaf->tabs[i] == id) leaf->active = static_cast<int>(i);
+    }
+}
+
+void DockSpace::SetCloseHandler(const std::string& id, std::function<bool()> onClose) {
+    if (auto it = m_panels.find(id); it != m_panels.end()) it->second.onClose = std::move(onClose);
+}
+
+void DockSpace::ClosePanel(const std::string& id) {
+    m_pendingClose.push_back(id);
+}
+
 void DockSpace::DockRoot(const std::string& id) {
     m_root = std::make_unique<Node>();
     m_root->isLeaf = true;
@@ -219,9 +239,12 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
         auto it = m_panels.find(id);
         std::string title = it != m_panels.end() ? it->second.title : id;
         const TextureHandle tabIcon = it != m_panels.end() ? it->second.icon : 0;
+        const bool closable = it != m_panels.end() && it->second.onClose;
         constexpr f32 kTabIcon = 14.0f;
+        constexpr f32 kCloseW = 18.0f;
         const f32 iconSpace = tabIcon ? kTabIcon + 6.0f : 0.0f;
-        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f + iconSpace;
+        const f32 closeSpace = closable ? kCloseW : 0.0f;
+        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f + iconSpace + closeSpace;
         Rect tab{tx, rect.y + 3.0f, tabW, kTabBarH - 3.0f};
         bool active = (i == n->active);
         bool hovered = tab.Contains(ctx.mouse());
@@ -244,9 +267,22 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
                        kTabIcon},
                       active ? t.text : t.textDim);
         }
-        ctx.Heading({tab.x + iconSpace, tab.y + 1.0f, tabW - iconSpace, tab.h}, title,
-                    active ? t.text : t.textDim);
-        if (hovered) {
+        ctx.Heading({tab.x + iconSpace, tab.y + 1.0f, tabW - iconSpace - closeSpace, tab.h},
+                    title, active ? t.text : t.textDim);
+        bool closeClicked = false;
+        if (closable) {
+            const Rect close{tab.Right() - kCloseW - 4.0f, tab.y + (tab.h - kCloseW) * 0.5f + 1.0f,
+                             kCloseW, kCloseW};
+            const bool overClose = close.Contains(ctx.mouse());
+            if (overClose) ctx.PanelRounded(close, t.surface3, t.radius.sm);
+            ctx.LabelIn(close, "x", overClose ? t.text : t.textDim, Align::Center);
+            ctx.Tooltip(Context::ID(("dock.close." + id).c_str()), close, "Close Tab");
+            if (overClose && ctx.mousePressed(0)) {
+                closeClicked = true;
+                if (it->second.onClose()) ClosePanel(id);
+            }
+        }
+        if (hovered && !closeClicked) {
             if (ctx.mousePressed(0)) {
                 n->active = i;
                 m_dragPanel = id;
@@ -310,6 +346,15 @@ void DockSpace::DrawNode(Context& ctx, Node* n) {
 }
 
 void DockSpace::Draw(Context& ctx, const Rect& area) {
+    for (const std::string& id : m_pendingClose) {
+        RemovePanel(id);
+        m_panels.erase(id);
+        if (m_dragPanel == id) {
+            m_dragPanel.clear();
+            m_dragging = false;
+        }
+    }
+    m_pendingClose.clear();
     if (!m_root) return;
     m_root->rect = area;
     DrawNode(ctx, m_root.get());

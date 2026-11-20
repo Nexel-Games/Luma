@@ -62,6 +62,9 @@ public:
     // Re-reads the asset from disk (external change). Skipped, with a warning,
     // when the asset has unsaved edits.
     void Reload(std::string_view path);
+    // Discards unsaved edits: re-reads the asset from disk, or forgets it if
+    // it was never saved.
+    void Revert(std::string_view path);
     // Re-validates textures (a texture file was added/removed/changed).
     void InvalidateTextures();
 

@@ -29,9 +29,10 @@ public:
                     Material::MaterialLibrary& library, const AssetRegistry& registry);
 
     // Renders `materialPath` on `shape`, orbiting by yaw/pitch (radians), at
-    // width x height; returns the UI texture showing the result.
+    // width x height; `sky` = sky backdrop + sky light (else a dark studio).
+    // Returns the UI texture showing the result.
     TextureHandle Render(std::string_view materialPath, PreviewShape shape, f32 yaw, f32 pitch,
-                         u32 width, u32 height);
+                         u32 width, u32 height, bool sky = true);
 
     // Square RGBA8 captures (top row first) for thumbnails.
     bool CaptureMaterial(std::string_view materialPath, u32 size, std::vector<u8>& outRgba);

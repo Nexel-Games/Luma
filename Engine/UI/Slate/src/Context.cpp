@@ -152,7 +152,9 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     // An open menu owns input for the whole frame: panels draw normally but
     // see no pointer / keys, so clicks on (or outside) the menu never reach
     // the widgets underneath. EndFrame restores the real input for the menu.
-    if (m_menus.IsOpen()) BlockInput();
+    // An open modal dialog does the same for everything drawn before it;
+    // BeginModal hands the real input back to the dialog's own widgets.
+    if (m_menus.IsOpen() || m_openModal != 0) BlockInput();
 }
 
 void Context::BlockInput() {
@@ -1595,6 +1597,10 @@ Rect Context::BeginModal(u64 id, std::string_view title, const Vec2& size) {
         m_modalOk[id] = false;
         m_modalCancel[id] = false;
     }
+    // Panels drawn before the dialog were input-blocked (see BeginFrame);
+    // the dialog's widgets get the real input. A menu opened from the
+    // dialog keeps owning it.
+    if (!m_menus.IsOpen()) RestoreInput();
     // Scrim.
     m_draw.AddRectFilled({0, 0, m_displayW, m_displayH},
                          Color::RGBA(0, 0, 0, 160));

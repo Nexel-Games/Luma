@@ -122,13 +122,15 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
 }
 
 TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShape shape,
-                                      f32 yaw, f32 pitch, u32 width, u32 height) {
+                                      f32 yaw, f32 pitch, u32 width, u32 height, bool sky) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.meshAsset = AssetId{};
     mr.primitive = ToPrimitive(shape);
     mr.materials = {std::string(materialPath)};
+    m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
     // Interactive: exposure adapts over frames like the viewport.
     RenderFrame(yaw, pitch, width, height, 1.0f / 60.0f);
+    m_view.sky.enabled = true;  // thumbnails always use the sky
     return m_renderer.GetViewportTextureHandle();
 }
 

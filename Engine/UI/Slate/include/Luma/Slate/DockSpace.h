@@ -35,6 +35,19 @@ public:
     void DockWith(const std::string& id, const std::string& targetId,
                   DockDir dir, f32 ratio);
 
+    // --- Runtime panels (e.g. one Material Editor tab per asset) ------------
+    bool HasPanel(const std::string& id) const { return m_panels.count(id) != 0; }
+    void SetTitle(const std::string& id, const std::string& title);
+    // Makes `id` the active tab of its leaf.
+    void FocusPanel(const std::string& id);
+    // Gives `id` a close button (x) on its tab. `onClose` decides: return
+    // true to close now, false to keep the tab (e.g. while a Save / Discard /
+    // Cancel prompt is open; the owner calls ClosePanel later).
+    void SetCloseHandler(const std::string& id, std::function<bool()> onClose);
+    // Removes the panel and its tab (applied at the start of the next Draw,
+    // so it is safe to call from inside the panel's own drawer).
+    void ClosePanel(const std::string& id);
+
     // Lays out + draws the whole dock space (tab bars, splitters, panels) and
     // handles tab drag-docking.
     void Draw(Context& ctx, const Rect& area);
@@ -57,6 +70,7 @@ private:
         std::string title;
         PanelDrawer drawer;
         TextureHandle icon = 0;
+        std::function<bool()> onClose;  // set = closable tab
     };
 
     struct PendingDock {
@@ -87,6 +101,7 @@ private:
     bool m_dragging = false;
     Vec2 m_dragStart;
     PendingDock m_pending;
+    std::vector<std::string> m_pendingClose;
 };
 
 }  // namespace Luma::Slate
