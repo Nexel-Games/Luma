@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "Luma/Math/Math.h"
 #include "Luma/RHI/Renderer.h"
@@ -33,15 +34,15 @@ struct TransformComponent {
 struct MeshRendererComponent {
     // Built-in primitive (used if meshAsset is invalid)
     MeshPrimitive primitive = MeshPrimitive::Cube;
-    
+
     // Mesh asset reference (invalid ID means use primitive)
     AssetId meshAsset;
-    
-    // Material properties
-    Math::Vec3 albedo{0.82f, 0.82f, 0.85f};  // base color (linear)
-    f32 metallic = 0.0f;
-    f32 roughness = 0.5f;
-    
+
+    // One material per mesh section, as virtual asset paths (/Game/...).
+    // An empty or missing slot uses the Default Material; slots beyond the
+    // mesh's section count are kept (a mesh swap may need them) but unused.
+    std::vector<std::string> materials;
+
     // Check if using mesh asset or primitive
     bool UsesMeshAsset() const { return meshAsset.IsValid(); }
 };

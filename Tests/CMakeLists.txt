@@ -33,11 +33,13 @@ add_executable(LumaTests
     Asset/MaterialThumbnailTests.cpp
     Asset/AssetPathTests.cpp
     Asset/TextureColorSpaceTests.cpp
+    Scene/MaterialMigrationTests.cpp
     Material/MaterialModelTests.cpp
     Material/MaterialSerializerTests.cpp
     Material/MaterialLibraryTests.cpp
     Editor/ContentBrowserTests.cpp
     Editor/ConsoleTests.cpp
+    Editor/MaterialSceneBridgeTests.cpp
     Editor/TransformGizmoTests.cpp
     VFS/PathTests.cpp
     VFS/VFSTests.cpp
@@ -46,9 +48,10 @@ add_executable(LumaTests
     Rendering/MeshGeometryTests.cpp
     Rendering/MaterialGpuDescTests.cpp
     Rendering/VulkanTextureCacheTests.cpp
-    Rendering/VulkanMaterialSystemTests.cpp)
+    Rendering/VulkanMaterialSystemTests.cpp
+    Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 
@@ -59,5 +62,5 @@ add_test(NAME LumaTests COMMAND LumaTests)
 target_compile_definitions(LumaTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 # Backend tests drive the Vulkan module's internal classes on a real device.
-target_include_directories(LumaTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src)
+target_include_directories(LumaTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
 target_link_libraries(LumaTests PRIVATE Vulkan::Vulkan)

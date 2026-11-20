@@ -51,7 +51,13 @@ std::string FindEditorAsset(const std::string& file) {
 void FeedEvent(Slate::Context& ui, Event& e, bool& running, EditorScreen* editor = nullptr) {
     EventDispatcher d(e);
     d.Dispatch<WindowCloseEvent>([&](WindowCloseEvent&) {
-        running = false;
+        // The editor may hold unsaved assets: it decides (possibly after a
+        // Save / Don't Save / Cancel prompt) through CloseConfirmed().
+        if (editor) {
+            editor->RequestClose();
+        } else {
+            running = false;
+        }
         return true;
     });
     d.Dispatch<WindowDropEvent>([&](WindowDropEvent& drop) {
@@ -377,6 +383,10 @@ int main(int argc, char** argv) {
     FrameClock clock;
     while (running && !window->ShouldClose()) {
         window->PollEvents();
+        if (editor) {
+            if (editor->CloseConfirmed()) break;
+            window->SetShouldClose(false);  // closing waits for the prompt
+        }
         Timestep dt = clock.Tick();
 
         // Render the 3D scene into the editor viewport (using last frame's rect),

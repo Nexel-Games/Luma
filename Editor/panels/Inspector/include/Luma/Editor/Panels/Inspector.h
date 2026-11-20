@@ -10,7 +10,7 @@
 // MeshRenderer, Camera, Light, Environment) auto-builds its rows from its
 // TypeInfo. The + Component popup lets the user add missing components.
 //
-// Color properties (albedo, light color, sky tint, ground color) are compact
+// Color properties (light color, sky tint, ground color) are compact
 // swatch strips: clicking one opens a floating ColorPicker panel (see
 // ColorPickerPopup). The panels are drawn by DrawFloatingPickers, which the
 // editor shell calls AFTER the dock so they aren't clipped to this column.
@@ -42,7 +42,6 @@ private:
 
     // Floating color pickers for the color property rows. State lives here so
     // each picker's edit buffers + open state persist across frames.
-    Slate::ColorPickerPopup m_albedoPicker;
     Slate::ColorPickerPopup m_lightColorPicker;
     Slate::ColorPickerPopup m_skyTintPicker;
     Slate::ColorPickerPopup m_groundColorPicker;

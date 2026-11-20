@@ -201,6 +201,10 @@ bool GlfwWindow::ShouldClose() const {
     return m_window ? glfwWindowShouldClose(m_window) != 0 : true;
 }
 
+void GlfwWindow::SetShouldClose(bool close) {
+    if (m_window) glfwSetWindowShouldClose(m_window, close ? GLFW_TRUE : GLFW_FALSE);
+}
+
 void GlfwWindow::SetIcon(u32 width, u32 height, const void* rgba8Pixels) {
     if (!m_window || !rgba8Pixels) return;
     GLFWimage image;

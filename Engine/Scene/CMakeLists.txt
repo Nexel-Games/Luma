@@ -3,7 +3,8 @@
 add_library(LumaScene STATIC
     src/Scene.cpp
     src/ComponentReflection.cpp
-    src/SceneSerializer.cpp)
+    src/SceneSerializer.cpp
+    src/MaterialMigration.cpp)
 
 add_library(Luma::Scene ALIAS LumaScene)
 
@@ -13,6 +14,6 @@ target_include_directories(LumaScene
 target_include_directories(LumaScene SYSTEM
     PUBLIC ${PROJECT_SOURCE_DIR}/ThirdParty/entt/single_include)
 
-target_link_libraries(LumaScene PUBLIC Luma::Core Luma::Math Luma::RHI Luma::Serialization Luma::Asset)
+target_link_libraries(LumaScene PUBLIC Luma::Core Luma::Math Luma::RHI Luma::Serialization Luma::Asset Luma::Material)
 
 set_target_properties(LumaScene PROPERTIES FOLDER "Engine")

@@ -304,9 +304,6 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             comboRow("Shape", Slate::Context::ID("insp.shape"),
                      {"Cube", "Plane", "Sphere", "Cylinder"},
                      static_cast<int>(mr.primitive)));
-        colorRow("Albedo", m_albedoPicker, mr.albedo);
-        floatRow("Metallic", Slate::Context::ID("insp.met"), mr.metallic);
-        floatRow("Roughness", Slate::Context::ID("insp.rgh"), mr.roughness);
         y += 8.0f;
     }
     if (reg.all_of<CameraComponent>(*ctx.selected)) {
@@ -573,7 +570,6 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
 }
 
 void InspectorPanel::ClosePopups() {
-    m_albedoPicker.Close();
     m_lightColorPicker.Close();
     m_skyTintPicker.Close();
     m_groundColorPicker.Close();
@@ -587,9 +583,6 @@ void InspectorPanel::DrawFloatingPickers(Slate::Context& ui,
     // writes the edits straight into the component.
     if (!ctx.scene->IsValid(*ctx.selected)) return;
     auto& reg = ctx.scene->Registry();
-    if (reg.all_of<MeshRendererComponent>(*ctx.selected)) {
-        m_albedoPicker.DrawPanel(ui);
-    }
     if (reg.all_of<EnvironmentComponent>(*ctx.selected)) {
         m_skyTintPicker.DrawPanel(ui);
         m_groundColorPicker.DrawPanel(ui);

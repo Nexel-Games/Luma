@@ -5,12 +5,15 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
+#include "Luma/Asset/AssetPath.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Asset/AssetImportManager.h"
 #include "Luma/Asset/AssetFileWatcher.h"
 #include "Luma/Asset/LumaMesh.h"
+#include "Luma/Editor/MaterialSceneBridge.h"
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
@@ -18,6 +21,7 @@
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "PanelContext.h"
 #include "Luma/Gizmo/TransformGizmo.h"
+#include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Math/Math.h"
 #include "Luma/Project/Project.h"
 #include "Luma/RHI/Renderer.h"
@@ -25,6 +29,7 @@
 #include "Luma/Scene/Scene.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/DockSpace.h"
+#include "Luma/VFS/FileWatcher.h"
 
 namespace Luma {
 
@@ -74,6 +79,14 @@ public:
         m_viewportPanel.SetIcons(icons.viewport);
         m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
     }
+
+    // Material assets with edits not written to disk yet (e.g. instances
+    // created by migrating an old scene). Saving the scene saves them too.
+    std::vector<std::string> UnsavedAssets() const;
+    // The window asked to close: confirmed at once when nothing is unsaved,
+    // otherwise the Save All / Don't Save / Cancel prompt opens.
+    void RequestClose();
+    bool CloseConfirmed() const { return m_closeConfirmed; }
 
     // Handle dropped files from the OS (forwarded to Content Browser)
     void HandleDroppedFiles(const std::vector<std::filesystem::path>& files);
@@ -157,6 +170,15 @@ private:
     void CreateEnvironment();
     bool LoadScene();
     void SaveScene();
+    // Writes every unsaved material asset; false if any failed.
+    bool SaveMaterialAssets();
+
+    // External edits under Assets/: materials reload, textures and meshes
+    // re-upload. Watches are refreshed when the asset registry changes.
+    void PollAssetChanges(f32 deltaSeconds);
+    void RefreshAssetWatches();
+    void OnAssetFileChanged(const std::filesystem::path& file);
+    void DrawClosePrompt(Slate::Context& ui);
 
     // Entity / asset actions behind the panels' menus (PanelContext hooks).
     void HandleShortcuts(Slate::Context& ui);
@@ -217,11 +239,18 @@ private:
     // registry is populated before the panel is drawn each frame.
     AssetRegistry m_assetRegistry;
     
-    // Cache for loaded mesh data (asset ID -> mesh data)
-    std::unordered_map<AssetId, LumaMeshData> m_meshCache;
-    
-    // Cache for extracted vertex positions per asset (asset ID -> vertex positions)
-    std::unordered_map<AssetId, std::vector<Math::Vec3>> m_vertexPositionCache;
+    // Material assets by virtual path (/Game -> Assets/, /Engine -> engine
+    // Content/Engine) and the bridge that makes the scene's materials, meshes
+    // and textures resident in the renderer.
+    AssetPathResolver m_assetPaths;
+    std::unique_ptr<Material::MaterialLibrary> m_materials;
+    Editor::MaterialSceneBridge m_bridge;
+    VFS::FileWatcher m_assetWatcher;
+    std::unordered_set<std::string> m_watchedFiles;
+    usize m_watchedRegistrySize = 0;
+    f32 m_watchTimer = 0.0f;
+    bool m_closeRequested = false;
+    bool m_closeConfirmed = false;
 
 
     TextureHandle m_iconPlay = 0;

@@ -18,6 +18,7 @@ public:
 
     void PollEvents() override;
     bool ShouldClose() const override;
+    void SetShouldClose(bool close) override;
 
     void SetEventCallback(EventCallback callback) override {
         m_data.callback = std::move(callback);

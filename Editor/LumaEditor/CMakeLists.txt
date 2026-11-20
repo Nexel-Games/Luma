@@ -24,6 +24,7 @@ target_link_libraries(LumaEditor
             Luma::PanelConsole Luma::PanelContentBrowser
             Luma::PanelFileSystemTree
             Luma::PanelProjectSettings
+            Luma::Material Luma::MaterialBridge
             Vulkan::Vulkan)  # main.cpp drives VulkanDeferredRenderer directly
 
 set_target_properties(LumaEditor PROPERTIES
@@ -37,4 +38,7 @@ add_custom_command(TARGET LumaEditor POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/Content/Editor
         $<TARGET_FILE_DIR:LumaEditor>/Content/Editor
-    COMMENT "Staging Content/Editor next to LumaEditor.exe")
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/Content/Engine
+        $<TARGET_FILE_DIR:LumaEditor>/Content/Engine
+    COMMENT "Staging Content/Editor and Content/Engine next to LumaEditor.exe")

@@ -31,6 +31,23 @@ void ReadComponent(entt::registry& reg, entt::entity e, const SerialValue& comps
     }
 }
 
+// Version-1 Mesh Renderers carried inline material values; report them so the
+// caller can migrate them onto material assets.
+void ReadLegacyMaterial(entt::entity e, const SerialValue& comps, LegacyMaterialList* out) {
+    if (!out) return;
+    const SerialValue* mesh = comps.Find("MeshRenderer");
+    if (!mesh) return;
+    const SerialValue* albedo = mesh->Find("albedo");
+    const SerialValue* metallic = mesh->Find("metallic");
+    const SerialValue* roughness = mesh->Find("roughness");
+    if (!albedo && !metallic && !roughness) return;
+    LegacyMaterialValues values;
+    if (albedo) SerialTraits<Math::Vec3>::Read(*albedo, values.albedo);
+    if (metallic) values.metallic = static_cast<f32>(metallic->AsFloat(values.metallic));
+    if (roughness) values.roughness = static_cast<f32>(roughness->AsFloat(values.roughness));
+    out->emplace_back(e, values);
+}
+
 }  // namespace
 
 std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
@@ -59,7 +76,8 @@ std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
 }
 
 bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
-                                     std::string* outError) {
+                                     std::string* outError,
+                                     LegacyMaterialList* outLegacy) {
     auto parsed = ParseJson(json, outError);
     if (!parsed) return false;
 
@@ -71,6 +89,7 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
 
     entt::registry& reg = scene.Registry();
     reg.clear();  // replace any existing contents
+    if (outLegacy) outLegacy->clear();
 
     for (const SerialValue& entity : entities->Elements()) {
         const SerialValue* comps = entity.Find("components");
@@ -79,6 +98,7 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
         ReadComponent<NameComponent>(reg, e, *comps, "Name");
         ReadComponent<TransformComponent>(reg, e, *comps, "Transform");
         ReadComponent<MeshRendererComponent>(reg, e, *comps, "MeshRenderer");
+        ReadLegacyMaterial(e, *comps, outLegacy);
         ReadComponent<CameraComponent>(reg, e, *comps, "Camera");
         ReadComponent<LightComponent>(reg, e, *comps, "Light");
         ReadComponent<EnvironmentComponent>(reg, e, *comps, "Environment");
@@ -101,7 +121,8 @@ bool SceneSerializer::SaveToFile(const Scene& scene,
 
 bool SceneSerializer::LoadFromFile(Scene& scene,
                                    const std::filesystem::path& path,
-                                   std::string* outError) {
+                                   std::string* outError,
+                                   LegacyMaterialList* outLegacy) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         if (outError) *outError = "could not open file for reading";
@@ -109,7 +130,7 @@ bool SceneSerializer::LoadFromFile(Scene& scene,
     }
     std::ostringstream ss;
     ss << in.rdbuf();
-    return LoadFromString(scene, ss.str(), outError);
+    return LoadFromString(scene, ss.str(), outError, outLegacy);
 }
 
 }  // namespace Luma

@@ -1,0 +1,222 @@
+{
+  "version": 3,
+  "type": "Material",
+  "name": "M_Bumps",
+  "settings": {
+    "blendMode": "Opaque",
+    "shadingModel": "DefaultLit",
+    "twoSided": false,
+    "opacityMaskClip": 0.33329999446868896
+  },
+  "inputs": {
+    "baseColor": {
+      "constant": [
+        0.550000011920929,
+        0.07999999821186066,
+        0.05999999865889549,
+        1
+      ],
+      "channel": "RGB",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "metallic": {
+      "constant": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "specular": {
+      "constant": [
+        0.5,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "roughness": {
+      "constant": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "normal": {
+      "constant": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "texture": "/Game/Textures/T_Bumps_nor_gl",
+      "channel": "RGB",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "emissiveColor": {
+      "constant": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "channel": "RGB",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "ambientOcclusion": {
+      "constant": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    },
+    "opacityMask": {
+      "constant": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "channel": "R",
+      "tint": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "uvTiling": [
+        1,
+        1
+      ],
+      "uvOffset": [
+        0,
+        0
+      ],
+      "normalStrength": 1,
+      "flipGreen": false,
+      "emissiveIntensity": 1
+    }
+  }
+}

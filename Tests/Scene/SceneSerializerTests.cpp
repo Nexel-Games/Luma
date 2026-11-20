@@ -28,9 +28,8 @@ Scene MakeSampleScene() {
     t.rotationEuler = {0.0f, 90.0f, 0.0f};
     t.scale = {2.0f, 2.0f, 2.0f};
     auto& mesh = scene.Registry().emplace<MeshRendererComponent>(cube);
-    mesh.albedo = {0.2f, 0.4f, 0.8f};
-    mesh.metallic = 0.5f;
-    mesh.roughness = 0.25f;
+    mesh.primitive = Luma::MeshPrimitive::Sphere;
+    mesh.materials = {"/Game/Materials/MI_Blue", ""};
 
     Luma::Entity light = scene.CreateEntity("Key Light");
     auto& lc = scene.Registry().emplace<LightComponent>(light);
@@ -81,9 +80,9 @@ TEST_CASE("Scene round-trips through save/load preserving components",
             REQUIRE(t.scale.x == 2.0f);
             REQUIRE(loaded.Registry().all_of<MeshRendererComponent>(entity));
             const auto& m = loaded.Registry().get<MeshRendererComponent>(entity);
-            REQUIRE(m.albedo.z == 0.8f);
-            REQUIRE(m.metallic == 0.5f);
-            REQUIRE(m.roughness == 0.25f);
+            REQUIRE(m.primitive == Luma::MeshPrimitive::Sphere);
+            REQUIRE(m.materials ==
+                    std::vector<std::string>{"/Game/Materials/MI_Blue", ""});
         } else if (name == "Key Light") {
             foundLight = true;
             REQUIRE(loaded.Registry().all_of<LightComponent>(entity));

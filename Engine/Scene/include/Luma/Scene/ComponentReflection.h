@@ -30,6 +30,21 @@ struct SerialTraits<Math::Vec3> {
     }
 };
 
+// std::vector<std::string> <-> JSON array of strings.
+template <>
+struct SerialTraits<std::vector<std::string>> {
+    static SerialValue Write(const std::vector<std::string>& v) {
+        SerialValue a = SerialValue::MakeArray();
+        for (const std::string& s : v) a.PushBack(SerialValue{s});
+        return a;
+    }
+    static void Read(const SerialValue& s, std::vector<std::string>& v) {
+        if (!s.IsArray()) return;
+        v.clear();
+        for (const SerialValue& e : s.Elements()) v.push_back(e.AsString());
+    }
+};
+
 // Per-component descriptors (defined in ComponentReflection.cpp).
 template <>
 const TypeInfo<NameComponent>& GetTypeInfo<NameComponent>();

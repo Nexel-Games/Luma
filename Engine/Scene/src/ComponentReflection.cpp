@@ -31,13 +31,9 @@ const TypeInfo<MeshRendererComponent>& GetTypeInfo<MeshRendererComponent>() {
     static const TypeInfo<MeshRendererComponent> info = [] {
         TypeBuilder<MeshRendererComponent> b("MeshRenderer");
         b.Property("primitive", &MeshRendererComponent::primitive).Category("Mesh");
-        b.Property("albedo", &MeshRendererComponent::albedo).Category("Material");
-        b.Property("metallic", &MeshRendererComponent::metallic)
-            .Category("Material")
-            .Range(0.0, 1.0);
-        b.Property("roughness", &MeshRendererComponent::roughness)
-            .Category("Material")
-            .Range(0.0, 1.0);
+        b.Property("materials", &MeshRendererComponent::materials)
+            .Category("Materials")
+            .Tooltip("One material per mesh section (virtual asset paths)");
         return b.Build();
     }();
     return info;

@@ -1,0 +1,314 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "components": {
+        "Name": {
+          "name": "Default"
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -4
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 2,
+          "materials": []
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "BlueChecker"
+        },
+        "Transform": {
+          "position": [
+            0,
+            1,
+            -4
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 0,
+          "materials": [
+            "/Game/Materials/MI_Checker_Blue"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Emissive"
+        },
+        "Transform": {
+          "position": [
+            4.5,
+            1,
+            0
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1.600000023841858,
+            2,
+            1.600000023841858
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 3,
+          "materials": [
+            "/Game/Materials/M_Emissive"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Leaves"
+        },
+        "Transform": {
+          "position": [
+            1.5,
+            1.2000000476837158,
+            0
+          ],
+          "rotationEuler": [
+            90,
+            0,
+            0
+          ],
+          "scale": [
+            2.200000047683716,
+            1,
+            2.200000047683716
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 1,
+          "materials": [
+            "/Game/Materials/M_Leaves"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "GoldRamp"
+        },
+        "Transform": {
+          "position": [
+            -1.5,
+            1,
+            0
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 0,
+          "materials": [
+            "/Game/Materials/M_GoldRamp"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Bumps"
+        },
+        "Transform": {
+          "position": [
+            -4.5,
+            1,
+            0
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            2,
+            2,
+            2
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 2,
+          "materials": [
+            "/Game/Materials/M_Bumps"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Floor"
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            24,
+            1,
+            24
+          ]
+        },
+        "MeshRenderer": {
+          "primitive": 1,
+          "materials": [
+            "/Game/Materials/M_Checker"
+          ]
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Sun"
+        },
+        "Transform": {
+          "position": [
+            0,
+            10,
+            0
+          ],
+          "rotationEuler": [
+            40,
+            30,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Light": {
+          "type": 0,
+          "color": [
+            1,
+            0.9599999785423279,
+            0.8999999761581421
+          ],
+          "intensity": 3,
+          "range": 14,
+          "innerAngleDeg": 22,
+          "outerAngleDeg": 30,
+          "sunDiskSizeDeg": 1.5,
+          "sunDiskIntensity": 1,
+          "attenuationRadius": 14,
+          "attenuationPower": 2,
+          "length": 2,
+          "castShadows": true,
+          "shadowMapSize": 2048,
+          "shadowBias": 0.001500000013038516,
+          "normalBias": 0.019999999552965164,
+          "shadowSoftness": 1.600000023841858,
+          "cascadeCount": 4,
+          "shadowDistance": 80,
+          "cascadeSplitLambda": 0.6000000238418579
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "name": "Environment"
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotationEuler": [
+            0,
+            0,
+            0
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "Environment": {
+          "skyEnabled": true,
+          "rayleighScattering": [
+            5.80000005356851e-06,
+            1.359999987471383e-05,
+            3.310000101919286e-05
+          ],
+          "rayleighScaleHeight": 8000,
+          "mieScattering": 3.9960000322025735e-06,
+          "mieAbsorption": 4.399999852466863e-06,
+          "mieScaleHeight": 1200,
+          "mieAnisotropy": 0.800000011920929,
+          "ozoneScale": 1,
+          "skyIntensity": 1,
+          "saturation": 1.25,
+          "exposure": 2.4000000953674316,
+          "skyTint": [
+            1,
+            1,
+            1
+          ],
+          "groundColor": [
+            0.10999999940395355,
+            0.11999999731779099,
+            0.14000000059604645
+          ],
+          "iblIntensity": 1
+        }
+      }
+    }
+  ]
+}

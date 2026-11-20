@@ -18,7 +18,9 @@
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Scene/Components.h"
+#include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
+#include "Luma/VFS/VFS.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Slate/Image.h"
 
@@ -40,10 +42,31 @@ using Slate::Rect;
 using Slate::Vec2;
 
 namespace {
-// Default colors cycled for newly created entities.
-const Math::Vec3 kEntityPalette[] = {
-    {0.86f, 0.36f, 0.36f}, {0.40f, 0.72f, 0.92f}, {0.52f, 0.85f, 0.50f},
-    {0.92f, 0.78f, 0.36f}, {0.74f, 0.52f, 0.92f}, {0.40f, 0.86f, 0.80f}};
+// Engine content (/Engine/...): the mounted Content root's Engine folder,
+// else the copy staged next to the executable.
+std::filesystem::path EngineContentRoot() {
+    auto& vfs = VFS::VFS::Global();
+    if (vfs.IsMounted(VFS::Root::Content)) {
+        if (auto real = vfs.TryResolve(VFS::Path(VFS::Root::Content, "Engine"))) {
+            std::error_code ec;
+            if (std::filesystem::is_directory(*real, ec)) return *real;
+        }
+    }
+    return std::filesystem::current_path() / "Content" / "Engine";
+}
+
+// Files whose external edits the editor reacts to.
+bool IsWatchedAssetFile(const std::filesystem::path& p) {
+    static const char* kExtensions[] = {".lmat", ".lmatinst", ".lmesh", ".png", ".jpg",
+                                        ".jpeg", ".tga", ".bmp", ".psd", ".gif"};
+    std::string ext = p.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    for (const char* e : kExtensions) {
+        if (ext == e) return true;
+    }
+    return false;
+}
 
 // Returns `base` unchanged when no entity in the scene shares that name;
 // otherwise appends the lowest free number (base 1, base 2, ...) so the first
@@ -73,6 +96,10 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
         m_title = "Luma Editor";
         LUMA_USER_ERROR("Project", "Could not open project: {}", err);
     }
+    if (m_project) m_assetPaths.SetGameRoot(m_project->AssetsDir());
+    m_assetPaths.SetEngineRoot(EngineContentRoot());
+    m_materials = std::make_unique<Material::MaterialLibrary>(m_assetPaths);
+
     if (!LoadScene()) {
         CreateEnvironment();
         // New projects already declare a startup scene path. Materialize the
@@ -100,6 +127,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
         // thumbnails live in the project's scratch area, not inside Assets/.
         ThumbnailManager::Get().SetProjectRoot(m_project->RootDir());
         ThumbnailManager::Get().SetRegistry(&m_assetRegistry);
+        RefreshAssetWatches();
     }
 }
 
@@ -114,7 +142,8 @@ bool EditorScreen::LoadScene() {
     std::error_code ec;
     if (!std::filesystem::exists(path, ec)) return false;
     std::string err;
-    if (!SceneSerializer::LoadFromFile(m_scene, path, &err)) {
+    LegacyMaterialList legacy;
+    if (!SceneSerializer::LoadFromFile(m_scene, path, &err, &legacy)) {
         LUMA_USER_ERROR("Scene", "Failed to load scene '{}': {}", ProjectRelative(path),
                        err);
         return false;
@@ -125,11 +154,130 @@ bool EditorScreen::LoadScene() {
     auto envView = m_scene.Registry().view<EnvironmentComponent>();
     if (envView.begin() == envView.end()) CreateEnvironment();
     LUMA_USER_INFO("Scene", "Loaded scene '{}'", ProjectRelative(path));
+    // Version-1 scenes carried a color per mesh; move those onto material
+    // assets (in memory until the scene is saved).
+    if (!legacy.empty()) MigrateLegacyMaterials(m_scene, legacy, *m_materials);
     return true;
+}
+
+bool EditorScreen::SaveMaterialAssets() {
+    bool ok = true;
+    for (const std::string& path : m_materials->DirtyAssets()) {
+        std::string err;
+        if (m_materials->Save(path, &err)) {
+            LUMA_USER_INFO("Materials", "Saved '{}'", path);
+        } else {
+            LUMA_USER_ERROR("Materials", "Failed to save '{}': {}", path, err);
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+std::vector<std::string> EditorScreen::UnsavedAssets() const {
+    return m_materials ? m_materials->DirtyAssets() : std::vector<std::string>{};
+}
+
+void EditorScreen::RequestClose() {
+    if (UnsavedAssets().empty()) {
+        m_closeConfirmed = true;
+    } else {
+        m_closeRequested = true;
+    }
+}
+
+void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
+    if (!m_closeRequested) return;
+    const std::vector<std::string> unsaved = UnsavedAssets();
+    if (unsaved.empty()) {
+        m_closeRequested = false;
+        m_closeConfirmed = true;
+        return;
+    }
+    const u64 id = Slate::Context::ID("editor.unsaved");
+    Slate::Theme& t = ui.theme();
+    constexpr usize kListed = 6;
+    const usize listed = std::min(unsaved.size(), kListed);
+    const f32 lineH = 20.0f;
+    const f32 height = 150.0f + lineH * static_cast<f32>(listed + (unsaved.size() > kListed));
+    const Rect content = ui.BeginModal(id, "Unsaved Changes", {520.0f, height});
+    f32 y = content.y;
+    ui.Label({content.x, y}, "These assets have unsaved changes:", t.text);
+    y += lineH + 6.0f;
+    for (usize i = 0; i < listed; ++i) {
+        ui.Label({content.x + 12.0f, y}, unsaved[i], t.textDim);
+        y += lineH;
+    }
+    if (unsaved.size() > kListed) {
+        ui.Label({content.x + 12.0f, y},
+                 "and " + std::to_string(unsaved.size() - kListed) + " more", t.textDim);
+    }
+    const f32 bw = 110.0f, bh = 26.0f, gap = 8.0f;
+    const f32 by = content.Bottom() + gap;
+    const Rect saveRect{content.Right() - bw, by, bw, bh};
+    const Rect discardRect{saveRect.x - bw - gap, by, bw, bh};
+    const Rect cancelRect{discardRect.x - bw - gap, by, bw, bh};
+    if (ui.Button(id ^ 0x5A5Eull, saveRect, "Save All")) {
+        m_closeRequested = false;
+        // Stay open when something failed to save (the errors are logged).
+        m_closeConfirmed = SaveMaterialAssets();
+        ui.EndModal();
+    } else if (ui.Button(id ^ 0xD15Cull, discardRect, "Don't Save")) {
+        m_closeRequested = false;
+        m_closeConfirmed = true;
+        ui.EndModal();
+    } else if (ui.Button(id ^ 0xCA9Cull, cancelRect, "Cancel")) {
+        m_closeRequested = false;
+        ui.EndModal();
+    }
+}
+
+void EditorScreen::RefreshAssetWatches() {
+    if (!m_project) return;
+    m_watchedRegistrySize = m_assetRegistry.Size();
+    std::error_code ec;
+    const std::filesystem::path root = m_project->AssetsDir();
+    if (!std::filesystem::is_directory(root, ec)) return;
+    for (auto it = std::filesystem::recursive_directory_iterator(root, ec);
+         !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec) || !IsWatchedAssetFile(it->path())) continue;
+        const std::string key = it->path().lexically_normal().string();
+        if (!m_watchedFiles.insert(key).second) continue;
+        m_assetWatcher.Watch(it->path(), [this](const VFS::WatchedChange& change) {
+            if (change.event != VFS::FileEvent::Removed) OnAssetFileChanged(change.path);
+        });
+    }
+}
+
+void EditorScreen::PollAssetChanges(f32 deltaSeconds) {
+    m_watchTimer += deltaSeconds;
+    if (m_watchTimer < 0.5f) return;  // stat the watched files twice a second
+    m_watchTimer = 0.0f;
+    if (m_assetRegistry.Size() != m_watchedRegistrySize) RefreshAssetWatches();
+    m_assetWatcher.Poll();
+}
+
+void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
+    const auto virtualPath = m_assetPaths.ToVirtual(file);
+    if (!virtualPath) return;
+    std::string ext = file.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (ext == ".lmat" || ext == ".lmatinst") {
+        m_materials->Reload(*virtualPath);
+    } else if (ext == ".lmesh") {
+        if (const AssetData* data = m_assetRegistry.LookupByPath(file)) {
+            m_bridge.OnMeshFileChanged(data->id);
+        }
+    } else {
+        m_materials->InvalidateTextures();
+        m_bridge.OnTextureFileChanged(*virtualPath);
+    }
 }
 
 void EditorScreen::SaveScene() {
     if (!m_project) return;
+    SaveMaterialAssets();
     std::filesystem::path path = m_project->StartupScenePath();
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
@@ -198,8 +346,6 @@ void EditorScreen::FinalizeProjectPreview() {
 
 void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
     int index = m_nextNumber++;
-    const Math::Vec3 paletteColor = kEntityPalette[(index - 1) %
-        (sizeof(kEntityPalette) / sizeof(Math::Vec3))];
 
     // --- Primitives / Empty -------------------------------------------------
     if (kind == Editor::Panels::CreateActorKind::Empty) {
@@ -220,8 +366,7 @@ void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
         Entity e =
             m_scene.CreateEntity(UniqueEntityName(m_scene, names[i]));
         auto& mesh = m_scene.Registry().emplace<MeshRendererComponent>(e);
-        mesh.primitive = prims[i];
-        mesh.albedo = paletteColor;
+        mesh.primitive = prims[i];  // empty material slots: Default Material
         auto& tf = m_scene.Registry().get<TransformComponent>(e);
         tf.position = Math::Vec3(static_cast<f32>(index - 1) * 2.0f, 1.0f, 0.0f);
         m_selected = e;
@@ -348,93 +493,13 @@ SceneView EditorScreen::BuildSceneView() {
         m_gizmoScale = std::max(dist, 0.05f) * 0.16f * fovScale;
     }
 
-    m_instances.clear();
-    auto view = m_scene.Registry().view<TransformComponent, MeshRendererComponent>();
-    for (Entity e : view) {
-        const auto& mr = view.get<MeshRendererComponent>(e);
-        SceneInstance inst;
-        inst.model = view.get<TransformComponent>(e).Matrix();
-        inst.primitive = mr.primitive;
-        
-        // Load mesh asset if available
-        if (mr.UsesMeshAsset() && m_project) {
-            auto contentRoot = m_project->AssetsDir();
-            auto assetEntry = m_assetRegistry.Lookup(mr.meshAsset);
-            if (assetEntry) {
-                auto meshPath = contentRoot / assetEntry->packagePath;
-                
-                // Check cache first
-                auto it = m_meshCache.find(mr.meshAsset);
-                if (it != m_meshCache.end()) {
-                    // Use cached mesh data
-                    const auto& meshData = it->second;
-                    if (meshData.IsValid()) {
-                        // Check if we have cached vertex positions
-                        auto vertIt = m_vertexPositionCache.find(mr.meshAsset);
-                        if (vertIt == m_vertexPositionCache.end()) {
-                            // Extract and cache vertex positions
-                            std::vector<Math::Vec3> positions;
-                            positions.reserve(meshData.vertices.size());
-                            for (const auto& v : meshData.vertices) {
-                                positions.push_back(v.position);
-                            }
-                            m_vertexPositionCache[mr.meshAsset] = std::move(positions);
-                            vertIt = m_vertexPositionCache.find(mr.meshAsset);
-                        }
-                        
-                        // Validate data before using
-                        if (vertIt->second.size() > 0 && vertIt->second.size() < 10000000) {
-                            inst.customVertices = vertIt->second.data();
-                            inst.customVertexCount = static_cast<u32>(vertIt->second.size());
-                            inst.customIndices = meshData.indices.data();
-                            inst.customIndexCount = static_cast<u32>(meshData.indices.size());
-                            inst.customMeshValid = true;
-                        } else {
-                            LUMA_LOG_ERROR("Editor", "Invalid cached vertex data for asset");
-                        }
-                    }
-                } else {
-                    // Load and cache mesh
-                    auto result = LumaMeshIO::ReadMesh(meshPath);
-                    if (result && result->IsValid()) {
-                        m_meshCache[mr.meshAsset] = std::move(*result);
-                        const auto& cached = m_meshCache[mr.meshAsset];
-                        
-                        // Extract and cache vertex positions
-                        std::vector<Math::Vec3> positions;
-                        positions.reserve(cached.vertices.size());
-                        for (const auto& v : cached.vertices) {
-                            positions.push_back(v.position);
-                        }
-                        m_vertexPositionCache[mr.meshAsset] = std::move(positions);
-                        
-                        auto vertIt = m_vertexPositionCache.find(mr.meshAsset);
-                        
-                        // Validate data before using
-                        if (vertIt->second.size() > 0 && vertIt->second.size() < 10000000) {
-                            inst.customVertices = vertIt->second.data();
-                            inst.customVertexCount = static_cast<u32>(vertIt->second.size());
-                            inst.customIndices = cached.indices.data();
-                            inst.customIndexCount = static_cast<u32>(cached.indices.size());
-                            inst.customMeshValid = true;
-                        } else {
-                            LUMA_LOG_ERROR("Editor", "Invalid loaded vertex data for asset");
-                        }
-                    }
-                }
-            }
-        }
-        
-        Vec3 c = mr.albedo;
-        if (e == m_selected) {
-            c = Vec3(std::min(1.0f, c.x + 0.20f), std::min(1.0f, c.y + 0.20f),
-                     std::min(1.0f, c.z + 0.20f));
-        }
-        inst.albedo = c;
-        inst.metallic = mr.metallic;
-        inst.roughness = mr.roughness;
-        m_instances.push_back(inst);
+    // Materials, textures and mesh assets the scene uses are made resident
+    // through the renderer's SceneRenderer; the selection draws normally
+    // (the selection outline marks it).
+    if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
+        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials, m_assetRegistry);
     }
+    m_bridge.BuildInstances(m_scene, m_selected, m_instances);
 
     // The first directional light is the scene's sun: it drives the sky
     // atmosphere, the sun disk, cascaded shadows and the directional term in
@@ -638,6 +703,7 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
                                                                 f32 deltaSeconds) {
     using namespace Math;
     
+    PollAssetChanges(deltaSeconds);
     // Build the RHI scene view first. Store it in a member so its instance /
     // light pointers stay valid for the lifetime of the returned view.
     m_deferredSceneSource = BuildSceneView();
@@ -911,6 +977,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         auto ctx = BuildPanelContext();
         m_inspectorPanel.DrawFloatingPickers(ui, ctx);
     }
+    DrawClosePrompt(ui);
 }
 
 Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const {
@@ -959,13 +1026,9 @@ Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir)
             // unnormalized local direction keeps t in world ray units).
             Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
             if (mr->UsesMeshAsset()) {
-                auto it = m_vertexPositionCache.find(mr->meshAsset);
-                if (it != m_vertexPositionCache.end() && !it->second.empty()) {
-                    lo = hi = it->second.front();
-                    for (const Vec3& p : it->second) {
-                        lo = Vec3(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
-                        hi = Vec3(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
-                    }
+                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->meshAsset)) {
+                    lo = bounds->min;
+                    hi = bounds->max;
                 }
             } else if (mr->primitive == MeshPrimitive::Plane) {
                 lo.y = -0.02f;

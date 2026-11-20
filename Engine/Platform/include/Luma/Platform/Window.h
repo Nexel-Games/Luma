@@ -30,6 +30,9 @@ public:
 
     virtual void PollEvents() = 0;
     virtual bool ShouldClose() const = 0;
+    // Overrides the close request (e.g. false to keep the window open while
+    // the user decides about unsaved changes).
+    virtual void SetShouldClose(bool close) = 0;
 
     virtual void SetEventCallback(EventCallback callback) = 0;
 
