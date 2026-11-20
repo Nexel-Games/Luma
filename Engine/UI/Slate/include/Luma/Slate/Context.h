@@ -214,6 +214,10 @@ public:
     NumericResult SpinBox(u64 id, const Rect& rect, f32& value, const SpinBoxOptions& options = {});
     NumericResult SpinBoxInt(u64 id, const Rect& rect, i32& value,
                              const SpinBoxOptions& options = {});
+    // 2-4 SpinBox cells side by side (X red, Y green, Z blue, W grey
+    // stripes) editing values[0..count-1]. Results are OR'ed across cells.
+    NumericResult VectorField(u64 id, const Rect& rect, f32* values, int count,
+                              const SpinBoxOptions& options = {});
     // Three drag fields with colored X/Y/Z labels (edits xyz[0..2] in place).
     bool Vector3Field(u64 id, const Rect& rect, f32* xyz);
     // A collapsible section header; toggles `open` when clicked.

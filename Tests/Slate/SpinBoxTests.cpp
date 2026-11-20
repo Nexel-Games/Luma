@@ -292,3 +292,47 @@ TEST_CASE("Escape cancels a scrub and restores the start value", "[slate][spinbo
     h.Frame(draw);
     CHECK_FALSE(h.ctx.IsFieldFocused(1));  // releasing after a cancel doesn't start typing
 }
+
+TEST_CASE("VectorField 4 edits the fourth cell", "[slate][spinbox]") {
+    Harness h;
+    f32 v[4] = {0, 0, 0, 0};
+    h.Drag(450.0f, 112.0f, 10.0f, 0.0f,
+           [&] { h.ctx.VectorField(7, {100, 100, 400, 24}, v, 4, Speed(0.1)); });
+    CHECK(v[0] == 0.0f);
+    CHECK(v[1] == 0.0f);
+    CHECK(v[2] == 0.0f);
+    CHECK_THAT(v[3], WithinAbs(1.0, 1e-5));
+}
+
+TEST_CASE("Vector3Field still scrubs its cells", "[slate][spinbox]") {
+    Harness h;
+    f32 v[3] = {0, 0, 0};
+    // Middle cell of a 300 px field.
+    h.Drag(250.0f, 112.0f, 10.0f, 0.0f, [&] { h.ctx.Vector3Field(7, {100, 100, 300, 24}, v); });
+    CHECK(v[0] == 0.0f);
+    CHECK(v[1] > 0.0f);
+    CHECK(v[2] == 0.0f);
+}
+
+TEST_CASE("Tab walks a vector field's cells X to Y to Z", "[slate][spinbox]") {
+    Harness h;
+    f32 v[3] = {1, 2, 3};
+    auto draw = [&] { h.ctx.VectorField(7, {100, 100, 300, 24}, v, 3); };
+    h.Click(120.0f, 112.0f, draw);  // X cell
+    h.Frame(draw);
+    Key(h.ctx, kTab);
+    h.Frame(draw);
+    h.Frame(draw);
+    Type(h.ctx, "5");
+    h.Frame(draw);
+    Key(h.ctx, kTab);
+    h.Frame(draw);
+    h.Frame(draw);
+    Type(h.ctx, "6");
+    h.Frame(draw);
+    Key(h.ctx, kEnter);
+    h.Frame(draw);
+    CHECK(v[0] == 1.0f);
+    CHECK(v[1] == 5.0f);  // committed when Tab moved focus on
+    CHECK(v[2] == 6.0f);
+}

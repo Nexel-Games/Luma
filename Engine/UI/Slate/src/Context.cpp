@@ -1223,24 +1223,31 @@ NumericResult Context::SpinBoxImpl(u64 id, const Rect& rect, f64& value,
 }
 
 bool Context::Vector3Field(u64 id, const Rect& rect, f32* xyz) {
+    return VectorField(id, rect, xyz, 3).changed;
+}
+
+NumericResult Context::VectorField(u64 id, const Rect& rect, f32* values, int count,
+                                   const SpinBoxOptions& options) {
     // Unreal-style channel cells: each value field carries a thin colored
-    // stripe at its left edge (red X / green Y / blue Z) with no letter
-    // label — the color is the identifier. Same axis colors as the gizmo.
-    const Color chipColors[3] = {Color::RGB(201, 38, 0),
-                                 Color::RGB(102, 168, 0),
-                                 Color::RGB(43, 125, 237)};
+    // stripe at its left edge (red X / green Y / blue Z, the gizmo's axis
+    // colors; W neutral) with no letter label - the color is the identifier.
+    const Color stripes[4] = {Color::RGB(201, 38, 0), Color::RGB(102, 168, 0),
+                              Color::RGB(43, 125, 237), m_theme.textDim};
+    count = std::clamp(count, 1, 4);
     const f32 gap = m_theme.space.sm + 2.0f;
-    const f32 cellW = (rect.w - gap * 2.0f) / 3.0f;
-    bool changed = false;
-    for (int i = 0; i < 3; ++i) {
-        Rect cell{rect.x + static_cast<f32>(i) * (cellW + gap), rect.y, cellW,
-                  rect.h};
-        if (DragFloat(id * 4 + static_cast<u64>(i) + 1, cell, xyz[i], 0.02f,
-                      &chipColors[i])) {
-            changed = true;
-        }
+    const f32 cellW = (rect.w - gap * static_cast<f32>(count - 1)) / static_cast<f32>(count);
+    NumericResult all;
+    for (int i = 0; i < count; ++i) {
+        const Rect cell{rect.x + static_cast<f32>(i) * (cellW + gap), rect.y, cellW, rect.h};
+        SpinBoxOptions o = options;
+        o.accent = &stripes[i];
+        const NumericResult r = SpinBox(id * 8 + static_cast<u64>(i) + 1, cell, values[i], o);
+        all.changed |= r.changed;
+        all.committed |= r.committed;
+        all.dragStarted |= r.dragStarted;
+        all.dragEnded |= r.dragEnded;
     }
-    return changed;
+    return all;
 }
 
 bool Context::CollapsingHeader(u64 id, const Rect& rect, std::string_view label,
