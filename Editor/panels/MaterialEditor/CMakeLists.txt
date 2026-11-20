@@ -11,6 +11,7 @@ target_include_directories(LumaPanelMaterialEditor
         ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 target_link_libraries(LumaPanelMaterialEditor
-    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::Material Luma::Asset)
+    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::Material Luma::Asset
+           Luma::Renderer)
 
 set_target_properties(LumaPanelMaterialEditor PROPERTIES FOLDER "Editor/Panels")

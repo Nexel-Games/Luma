@@ -60,7 +60,8 @@ public:
 
     VulkanDeferredRenderer(VkPhysicalDevice physicalDevice, VkDevice device,
                            VkQueue graphicsQueue, uint32_t graphicsQueueFamilyIndex,
-                           VulkanUIPass& uiPass, const std::string& shaderDir);
+                           VulkanUIPass& uiPass, const std::string& shaderDir,
+                           bool useEnvironment = false);
     ~VulkanDeferredRenderer();
 
     VulkanDeferredRenderer(const VulkanDeferredRenderer&) = delete;
@@ -138,7 +139,9 @@ private:
         f32 sunDir[4];       // xyz direction TO sun, w = below-horizon sky fade
         f32 sunColor[4];     // rgb, w intensity
         f32 ambientColor[4]; // rgb, w intensity
-        f32 params[4];       // x = lightCount, y = sunShadows, z = 1/shadowSize
+        // x = lightCount, y = sunShadows, z = 1/shadowSize,
+        // w = material environment enabled
+        f32 params[4];
         f32 shadowParams[4]; // x = softness, y = cascadeCount, z = shadowBias
         f32 cascadeSplits[4];
         Math::Mat4 cascadeViewProj[kCascadesUBO];
@@ -157,6 +160,8 @@ private:
     bool CreateFramebuffer();
     bool CreateLightingFramebuffer();
     bool CreateSampler();
+    bool CreateEnvironmentTexture(const std::string& path);
+    void DestroyEnvironmentTexture();
     bool CreateUBOs();
     bool CreateLayouts();
     bool CreateDescriptorSets();
@@ -199,6 +204,12 @@ private:
     VkSampler m_materialSampler = VK_NULL_HANDLE;
     u32 m_materialTextureGeneration = 0;  // bumped in Initialize (cache rebuild)
 
+    // Equirectangular HDR environment used by the deferred background pass.
+    VkImage m_environmentImage = VK_NULL_HANDLE;
+    VkDeviceMemory m_environmentMemory = VK_NULL_HANDLE;
+    VkImageView m_environmentView = VK_NULL_HANDLE;
+    VkSampler m_environmentSampler = VK_NULL_HANDLE;
+
     // Vulkan handles
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VkDevice m_device = VK_NULL_HANDLE;
@@ -206,6 +217,7 @@ private:
     uint32_t m_graphicsQueueFamilyIndex = 0;
     VulkanUIPass& m_uiPass;
     std::string m_shaderDir;
+    bool m_useEnvironment = false;
     bool m_initialized = false;
     bool m_gBufferInitialized = false;
 

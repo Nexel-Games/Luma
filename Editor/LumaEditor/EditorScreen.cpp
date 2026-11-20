@@ -600,6 +600,11 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView() {
     return deferredScene;
 }
 
+Renderer2::DeferredSceneView EditorScreen::BuildMaterialDeferredSceneView(
+    u32 width, u32 height) {
+    return m_materialEditor.BuildDeferredSceneView(width, height);
+}
+
 void EditorScreen::SetRenderMode(Renderer2::EditorRenderMode mode) {
     if (m_deferredRenderer) {
         m_deferredRenderer->SetEditorRenderMode(mode);

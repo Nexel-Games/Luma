@@ -10,9 +10,8 @@ Rect GraphNodeWidget::Draw(Context& ui, const Rect& node, const Spec& spec,
     // Body: a dark, clearly translucent surface with a subtle metallic sheen
     // (lighter at the top, falling to near-black at the bottom) so the canvas
     // grid shows through and the node reads as tinted glass over the graph.
-    ui.drawList().AddRectFilledGradientRounded(
-        node, Color::RGBA(42, 47, 55, 88), Color::RGBA(12, 14, 18, 118),
-        {r, r, r, r});
+    ui.drawList().AddRectFilledGradient(
+        node, Color::RGBA(42, 47, 55, 88), Color::RGBA(12, 14, 18, 118));
 
     // Header bar (rounded top corners): a vertical gradient from the node's
     // category tint (strong at the top, fading down) into the dark body, so
@@ -26,8 +25,7 @@ Rect GraphNodeWidget::Draw(Context& ui, const Rect& node, const Spec& spec,
                                         : (spec.selected ? 0.35f : 0.0f);
     Color top = tintAmt > 0.0f ? Mix(hTop, tint, tintAmt) : hTop;
     Color bot = tintAmt > 0.0f ? Mix(hBot, tint, tintAmt * 0.45f) : hBot;
-    ui.drawList().AddRectFilledGradientRounded(header, top, bot,
-                                               {r, r, 0.0f, 0.0f});
+    ui.drawList().AddRectFilledGradient(header, top, bot);
     ui.drawList().AddLine({header.x, header.Bottom()},
                           {header.Right(), header.Bottom()}, t.outline, 1.0f);
 
@@ -62,7 +60,7 @@ Rect GraphNodeWidget::Draw(Context& ui, const Rect& node, const Spec& spec,
         ui.drawList().AddCircleFilled(pos, kPinR - 1.0f, spec.inputs[i].color,
                                       16);
         if (!spec.inputs[i].label.empty()) {
-            f32 tw = labelFont.CalcTextSize(spec.inputs[i].label).x;
+            f32 tw = labelFont.Measure(spec.inputs[i].label).x;
             Vec2 label = spec.inputLabelsInside
                              ? Vec2{pos.x + kPinR + 5.0f, pos.y - labelDy}
                              : Vec2{pos.x - kPinR - 5.0f - tw,
@@ -86,9 +84,9 @@ Rect GraphNodeWidget::Draw(Context& ui, const Rect& node, const Spec& spec,
 
     // Selection border: accent + thicker when selected, hairline otherwise.
     if (spec.selected) {
-        ui.drawList().AddRect(node, t.accent, 2.0f, r);
+        ui.drawList().AddRectOutlineRounded(node, t.accent, 2.0f, r);
     } else {
-        ui.drawList().AddRect(node, t.outline, 1.0f, r);
+        ui.drawList().AddRectOutlineRounded(node, t.outline, 1.0f, r);
     }
     return node;
 }

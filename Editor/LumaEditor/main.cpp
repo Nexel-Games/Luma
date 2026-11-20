@@ -304,10 +304,17 @@ int main(int argc, char** argv) {
 
     // Initialize Vulkan deferred renderer (editor mode only)
     void* deferredRendererPtr = renderer->GetVulkanDeferredRenderer();
+    void* materialDeferredRendererPtr =
+        renderer->GetVulkanMaterialDeferredRenderer();
     if (deferredRendererPtr) {
         LUMA_LOG_INFO("Editor", "Vulkan deferred renderer available");
     } else {
         LUMA_LOG_WARN("Editor", "Vulkan deferred renderer not available");
+    }
+    if (materialDeferredRendererPtr) {
+        LUMA_LOG_INFO("Editor", "Material deferred renderer available");
+    } else {
+        LUMA_LOG_WARN("Editor", "Material deferred renderer not available");
     }
     Log::Flush();
     if (editorMode) {
@@ -389,6 +396,35 @@ int main(int argc, char** argv) {
                     }
                 } else {
                     LUMA_LOG_ERROR("Editor", "Vulkan deferred renderer not available - viewport will be black");
+                }
+            }
+
+            Slate::Rect materialVp = editor->MaterialViewportRect();
+            if (editor->MaterialEditorOpen() && materialVp.w > 4.0f &&
+                materialVp.h > 4.0f) {
+                if (materialDeferredRendererPtr) {
+                    auto* materialRenderer =
+                        static_cast<Rendering::VulkanDeferredRenderer*>(
+                            materialDeferredRendererPtr);
+                    Renderer2::DeferredSceneView materialScene =
+                        editor->BuildMaterialDeferredSceneView(
+                            static_cast<u32>(materialVp.w),
+                            static_cast<u32>(materialVp.h));
+
+                    materialRenderer->SetViewportDimensions(
+                        static_cast<u32>(materialVp.w),
+                        static_cast<u32>(materialVp.h));
+                    materialRenderer->PrepareScene();
+                    materialRenderer->RenderScene(materialScene);
+
+                    TextureHandle materialTex =
+                        materialRenderer->GetViewportTextureHandle();
+                    if (materialTex != 0) {
+                        editor->SetMaterialViewportTexture(materialTex);
+                    }
+                } else {
+                    LUMA_LOG_ERROR("Editor",
+                                   "Material deferred renderer not available");
                 }
             }
         }

@@ -1,9 +1,21 @@
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4505)
+#endif
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include "Luma/Core/Log.h"
 #include "Luma/Mesh/Mesh.h"
@@ -32,18 +44,37 @@ Math::Vec3 TransformPoint(const Math::Mat4& m, const Math::Vec3& p) {
             m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]};
 }
 
+u16 FloatToHalf(f32 value) {
+    u32 bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const u32 sign = (bits >> 16) & 0x8000u;
+    const u32 exponent = (bits >> 23) & 0xffu;
+    const u32 mantissa = bits & 0x7fffffu;
+    if (exponent == 0xffu) {
+        return static_cast<u16>(sign | 0x7c00u |
+                                (mantissa ? 0x0200u : 0u));
+    }
+    const i32 halfExponent = static_cast<i32>(exponent) - 127 + 15;
+    if (halfExponent <= 0) return static_cast<u16>(sign);
+    if (halfExponent >= 31) return static_cast<u16>(sign | 0x7c00u);
+    return static_cast<u16>(sign |
+                            (static_cast<u32>(halfExponent) << 10) |
+                            ((mantissa + 0x1000u) >> 13));
+}
+
 }  // namespace
 
 VulkanDeferredRenderer::VulkanDeferredRenderer(
     VkPhysicalDevice physicalDevice, VkDevice device, VkQueue graphicsQueue,
     uint32_t graphicsQueueFamilyIndex, VulkanUIPass& uiPass,
-    const std::string& shaderDir)
+    const std::string& shaderDir, bool useEnvironment)
     : m_physicalDevice(physicalDevice)
     , m_device(device)
     , m_graphicsQueue(graphicsQueue)
     , m_graphicsQueueFamilyIndex(graphicsQueueFamilyIndex)
     , m_uiPass(uiPass)
     , m_shaderDir(shaderDir)
+    , m_useEnvironment(useEnvironment)
     , m_initialized(false)
     , m_gbufferPipeline(VK_NULL_HANDLE)
     , m_lightingPipeline(VK_NULL_HANDLE)
@@ -113,6 +144,12 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     
     if (!CreateGBuffer(width, height)) return false;
     if (!CreateShadowResources()) return false;
+    if (!CreateEnvironmentTexture(m_useEnvironment
+            ? "D:/Luma Engine/Content/skybox/braustuble_alley_2k.hdr"
+            : std::string{})) {
+        LUMA_LOG_WARN("VulkanDeferredRenderer",
+                      "HDR environment unavailable; using fallback sky");
+    }
     if (!CreateUBOs()) return false;
     if (!CreateLayouts()) return false;
     if (!CreateDescriptorSets()) return false;
@@ -153,6 +190,7 @@ void VulkanDeferredRenderer::Cleanup() {
     m_gridPass.reset();
     CleanupCustomMeshes();
     CleanupPrimitives();
+    DestroyEnvironmentTexture();
     DestroyBuffer(m_device, m_gbufferUBO);
     DestroyBuffer(m_device, m_lightingUBO);
     DestroyShadowResources();
@@ -569,6 +607,142 @@ bool VulkanDeferredRenderer::CreateSampler() {
     return true;
 }
 
+bool VulkanDeferredRenderer::CreateEnvironmentTexture(const std::string& path) {
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    float* hdr = path.empty()
+        ? nullptr
+        : stbi_loadf(path.c_str(), &width, &height, &channels, STBI_rgb);
+    if (path.empty() || !hdr || width <= 0 || height <= 0) {
+        if (hdr) stbi_image_free(hdr);
+        width = 1;
+        height = 1;
+    }
+
+    std::vector<u16> pixels(static_cast<size_t>(width) * height * 4);
+    if (hdr) {
+        for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+            // Preserve scene-linear HDR values for material illumination.
+            pixels[i * 4 + 0] = FloatToHalf(std::max(hdr[i * 3 + 0], 0.0f));
+            pixels[i * 4 + 1] = FloatToHalf(std::max(hdr[i * 3 + 1], 0.0f));
+            pixels[i * 4 + 2] = FloatToHalf(std::max(hdr[i * 3 + 2], 0.0f));
+            pixels[i * 4 + 3] = FloatToHalf(1.0f);
+        }
+        stbi_image_free(hdr);
+    } else {
+        pixels = {FloatToHalf(0.12f), FloatToHalf(0.15f),
+                  FloatToHalf(0.20f), FloatToHalf(1.0f)};
+        if (!path.empty()) {
+            LUMA_LOG_WARN("VulkanDeferredRenderer",
+                          "Failed to load HDR environment: {}", path);
+        }
+    }
+
+    const VkDeviceSize imageSize = pixels.size() * sizeof(u16);
+    GpuBuffer staging = CreateBuffer(
+        m_physicalDevice, m_device, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        true);
+    if (staging.buffer == VK_NULL_HANDLE) return false;
+    std::memcpy(staging.mapped, pixels.data(), pixels.size());
+
+    VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    imageInfo.extent = {static_cast<u32>(width), static_cast<u32>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_environmentImage) != VK_SUCCESS) {
+        DestroyBuffer(m_device, staging);
+        return false;
+    }
+
+    VkMemoryRequirements requirements{};
+    vkGetImageMemoryRequirements(m_device, m_environmentImage, &requirements);
+    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocation.allocationSize = requirements.size;
+    allocation.memoryTypeIndex = FindMemoryType(
+        m_physicalDevice, requirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (vkAllocateMemory(m_device, &allocation, nullptr,
+                         &m_environmentMemory) != VK_SUCCESS) {
+        DestroyBuffer(m_device, staging);
+        DestroyEnvironmentTexture();
+        return false;
+    }
+    vkBindImageMemory(m_device, m_environmentImage, m_environmentMemory, 0);
+
+    VkCommandBuffer cmd = BeginOneTimeCommands(m_device, m_commandPool);
+    VkImageMemoryBarrier toTransfer{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toTransfer.image = m_environmentImage;
+    toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &toTransfer);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {static_cast<u32>(width), static_cast<u32>(height), 1};
+    vkCmdCopyBufferToImage(cmd, staging.buffer, m_environmentImage,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    VkImageMemoryBarrier toShader = toTransfer;
+    toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &toShader);
+    EndOneTimeCommands(m_device, m_commandPool, m_graphicsQueue, cmd);
+    DestroyBuffer(m_device, staging);
+
+    VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    viewInfo.image = m_environmentImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(m_device, &viewInfo, nullptr,
+                          &m_environmentView) != VK_SUCCESS) {
+        DestroyEnvironmentTexture();
+        return false;
+    }
+
+    VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sampler.magFilter = VK_FILTER_LINEAR;
+    sampler.minFilter = VK_FILTER_LINEAR;
+    sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler.maxLod = 0.0f;
+    if (vkCreateSampler(m_device, &sampler, nullptr,
+                        &m_environmentSampler) != VK_SUCCESS) {
+        DestroyEnvironmentTexture();
+        return false;
+    }
+    return true;
+}
+
+void VulkanDeferredRenderer::DestroyEnvironmentTexture() {
+    if (m_environmentSampler) vkDestroySampler(m_device, m_environmentSampler, nullptr);
+    if (m_environmentView) vkDestroyImageView(m_device, m_environmentView, nullptr);
+    if (m_environmentImage) vkDestroyImage(m_device, m_environmentImage, nullptr);
+    if (m_environmentMemory) vkFreeMemory(m_device, m_environmentMemory, nullptr);
+    m_environmentSampler = VK_NULL_HANDLE;
+    m_environmentView = VK_NULL_HANDLE;
+    m_environmentImage = VK_NULL_HANDLE;
+    m_environmentMemory = VK_NULL_HANDLE;
+}
+
 bool VulkanDeferredRenderer::CreateUBOs() {
     m_gbufferUBO = CreateBuffer(m_physicalDevice, m_device, sizeof(GbufferUBO),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -587,12 +761,13 @@ bool VulkanDeferredRenderer::CreateLayouts() {
     gi.bindingCount = 1; gi.pBindings = &gb;
     if (vkCreateDescriptorSetLayout(m_device, &gi, nullptr, &m_gbufferSetLayout) != VK_SUCCESS) return false;
 
-    VkDescriptorSetLayoutBinding lb[6]{};
+    VkDescriptorSetLayoutBinding lb[7]{};
     for (u32 i = 0; i < 4; ++i) { lb[i].binding = i; lb[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[i].descriptorCount = 1; lb[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT; }
     lb[4].binding = 4; lb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; lb[4].descriptorCount = 1; lb[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     lb[5].binding = 5; lb[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[5].descriptorCount = 1; lb[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    lb[6].binding = 6; lb[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[6].descriptorCount = 1; lb[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    li.bindingCount = 6; li.pBindings = lb;
+    li.bindingCount = 7; li.pBindings = lb;
     if (vkCreateDescriptorSetLayout(m_device, &li, nullptr, &m_lightingSetLayout) != VK_SUCCESS) return false;
 
     VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPush)};
@@ -604,7 +779,7 @@ bool VulkanDeferredRenderer::CreateLayouts() {
 }
 
 bool VulkanDeferredRenderer::CreateDescriptorSets() {
-    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5}};
+    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6}};
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = 2; pi.poolSizeCount = 2; pi.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(m_device, &pi, nullptr, &m_lightingPool) != VK_SUCCESS) return false;
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO}; ai.descriptorPool = m_lightingPool; ai.descriptorSetCount = 1; ai.pSetLayouts = &m_gbufferSetLayout;
@@ -616,12 +791,14 @@ bool VulkanDeferredRenderer::CreateDescriptorSets() {
     vkUpdateDescriptorSets(m_device, 1, &w, 0, nullptr);
     VkDescriptorBufferInfo lb{m_lightingUBO.buffer, 0, sizeof(LightingUBO)};
     VkDescriptorImageInfo shadow{m_shadowSampler, m_shadowArrayView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo environment{m_environmentSampler, m_environmentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkDescriptorImageInfo g[4] = {{m_gBuffer.sampler, m_gBuffer.albedo.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {m_gBuffer.sampler, m_gBuffer.normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {m_gBuffer.sampler, m_gBuffer.material.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {m_gBuffer.sampler, m_gBuffer.depth.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}};
-    VkWriteDescriptorSet writes[6]{};
+    VkWriteDescriptorSet writes[7]{};
     for (u32 i = 0; i < 4; ++i) { writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[i].dstSet = m_lightingSet; writes[i].dstBinding = i; writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[i].descriptorCount = 1; writes[i].pImageInfo = &g[i]; }
     writes[4] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[4].dstSet = m_lightingSet; writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[4].descriptorCount = 1; writes[4].pBufferInfo = &lb;
     writes[5] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[5].dstSet = m_lightingSet; writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[5].descriptorCount = 1; writes[5].pImageInfo = &shadow;
-    vkUpdateDescriptorSets(m_device, 6, writes, 0, nullptr);
+    writes[6] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[6].dstSet = m_lightingSet; writes[6].dstBinding = 6; writes[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[6].descriptorCount = 1; writes[6].pImageInfo = &environment;
+    vkUpdateDescriptorSets(m_device, 7, writes, 0, nullptr);
     return true;
 }
 
@@ -775,10 +952,13 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     SetVec3(lighting.sunColor, params.sunColor, params.sunIntensity);
     SetVec3(lighting.ambientColor, params.skyHorizon, params.iblIntensity);
     FillAtmosphereParams(lighting.atmo, source.sky);
-    lighting.params[0] = params.iblIntensity;
-    lighting.params[1] = static_cast<f32>(std::min(source.lightCount, kMaxLights));
-    lighting.params[2] = 0.0f; // Shadow resources are a valid placeholder until CSM is wired.
-    lighting.params[3] = 1.0f / static_cast<f32>(kShadowSize);
+    lighting.params[0] = static_cast<f32>(
+        std::min(source.lightCount, kMaxLights));
+    // Shadow resources are allocated but cascades are not rendered yet.
+    // Keep shadowing disabled until this renderer supplies valid depth data.
+    lighting.params[1] = 0.0f;
+    lighting.params[2] = 1.0f / static_cast<f32>(kShadowSize);
+    lighting.params[3] = m_useEnvironment ? 1.0f : 0.0f;
     lighting.shadowParams[0] = params.shadowSoftness;
     lighting.shadowParams[1] = static_cast<f32>(kCascades);
     lighting.shadowParams[2] = params.shadowBias;

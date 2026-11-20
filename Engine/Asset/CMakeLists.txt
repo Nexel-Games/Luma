@@ -10,6 +10,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/nothings/stb.git
     GIT_TAG master
     GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
 )
 FetchContent_MakeAvailable(stb_image)
 

@@ -86,6 +86,23 @@ VulkanRenderer::VulkanRenderer(Window& window, const RendererConfig& config)
     } else {
         LUMA_LOG_INFO("Vulkan", "Vulkan deferred renderer initialized");
     }
+
+    // Dedicated deferred renderer for the Material Editor's scene viewport.
+    // It owns a separate G-buffer and UI texture handle so rendering the
+    // material viewport does not overwrite the main editor viewport.
+    m_vulkanMaterialDeferredRenderer =
+        std::make_unique<Rendering::VulkanDeferredRenderer>(
+            m_device->Physical(), m_device->Logical(),
+            m_device->GraphicsQueue(), m_device->Queues().graphics.value(),
+            *m_uiPass, LUMA_SHADER_DIR, true);
+
+    if (!m_vulkanMaterialDeferredRenderer->Initialize(512, 320)) {
+        LUMA_LOG_ERROR("Vulkan",
+                       "Failed to initialize material deferred renderer");
+        m_vulkanMaterialDeferredRenderer.reset();
+    } else {
+        LUMA_LOG_INFO("Vulkan", "Material deferred renderer initialized");
+    }
 #endif
 
     LUMA_LOG_INFO("Vulkan", "renderer ready");
@@ -96,10 +113,13 @@ VulkanRenderer::~VulkanRenderer() {
     VkDevice device = m_device ? m_device->Logical() : VK_NULL_HANDLE;
 
     m_sceneView.reset();  // uses the device + UI pass; destroy first
-    m_uiPass.reset();     // uses the device; destroy before it
-    
-    // Destroy Vulkan deferred renderer before device
+
+    // Destroy Vulkan deferred renderers before the UI pass/device because
+    // their output textures are registered with the UI descriptor cache.
+    m_vulkanMaterialDeferredRenderer.reset();
     m_vulkanDeferredRenderer.reset();
+
+    m_uiPass.reset();     // uses the device; destroy before it
     
     DestroyRenderFinishedSemaphores();
     for (auto& sem : m_imageAvailable) {

@@ -54,6 +54,7 @@ public:
     
     // Get the Vulkan-based deferred renderer (reference implementation)
     void* GetVulkanDeferredRenderer() const override { return m_vulkanDeferredRenderer.get(); }
+    void* GetVulkanMaterialDeferredRenderer() const override { return m_vulkanMaterialDeferredRenderer.get(); }
 
 private:
     static constexpr u32 kFramesInFlight = 2;
@@ -75,6 +76,7 @@ private:
     std::unique_ptr<VulkanUIPass> m_uiPass;
     std::unique_ptr<VulkanSceneView> m_sceneView;
     std::unique_ptr<Rendering::VulkanDeferredRenderer> m_vulkanDeferredRenderer;
+    std::unique_ptr<Rendering::VulkanDeferredRenderer> m_vulkanMaterialDeferredRenderer;
 
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kFramesInFlight> m_commandBuffers{};

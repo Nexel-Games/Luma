@@ -21,6 +21,9 @@ struct MaterialThumbnailData {
     Math::Vec3 emissive{0.0f, 0.0f, 0.0f};
     std::string albedoTexturePath;
     TexturePreviewData albedoTexture;
+    std::vector<Math::Vec3> environmentPixels;
+    u32 environmentWidth = 0;
+    u32 environmentHeight = 0;
 };
 
 /**
@@ -55,7 +58,13 @@ public:
                                     u32 width,
                                     u32 height,
                                     f32 yawDeg = 0.0f,
-                                    f32 pitchDeg = 0.0f);
+                                    f32 pitchDeg = 0.0f,
+                                    f32 distance = 3.2f,
+                                    Math::Vec3 target = {});
+
+    // Loads an HDR equirectangular environment for editor material previews.
+    static bool LoadEnvironmentTexture(const std::filesystem::path& path,
+                                       MaterialThumbnailData& outMaterial);
     
 private:
     bool ParseMaterialFile(const std::filesystem::path& path, MaterialThumbnailData& outMaterial);
@@ -66,7 +75,9 @@ private:
                                      u32 width,
                                      u32 height,
                                      f32 yawDeg = 0.0f,
-                                     f32 pitchDeg = 0.0f);
+                                     f32 pitchDeg = 0.0f,
+                                     f32 distance = 3.2f,
+                                     Math::Vec3 target = {});
 };
 
 } // namespace Luma

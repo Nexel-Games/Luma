@@ -271,6 +271,11 @@ public:
     
     // Get the Vulkan deferred renderer (opaque pointer to keep Vulkan types confined)
     virtual void* GetVulkanDeferredRenderer() const { return nullptr; }
+
+    // Dedicated Vulkan deferred renderer for secondary editor viewports such
+    // as the Material Editor preview scene. Kept separate so it owns its own
+    // G-buffer and UI texture handle.
+    virtual void* GetVulkanMaterialDeferredRenderer() const { return nullptr; }
 };
 
 }  // namespace Luma

@@ -9,6 +9,7 @@ add_library(LumaSlate STATIC
     src/Icons.cpp
     src/Context.cpp
     src/DockSpace.cpp
+    src/GraphNodeWidget.cpp
     src/ColorPicker.cpp
     src/ColorPickerPopup.cpp)
 

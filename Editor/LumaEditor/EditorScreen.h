@@ -55,6 +55,13 @@ public:
     void SetViewportTexture(TextureHandle texture) {
         m_viewportPanel.SetTexture(texture);
     }
+    bool MaterialEditorOpen() const { return m_materialEditor.IsOpen(); }
+    Slate::Rect MaterialViewportRect() const {
+        return m_materialEditor.MaterialViewportRect();
+    }
+    void SetMaterialViewportTexture(TextureHandle texture) {
+        m_materialEditor.SetMaterialViewportTexture(texture);
+    }
 
     void SetToolbarIcons(TextureHandle play, TextureHandle pause,
                          TextureHandle stop) {
@@ -90,6 +97,8 @@ public:
     
     // Build scene view for deferred renderer
     Renderer2::DeferredSceneView BuildDeferredSceneView();
+    Renderer2::DeferredSceneView BuildMaterialDeferredSceneView(u32 width,
+                                                                u32 height);
     
     // Editor rendering mode controls
     void SetRenderMode(Renderer2::EditorRenderMode mode);

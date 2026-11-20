@@ -216,89 +216,144 @@ void MaterialThumbnailRenderer::GenerateSphereMesh(LumaMeshData& outMesh, u32 se
 
 bool MaterialThumbnailRenderer::RenderPreviewSphere(
     const MaterialThumbnailData& mat, std::vector<u8>& outPixels,
-    u32 width, u32 height, f32 yawDeg, f32 pitchDeg) {
+    u32 width, u32 height, f32 yawDeg, f32 pitchDeg, f32 distance,
+    Math::Vec3 target) {
     LumaMeshData sphere;
     GenerateSphereMesh(sphere, 32, 16);
     return RenderMaterialSphere(sphere, mat, outPixels, width, height,
-                                yawDeg, pitchDeg);
+                                yawDeg, pitchDeg, distance, target);
+}
+
+bool MaterialThumbnailRenderer::LoadEnvironmentTexture(
+    const std::filesystem::path& path, MaterialThumbnailData& outMaterial) {
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    float* pixels = stbi_loadf(path.string().c_str(), &width, &height, &channels,
+                              STBI_rgb);
+    (void)channels;
+    if (!pixels || width <= 0 || height <= 0) {
+        if (pixels) stbi_image_free(pixels);
+        return false;
+    }
+
+    outMaterial.environmentWidth = static_cast<u32>(width);
+    outMaterial.environmentHeight = static_cast<u32>(height);
+    outMaterial.environmentPixels.resize(
+        static_cast<size_t>(width) * static_cast<size_t>(height));
+    for (size_t i = 0; i < outMaterial.environmentPixels.size(); ++i) {
+        outMaterial.environmentPixels[i] =
+            Math::Vec3{pixels[i * 3 + 0], pixels[i * 3 + 1], pixels[i * 3 + 2]};
+    }
+    stbi_image_free(pixels);
+    return true;
 }
 
 bool MaterialThumbnailRenderer::RenderMaterialSphere(
     const LumaMeshData& sphere, const MaterialThumbnailData& mat,
     std::vector<u8>& outPixels, u32 width, u32 height, f32 yawDeg,
-    f32 pitchDeg) {
+    f32 pitchDeg, f32 distance, Math::Vec3 target) {
     outPixels.resize(width * height * 4);
     std::vector<f32> depthBuffer(width * height, 1e9f);
 
-    // Studio dark circular gradient backdrop
-    f32 cx = static_cast<f32>(width) * 0.5f;
-    f32 cy = static_cast<f32>(height) * 0.5f;
-    f32 maxDist = std::sqrt(cx * cx + cy * cy);
+    const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
+    constexpr f32 kPi = 3.14159265358979323846f;
+    const f32 fovY = Math::Radians(55.0f);
+    const f32 tanHalfFov = std::tan(fovY * 0.5f);
+    const f32 yaw = Math::Radians(yawDeg);
+    const f32 pitch = Math::Radians(std::clamp(pitchDeg, -82.0f, 82.0f));
+    const f32 orbitDistance = std::clamp(distance, 1.2f, 12.0f);
+    const f32 cosPitch = std::cos(pitch);
 
-    for (u32 y = 0; y < height; ++y) {
-        for (u32 x = 0; x < width; ++x) {
-            f32 dx = static_cast<f32>(x) - cx;
-            f32 dy = static_cast<f32>(y) - cy;
-            f32 d = std::sqrt(dx * dx + dy * dy) / maxDist;
-            u8 r = static_cast<u8>(std::clamp(38.0f * (1.0f - d) + 20.0f * d, 0.0f, 255.0f));
-            u8 g = static_cast<u8>(std::clamp(42.0f * (1.0f - d) + 22.0f * d, 0.0f, 255.0f));
-            u8 b = static_cast<u8>(std::clamp(50.0f * (1.0f - d) + 26.0f * d, 0.0f, 255.0f));
-            u32 idx = (y * width + x) * 4;
-            outPixels[idx + 0] = r;
-            outPixels[idx + 1] = g;
-            outPixels[idx + 2] = b;
-            outPixels[idx + 3] = 255;
-        }
-    }
-
-    // Camera view setup
-    Math::Vec3 eye(0.0f, 0.35f, 2.6f);
-    Math::Vec3 center(0.0f, 0.0f, 0.0f);
+    Math::Vec3 eye{
+        target.x + orbitDistance * cosPitch * std::sin(yaw),
+        target.y + orbitDistance * std::sin(pitch),
+        target.z + orbitDistance * cosPitch * std::cos(yaw)};
     Math::Vec3 up(0.0f, 1.0f, 0.0f);
-
-    // Orbit the camera around the sphere (Material Editor preview viewport).
-    // Rotate the eye around the center by yaw (around Y) then pitch (around
-    // X), keeping the same viewing distance.
-    if (yawDeg != 0.0f || pitchDeg != 0.0f) {
-        f32 yaw = Math::Radians(yawDeg);
-        f32 pitch = Math::Radians(pitchDeg);
-        Math::Vec3 off = eye - center;
-        // Yaw around the world Y axis.
-        f32 cosY = std::cos(yaw), sinY = std::sin(yaw);
-        Math::Vec3 ey{off.x * cosY + off.z * sinY, off.y,
-                      -off.x * sinY + off.z * cosY};
-        // Pitch around the local X axis.
-        f32 cosP = std::cos(pitch), sinP = std::sin(pitch);
-        Math::Vec3 ep{ey.x, ey.y * cosP - ey.z * sinP,
-                      ey.y * sinP + ey.z * cosP};
-        eye = center + ep;
-    }
-
-    Math::Vec3 f = Math::Normalize(center - eye);
+    Math::Vec3 f = Math::Normalize(target - eye);
     Math::Vec3 s = Math::Normalize(Math::Cross(f, up));
     Math::Vec3 u = Math::Cross(s, f);
 
-    Math::Mat4 viewMatrix = Math::Mat4::Identity();
-    viewMatrix.m[0] = s.x; viewMatrix.m[4] = s.y; viewMatrix.m[8] = s.z;
-    viewMatrix.m[1] = u.x; viewMatrix.m[5] = u.y; viewMatrix.m[9] = u.z;
-    viewMatrix.m[2] = -f.x; viewMatrix.m[6] = -f.y; viewMatrix.m[10] = -f.z;
-    viewMatrix.m[12] = -Math::Dot(s, eye);
-    viewMatrix.m[13] = -Math::Dot(u, eye);
-    viewMatrix.m[14] = Math::Dot(f, eye);
+    auto toneMap = [](const Math::Vec3& hdr, f32 exposure) {
+        Math::Vec3 mapped{1.0f - std::exp(-hdr.x * exposure),
+                          1.0f - std::exp(-hdr.y * exposure),
+                          1.0f - std::exp(-hdr.z * exposure)};
+        mapped.x = std::pow(std::clamp(mapped.x, 0.0f, 1.0f), 1.0f / 2.2f);
+        mapped.y = std::pow(std::clamp(mapped.y, 0.0f, 1.0f), 1.0f / 2.2f);
+        mapped.z = std::pow(std::clamp(mapped.z, 0.0f, 1.0f), 1.0f / 2.2f);
+        return mapped;
+    };
 
-    f32 orthoSize = 2.3f;
-    f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
+    auto sampleEnvironment = [&](const Math::Vec3& direction) {
+        if (mat.environmentWidth > 0 && mat.environmentHeight > 0 &&
+            mat.environmentPixels.size() ==
+                static_cast<size_t>(mat.environmentWidth) * mat.environmentHeight) {
+            f32 envU = 0.5f + std::atan2(direction.z, direction.x) / (2.0f * kPi);
+            f32 envV = 0.5f - std::asin(std::clamp(direction.y, -1.0f, 1.0f)) / kPi;
+            envU -= std::floor(envU);
+            envV = std::clamp(envV, 0.0f, 1.0f);
+            u32 px = std::min(mat.environmentWidth - 1,
+                              static_cast<u32>(envU * mat.environmentWidth));
+            u32 py = std::min(mat.environmentHeight - 1,
+                              static_cast<u32>(envV * mat.environmentHeight));
+            return toneMap(mat.environmentPixels[
+                static_cast<size_t>(py) * mat.environmentWidth + px], 1.2f);
+        }
 
-    Math::Mat4 projMatrix = Math::Mat4::Identity();
-    projMatrix.m[0] = 2.0f / (orthoSize * aspect);
-    projMatrix.m[5] = 2.0f / orthoSize;
-    projMatrix.m[10] = -0.5f;
-    projMatrix.m[15] = 1.0f;
+        const f32 t = std::clamp(direction.y * 0.5f + 0.5f, 0.0f, 1.0f);
+        return Math::Vec3{0.08f + 0.12f * t, 0.09f + 0.13f * t,
+                          0.11f + 0.16f * t};
+    };
 
-    Math::Mat4 mvp = projMatrix * viewMatrix;
+    auto writePixel = [&](u32 x, u32 y, const Math::Vec3& color) {
+        const u32 idx = (y * width + x) * 4;
+        outPixels[idx + 0] = static_cast<u8>(std::clamp(color.x * 255.0f, 0.0f, 255.0f));
+        outPixels[idx + 1] = static_cast<u8>(std::clamp(color.y * 255.0f, 0.0f, 255.0f));
+        outPixels[idx + 2] = static_cast<u8>(std::clamp(color.z * 255.0f, 0.0f, 255.0f));
+        outPixels[idx + 3] = 255;
+    };
+
+    for (u32 y = 0; y < height; ++y) {
+        for (u32 x = 0; x < width; ++x) {
+            f32 nx = (static_cast<f32>(x) + 0.5f) /
+                         static_cast<f32>(width) * 2.0f - 1.0f;
+            f32 ny = 1.0f - (static_cast<f32>(y) + 0.5f) /
+                               static_cast<f32>(height) * 2.0f;
+            Math::Vec3 ray = Math::Normalize(
+                f + s * (nx * aspect * tanHalfFov) + u * (ny * tanHalfFov));
+            Math::Vec3 color = sampleEnvironment(ray);
+
+            if (ray.y < -0.0001f) {
+                const f32 planeY = -1.0f;
+                const f32 t = (planeY - eye.y) / ray.y;
+                if (t > 0.0f) {
+                    Math::Vec3 p = eye + ray * t;
+                    const f32 lineX = std::abs(p.x - std::round(p.x));
+                    const f32 lineZ = std::abs(p.z - std::round(p.z));
+                    const f32 majorX = std::abs(p.x * 0.1f - std::round(p.x * 0.1f));
+                    const f32 majorZ = std::abs(p.z * 0.1f - std::round(p.z * 0.1f));
+                    const bool major = majorX < 0.004f || majorZ < 0.004f;
+                    const bool minor = lineX < 0.012f || lineZ < 0.012f;
+                    const f32 checker =
+                        (static_cast<int>(std::floor(p.x)) +
+                         static_cast<int>(std::floor(p.z))) & 1 ? 0.11f : 0.13f;
+                    color = Math::Vec3{checker, checker + 0.01f, checker + 0.02f};
+                    if (minor) color = Math::Vec3{0.24f, 0.26f, 0.28f};
+                    if (major) color = Math::Vec3{0.35f, 0.37f, 0.40f};
+                    const f32 fade = std::clamp(1.0f - (t / 18.0f), 0.0f, 1.0f);
+                    Math::Vec3 env = sampleEnvironment(ray);
+                    color = color * fade + env * (1.0f - fade);
+                    depthBuffer[y * width + x] = t;
+                }
+            }
+            writePixel(x, y, color);
+        }
+    }
 
     struct ScreenVert {
         f32 x, y, z;
+        bool visible;
+        Math::Vec3 world;
         Math::Vec3 normal;
         Math::Vec2 uv;
     };
@@ -306,25 +361,17 @@ bool MaterialThumbnailRenderer::RenderMaterialSphere(
     std::vector<ScreenVert> screenVerts(sphere.vertices.size());
     for (size_t i = 0; i < sphere.vertices.size(); ++i) {
         const auto& v = sphere.vertices[i];
-        f32 x = v.position.x;
-        f32 y = v.position.y;
-        f32 z = v.position.z;
-        f32 w = 1.0f;
-
-        f32 tx = mvp.m[0] * x + mvp.m[4] * y + mvp.m[8] * z + mvp.m[12] * w;
-        f32 ty = mvp.m[1] * x + mvp.m[5] * y + mvp.m[9] * z + mvp.m[13] * w;
-        f32 tz = mvp.m[2] * x + mvp.m[6] * y + mvp.m[10] * z + mvp.m[14] * w;
-        f32 tw = mvp.m[3] * x + mvp.m[7] * y + mvp.m[11] * z + mvp.m[15] * w;
-
-        if (tw != 0.0f) {
-            tx /= tw;
-            ty /= tw;
-            tz /= tw;
-        }
-
-        screenVerts[i].x = (tx + 1.0f) * 0.5f * static_cast<f32>(width);
-        screenVerts[i].y = (1.0f - ty) * 0.5f * static_cast<f32>(height);
-        screenVerts[i].z = tz;
+        Math::Vec3 rel = v.position - eye;
+        const f32 camZ = Math::Dot(rel, f);
+        const f32 camX = Math::Dot(rel, s);
+        const f32 camY = Math::Dot(rel, u);
+        screenVerts[i].visible = camZ > 0.05f;
+        const f32 ndcX = camX / (camZ * tanHalfFov * aspect);
+        const f32 ndcY = camY / (camZ * tanHalfFov);
+        screenVerts[i].x = (ndcX + 1.0f) * 0.5f * static_cast<f32>(width);
+        screenVerts[i].y = (1.0f - ndcY) * 0.5f * static_cast<f32>(height);
+        screenVerts[i].z = camZ;
+        screenVerts[i].world = v.position;
         screenVerts[i].normal = v.normal;
         screenVerts[i].uv = v.texCoord;
     }
@@ -359,9 +406,11 @@ bool MaterialThumbnailRenderer::RenderMaterialSphere(
         const auto& v0 = screenVerts[i0];
         const auto& v1 = screenVerts[i1];
         const auto& v2 = screenVerts[i2];
+        if (!v0.visible || !v1.visible || !v2.visible) continue;
 
         f32 area = (v1.x - v0.x) * (v2.y - v0.y) - (v1.y - v0.y) * (v2.x - v0.x);
-        if (area <= 0.0001f) continue;
+        if (std::abs(area) <= 0.0001f) continue;
+        const f32 areaSign = area < 0.0f ? -1.0f : 1.0f;
         f32 invArea = 1.0f / area;
 
         i32 minX = std::max(0, static_cast<i32>(std::floor(std::min({v0.x, v1.x, v2.x}))));
@@ -378,7 +427,8 @@ bool MaterialThumbnailRenderer::RenderMaterialSphere(
                 f32 w1 = ((v2.x - fx) * (v0.y - fy) - (v2.y - fy) * (v0.x - fx)) * invArea;
                 f32 w2 = 1.0f - w0 - w1;
 
-                if (w0 >= 0.0f && w1 >= 0.0f && w2 >= 0.0f) {
+                if (w0 * areaSign >= 0.0f && w1 * areaSign >= 0.0f &&
+                    w2 * areaSign >= 0.0f) {
                     f32 z = w0 * v0.z + w1 * v1.z + w2 * v2.z;
                     u32 pidx = py * width + px;
                     if (z < depthBuffer[pidx]) {
@@ -386,6 +436,7 @@ bool MaterialThumbnailRenderer::RenderMaterialSphere(
 
                         Math::Vec3 norm = Math::Normalize(v0.normal * w0 + v1.normal * w1 + v2.normal * w2);
                         Math::Vec2 uv = v0.uv * w0 + v1.uv * w1 + v2.uv * w2;
+                        Math::Vec3 world = v0.world * w0 + v1.world * w1 + v2.world * w2;
                         Math::Vec3 albedo = sampleTexture(uv.x, uv.y);
 
                         // Diffuse lighting
@@ -394,7 +445,7 @@ bool MaterialThumbnailRenderer::RenderMaterialSphere(
                         f32 ambient = 0.25f;
 
                         // Specular highlight based on roughness
-                        Math::Vec3 viewDir = Math::Normalize(eye - center);
+                        Math::Vec3 viewDir = Math::Normalize(eye - world);
                         Math::Vec3 halfDir = Math::Normalize(lightDir1 + viewDir);
                         f32 specPower = std::max(2.0f, (1.0f - mat.roughness) * 128.0f);
                         f32 spec = std::pow(std::max(0.0f, Math::Dot(norm, halfDir)), specPower) * (1.0f - mat.roughness);
@@ -412,10 +463,7 @@ bool MaterialThumbnailRenderer::RenderMaterialSphere(
                             albedo * diffuseIntensity * (1.0f - mat.metallic * 0.9f) +
                             specColor + mat.emissive;
 
-                        outPixels[pidx * 4 + 0] = static_cast<u8>(std::clamp(finalColor.x * 255.0f, 0.0f, 255.0f));
-                        outPixels[pidx * 4 + 1] = static_cast<u8>(std::clamp(finalColor.y * 255.0f, 0.0f, 255.0f));
-                        outPixels[pidx * 4 + 2] = static_cast<u8>(std::clamp(finalColor.z * 255.0f, 0.0f, 255.0f));
-                        outPixels[pidx * 4 + 3] = 255;
+                        writePixel(px, py, finalColor);
                     }
                 }
             }

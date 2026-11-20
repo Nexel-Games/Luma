@@ -42,7 +42,8 @@ layout(set = 0, binding = 4) uniform LightingUBO {
     vec4  sunDir;       // xyz = direction TO sun
     vec4  sunColor;     // rgb, w = intensity
     vec4  ambientColor; // rgb, w = intensity
-    vec4  params;       // x = lightCount, y = sunShadows, z = 1/shadowSize
+    vec4  params;       // x = lightCount, y = sunShadows, z = 1/shadowSize,
+                         // w = material environment enabled
     vec4  shadowParams; // x = softness, y = cascadeCount, z = shadowBias
     vec4  cascadeSplits;
     mat4  cascadeViewProj[MAX_CASCADES];
@@ -51,6 +52,7 @@ layout(set = 0, binding = 4) uniform LightingUBO {
 } u;
 
 layout(set = 0, binding = 5) uniform sampler2DArray shadowMap;
+layout(set = 0, binding = 6) uniform sampler2D environmentMap;
 
 // Poisson disk for the PCSS blocker search + filtering.
 const vec2 POISSON[16] = vec2[](
@@ -92,6 +94,18 @@ vec3 ReconstructWorldPos(vec2 uv, float depth) {
     vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec4 world = u.invViewProj * clip;
     return world.xyz / world.w;
+}
+
+vec3 SampleEnvironment(vec3 direction) {
+    const float PI = 3.14159265359;
+    const float ENVIRONMENT_EXPOSURE = 1.6;
+    direction = normalize(direction);
+    float uCoord = 0.5 + atan(direction.z, direction.x) / (2.0 * PI);
+    float vCoord = 0.5 - asin(clamp(direction.y, -1.0, 1.0)) / PI;
+    vec3 radiance = texture(
+        environmentMap, vec2(fract(uCoord), clamp(vCoord, 0.0, 1.0))).rgb;
+    return max(radiance * ENVIRONMENT_EXPOSURE,
+               vec3(0.018, 0.022, 0.028));
 }
 
 // Percentage-closer soft shadows in one cascade layer (matches scene.frag).
@@ -164,11 +178,17 @@ void main() {
     float metallic  = matData.r;
     float ao        = matData.b;
 
-    // Background pixels (depth == far plane): render the procedural sky instead
-    // of a flat color. When the sky is disabled (skyIntensity == 0) fall back to
-    // the flat editor background.
+    // The material renderer uses the HDR environment. The main editor renderer
+    // keeps its procedural atmosphere background.
     if (depth >= 0.9999) {
-        if (u.atmo.ozoneSky.y > 0.0) {
+        if (u.params.w > 0.5) {
+            vec3 worldPos = ReconstructWorldPos(vUV, depth);
+            vec3 viewDirection = normalize(worldPos - u.camPos.xyz);
+            vec3 environment = SampleEnvironment(viewDirection);
+            environment = environment / (environment + vec3(1.0));
+            environment = pow(environment, vec3(1.0 / 2.2));
+            outColor = vec4(environment, 1.0);
+        } else if (u.atmo.ozoneSky.y > 0.0) {
             vec3 worldPos = ReconstructWorldPos(vUV, depth);
             outColor = vec4(RenderSkyColor(worldPos, u.camPos.xyz, u.atmo), 1.0);
         } else {
@@ -249,8 +269,22 @@ void main() {
                            lNdotL * attenuation;
     }
 
-    // ---- Ambient ----
-    vec3 ambient = u.ambientColor.rgb * u.ambientColor.w * albedo * ao;
+    // ---- Ambient / material environment ------------------------------------
+    vec3 ambient;
+    if (u.params.w > 0.5) {
+        // The HDR is equirectangular rather than a prefiltered cubemap. Blend
+        // the reflection back toward diffuse irradiance as roughness rises to
+        // keep the preview stable while retaining useful material highlights.
+        vec3 Fenv = FresnelSchlick(NdotV, F0);
+        vec3 diffuseEnv = SampleEnvironment(N) * albedo * (1.0 - metallic);
+        vec3 reflectedEnv = SampleEnvironment(reflect(-V, N));
+        float environmentRoughness = max(roughness, 0.08);
+        vec3 specularEnv = mix(reflectedEnv, SampleEnvironment(N),
+                                environmentRoughness) * Fenv;
+        ambient = (diffuseEnv + specularEnv) * u.ambientColor.w * ao;
+    } else {
+        ambient = u.ambientColor.rgb * u.ambientColor.w * albedo * ao;
+    }
 
     // ---- Compose ----
     vec3 color = sunContrib + punctualContrib + ambient;
