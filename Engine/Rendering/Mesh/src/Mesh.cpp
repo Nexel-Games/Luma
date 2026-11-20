@@ -2,10 +2,21 @@
 
 #include <cmath>
 
+#include "Luma/Mesh/Tangents.h"
+
 namespace Luma {
 namespace {
 
+using Math::Vec2;
 using Math::Vec3;
+
+MeshVertex V(const Vec3& p, const Vec3& n, f32 u, f32 v) {
+    MeshVertex out;
+    out.position = p;
+    out.normal = n;
+    out.uv0 = Vec2(u, v);
+    return out;
+}
 
 // Cube: 24 vertices (4 per face) so each face gets a flat outward normal.
 MeshData BuildCube() {
@@ -28,7 +39,8 @@ MeshData BuildCube() {
             f32 su = (i == 1 || i == 2) ? 0.5f : -0.5f;
             f32 sv = (i >= 2) ? 0.5f : -0.5f;
             Vec3 p = f.normal * 0.5f + f.u * su + f.v * sv;
-            m.vertices.push_back({p, f.normal});
+            // f.u = image right, f.v = image up (UV origin top-left).
+            m.vertices.push_back(V(p, f.normal, su + 0.5f, 0.5f - sv));
         }
         m.indices.insert(m.indices.end(),
                          {base, base + 1, base + 2, base + 2, base + 3, base});
@@ -40,10 +52,11 @@ MeshData BuildCube() {
 MeshData BuildPlane() {
     MeshData m;
     Vec3 n{0, 1, 0};
-    m.vertices = {{{-0.5f, 0, -0.5f}, n},
-                  {{0.5f, 0, -0.5f}, n},
-                  {{0.5f, 0, 0.5f}, n},
-                  {{-0.5f, 0, 0.5f}, n}};
+    // Seen from above (+X right, -Z up): u = x + 0.5, v = z + 0.5.
+    m.vertices = {V({-0.5f, 0, -0.5f}, n, 0.0f, 0.0f),
+                  V({0.5f, 0, -0.5f}, n, 1.0f, 0.0f),
+                  V({0.5f, 0, 0.5f}, n, 1.0f, 1.0f),
+                  V({-0.5f, 0, 0.5f}, n, 0.0f, 1.0f)};
     // CCW when viewed from +Y so the lit face points up (matches the +Y normal).
     m.indices = {0, 2, 1, 0, 3, 2};
     return m;
@@ -60,7 +73,12 @@ MeshData BuildSphere() {
             f32 theta = 2.0f * pi * static_cast<f32>(s) / sectors;
             Vec3 nrm{std::sin(phi) * std::cos(theta), std::cos(phi),
                      std::sin(phi) * std::sin(theta)};
-            m.vertices.push_back({nrm * 0.5f, nrm});
+            // u runs against theta so the texture reads unmirrored from
+            // outside; v = 0 at the north pole. Column s == sectors duplicates
+            // s == 0 (the UV seam).
+            m.vertices.push_back(V(nrm * 0.5f, nrm,
+                                   1.0f - static_cast<f32>(s) / sectors,
+                                   static_cast<f32>(r) / rings));
         }
     }
     int stride = sectors + 1;
@@ -85,8 +103,9 @@ MeshData BuildCylinder() {
     for (int s = 0; s <= sectors; ++s) {
         f32 theta = 2.0f * pi * static_cast<f32>(s) / sectors;
         Vec3 nrm{std::cos(theta), 0.0f, std::sin(theta)};
-        m.vertices.push_back({{nrm.x * 0.5f, h, nrm.z * 0.5f}, nrm});
-        m.vertices.push_back({{nrm.x * 0.5f, -h, nrm.z * 0.5f}, nrm});
+        const f32 u = 1.0f - static_cast<f32>(s) / sectors;
+        m.vertices.push_back(V({nrm.x * 0.5f, h, nrm.z * 0.5f}, nrm, u, 0.0f));
+        m.vertices.push_back(V({nrm.x * 0.5f, -h, nrm.z * 0.5f}, nrm, u, 1.0f));
     }
     for (int s = 0; s < sectors; ++s) {
         u32 a = static_cast<u32>(s * 2);
@@ -96,12 +115,19 @@ MeshData BuildCylinder() {
     // Caps (flat normals).
     auto cap = [&](f32 y, Vec3 nrm, bool flip) {
         u32 center = static_cast<u32>(m.vertices.size());
-        m.vertices.push_back({{0, y, 0}, nrm});
+        // Planar cap UVs; the bottom cap mirrors v so it reads unmirrored
+        // from below.
+        auto capUV = [flip](f32 x, f32 z) {
+            return Vec2(x + 0.5f, flip ? 0.5f - z : z + 0.5f);
+        };
+        const Vec2 c = capUV(0.0f, 0.0f);
+        m.vertices.push_back(V({0, y, 0}, nrm, c.x, c.y));
         u32 first = static_cast<u32>(m.vertices.size());
         for (int s = 0; s <= sectors; ++s) {
             f32 theta = 2.0f * pi * static_cast<f32>(s) / sectors;
-            m.vertices.push_back(
-                {{std::cos(theta) * 0.5f, y, std::sin(theta) * 0.5f}, nrm});
+            const f32 x = std::cos(theta) * 0.5f, z = std::sin(theta) * 0.5f;
+            const Vec2 uv = capUV(x, z);
+            m.vertices.push_back(V({x, y, z}, nrm, uv.x, uv.y));
         }
         for (int s = 0; s < sectors; ++s) {
             u32 a = first + static_cast<u32>(s);
@@ -119,13 +145,17 @@ MeshData BuildCylinder() {
 }  // namespace
 
 MeshData BuildPrimitive(MeshPrimitive primitive) {
+    MeshData m;
     switch (primitive) {
-        case MeshPrimitive::Plane: return BuildPlane();
-        case MeshPrimitive::Sphere: return BuildSphere();
-        case MeshPrimitive::Cylinder: return BuildCylinder();
+        case MeshPrimitive::Plane: m = BuildPlane(); break;
+        case MeshPrimitive::Sphere: m = BuildSphere(); break;
+        case MeshPrimitive::Cylinder: m = BuildCylinder(); break;
         case MeshPrimitive::Cube:
-        default: return BuildCube();
+        default: m = BuildCube(); break;
     }
+    m.sections = {{0, static_cast<u32>(m.indices.size()), {}}};
+    ComputeTangents(m);
+    return m;
 }
 
 }  // namespace Luma
