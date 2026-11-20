@@ -157,6 +157,14 @@ MeshHandle VulkanDeferredRenderer::PrimitiveMesh(MeshPrimitive primitive) const 
     return i < kPrimitiveCount ? m_primitiveMeshes[i] : m_primitiveMeshes[0];
 }
 
+MaterialHandle VulkanDeferredRenderer::SectionMaterial(const SceneInstance& instance,
+                                                       u32 section) {
+    // Section s uses slot s; sections past the slot array reuse the last slot;
+    // sections past the instance's count use the Default Material.
+    if (section >= std::max(instance.sectionCount, 1u)) return kDefaultMaterialHandle;
+    return instance.sectionMaterials[std::min(section, kMaxSectionMaterials - 1)];
+}
+
 const GpuMesh* VulkanDeferredRenderer::ResolveMesh(const SceneInstance& instance) const {
     if (instance.mesh != kInvalidHandle) {
         if (const GpuMesh* mesh = m_meshes->Get(instance.mesh)) return mesh;
@@ -285,10 +293,11 @@ void VulkanDeferredRenderer::Cleanup() {
     DestroyBuffer(m_device, m_lightingUBO);
     DestroyShadowResources();
 
-    if (m_shadowPipeline)
-        vkDestroyPipeline(m_device, m_shadowPipeline, nullptr);
+    for (VkPipeline& pipeline : m_shadowPipelines) {
+        if (pipeline) vkDestroyPipeline(m_device, pipeline, nullptr);
+        pipeline = VK_NULL_HANDLE;
+    }
     if (m_shadowLayout) vkDestroyPipelineLayout(m_device, m_shadowLayout, nullptr);
-    m_shadowPipeline = VK_NULL_HANDLE;
     m_shadowLayout = VK_NULL_HANDLE;
 
     if (m_lightingPipeline)
@@ -1256,10 +1265,15 @@ void VulkanDeferredRenderer::DestroyShadowResources() {
 }
 
 bool VulkanDeferredRenderer::CreateShadowPipeline(const std::string& shaderDir) {
-    // Depth-only pipeline that renders scene instances from the sun into one
+    // Depth-only pipelines that render scene sections from the sun into one
     // cascade layer at a time (dynamic rendering, no color attachments).
-    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Math::Mat4)};
+    // Set 0 = bindless material textures, 1 = material table (Masked clip).
+    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                             sizeof(ShadowPush)};
+    const VkDescriptorSetLayout sets[2] = {m_textures->Layout(), m_materials->Layout()};
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 2;
+    layoutInfo.pSetLayouts = sets;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &push;
     if (vkCreatePipelineLayout(m_device, &layoutInfo, nullptr, &m_shadowLayout) != VK_SUCCESS) {
@@ -1279,20 +1293,24 @@ bool VulkanDeferredRenderer::CreateShadowPipeline(const std::string& shaderDir) 
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, sv, "main", nullptr};
     stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, sf, "main", nullptr};
 
-    // Same vertex buffers as the G-Buffer pass; only position is consumed.
+    // Same vertex buffers as the G-Buffer pass; position + uv0 are consumed.
     VkVertexInputBindingDescription binding{0, sizeof(MeshVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attr{0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)};
+    VkVertexInputAttributeDescription attrs[2] = {
+        {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)},
+        {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshVertex, uv0)}};
     VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vin.vertexBindingDescriptionCount = 1; vin.pVertexBindingDescriptions = &binding;
-    vin.vertexAttributeDescriptionCount = 1; vin.pVertexAttributeDescriptions = &attr;
+    vin.vertexAttributeDescriptionCount = 2; vin.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     vp.viewportCount = 1; vp.scissorCount = 1;
 
-    // No culling (thin/open meshes like planes must still cast) plus
-    // slope-scaled raster bias to keep acne off lit surfaces.
+    // No culling for any material: open/one-sided meshes still cast, and a
+    // closed mesh's faces touching a receiver (a cube's base on the floor)
+    // keep occluding it (back-face culling leaks light along contact edges).
+    // Slope-scaled raster bias keeps acne off lit surfaces.
     VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE;
     rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; rs.lineWidth = 1.0f;
@@ -1321,8 +1339,18 @@ bool VulkanDeferredRenderer::CreateShadowPipeline(const std::string& shaderDir) 
     info.pMultisampleState = &ms; info.pDepthStencilState = &ds;
     info.pColorBlendState = &cb; info.pDynamicState = &dynamic;
     info.layout = m_shadowLayout;
-    const bool ok = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &info, nullptr,
-                                              &m_shadowPipeline) == VK_SUCCESS;
+    bool ok = true;
+    for (u32 masked = 0; masked < 2 && ok; ++masked) {
+        const VkBool32 maskedValue = masked ? VK_TRUE : VK_FALSE;
+        VkSpecializationMapEntry entry{0, 0, sizeof(VkBool32)};
+        VkSpecializationInfo spec{1, &entry, sizeof(VkBool32), &maskedValue};
+        VkPipelineShaderStageCreateInfo permutationStages[2] = {stages[0], stages[1]};
+        permutationStages[1].pSpecializationInfo = &spec;
+        VkGraphicsPipelineCreateInfo permutation = info;
+        permutation.pStages = permutationStages;
+        ok = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &permutation, nullptr,
+                                       &m_shadowPipelines[masked]) == VK_SUCCESS;
+    }
     vkDestroyShaderModule(m_device, sv, nullptr);
     vkDestroyShaderModule(m_device, sf, nullptr);
     if (!ok) LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to create shadow pipeline");
@@ -1369,21 +1397,38 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
         rendering.pDepthAttachment = &depth;
         vkCmdBeginRendering(m_commandBuffer, &rendering);
 
-        if (enabled && c < cascades.count && m_shadowPipeline) {
+        if (enabled && c < cascades.count && m_shadowPipelines[0]) {
             vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
             vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
-            vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
+            const VkDescriptorSet sets[2] = {m_textures->Set(), m_materials->Set(m_frameSlot)};
+            vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowLayout,
+                                    0, 2, sets, 0, nullptr);
+            VkPipeline bound = VK_NULL_HANDLE;
             VkDeviceSize offset = 0;
             for (u32 i = 0; i < source.instanceCount; ++i) {
                 const SceneInstance& inst = source.instances[i];
                 const GpuMesh* mesh = ResolveMesh(inst);
                 if (!mesh) continue;
-                const Math::Mat4 mvp = cascades.viewProj[c] * inst.model;
-                vkCmdPushConstants(m_commandBuffer, m_shadowLayout, VK_SHADER_STAGE_VERTEX_BIT,
-                                   0, sizeof(Math::Mat4), &mvp);
+                ShadowPush push{};
+                push.mvp = cascades.viewProj[c] * inst.model;
                 vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
                 vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-                vkCmdDrawIndexed(m_commandBuffer, mesh->indexCount, 1, 0, 0, 0);
+                for (u32 s = 0; s < mesh->sections.size(); ++s) {
+                    const MeshSection& section = mesh->sections[s];
+                    const MaterialHandle handle = SectionMaterial(inst, s);
+                    const GpuMaterial& material = m_materials->Entry(handle);
+                    VkPipeline pipeline =
+                        m_shadowPipelines[material.blendMode == static_cast<u32>(GpuBlendMode::Masked)];
+                    if (pipeline != bound) {
+                        vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                        bound = pipeline;
+                    }
+                    push.materialIndex = m_materials->Index(handle);
+                    vkCmdPushConstants(m_commandBuffer, m_shadowLayout,
+                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                       sizeof(push), &push);
+                    vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
+                }
             }
         }
         vkCmdEndRendering(m_commandBuffer);
@@ -1564,12 +1609,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
         for (u32 s = 0; s < mesh->sections.size(); ++s) {
             const MeshSection& section = mesh->sections[s];
-            // Section s uses slot s; sections past the slot array reuse the
-            // last slot; slots past the instance's count use the Default.
-            const MaterialHandle handle =
-                s < std::max(inst.sectionCount, 1u)
-                    ? inst.sectionMaterials[std::min(s, kMaxSectionMaterials - 1)]
-                    : kDefaultMaterialHandle;
+            const MaterialHandle handle = SectionMaterial(inst, s);
             const GpuMaterial& material = m_materials->Entry(handle);
             VkPipeline pipeline =
                 m_gbufferPipelines[material.blendMode == static_cast<u32>(GpuBlendMode::Masked)]

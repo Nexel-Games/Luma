@@ -186,6 +186,8 @@ private:
     bool CreatePipelines(const std::string& shaderDir);
     // The instance's uploaded mesh, else its built-in primitive shape.
     const GpuMesh* ResolveMesh(const SceneInstance& instance) const;
+    // The material a mesh section draws with (shared by every pass).
+    static MaterialHandle SectionMaterial(const SceneInstance& instance, u32 section);
 
     // Cascaded shadow maps (sun / directional light)
     bool CreateShadowResources();
@@ -231,7 +233,15 @@ private:
     VkPipelineLayout m_lightingLayout = VK_NULL_HANDLE;
     VkPipeline m_lightingPipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_shadowLayout = VK_NULL_HANDLE;
-    VkPipeline m_shadowPipeline = VK_NULL_HANDLE;
+    // Shadow caster permutations: [masked]. Casters never cull (open and
+    // one-sided meshes still cast; culling leaks light at contact edges).
+    VkPipeline m_shadowPipelines[2] = {};
+    // Per-draw shadow push constants (matches `Push` in shadow.vert/.frag).
+    struct ShadowPush {
+        Math::Mat4 mvp;
+        u32 materialIndex;
+        u32 pad[3];
+    };
 
     // Descriptor resources
     VkDescriptorSetLayout m_gbufferSetLayout = VK_NULL_HANDLE;
