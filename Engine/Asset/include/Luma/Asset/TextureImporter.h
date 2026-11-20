@@ -71,9 +71,6 @@ private:
     // Resize texture
     bool ResizeTexture(TextureData& texture, i32 newWidth, i32 newHeight);
     
-    // Convert color space
-    bool ConvertToSRGB(TextureData& texture);
-    
     // Flip texture vertically
     bool FlipTexture(TextureData& texture);
     

@@ -116,12 +116,8 @@ bool TextureImporter::ProcessTexture(TextureData& texture, const TextureImportSe
         }
     }
     
-    // Convert to sRGB if requested
-    if (settings.sRGB) {
-        if (!ConvertToSRGB(texture)) {
-            return false;
-        }
-    }
+    // settings.sRGB is a color-space flag stored in the .ltex format (sampled
+    // through an sRGB image view); texels are kept exactly as authored.
     
     // Generate mipmaps if requested
     if (settings.generateMipmaps) {
@@ -168,28 +164,6 @@ bool TextureImporter::ResizeTexture(TextureData& texture, i32 newWidth, i32 newH
     texture.height = newHeight;
     
     LUMA_LOG_INFO("TextureImporter", "Resized texture to {}x{}", newWidth, newHeight);
-    return true;
-}
-
-bool TextureImporter::ConvertToSRGB(TextureData& texture) {
-    // Simple linear to sRGB conversion
-    auto linearToSRGB = [](f32 linear) -> f32 {
-        if (linear <= 0.0031308f) {
-            return linear * 12.92f;
-        }
-        return 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
-    };
-    
-    for (size_t i = 0; i < texture.pixels.size(); ++i) {
-        // Only convert RGB channels, not alpha
-        i32 channel = i % texture.channels;
-        if (channel < 3) { // RGB channels
-            f32 linear = texture.pixels[i] / 255.0f;
-            f32 srgb = linearToSRGB(linear);
-            texture.pixels[i] = static_cast<u8>(std::clamp(srgb * 255.0f, 0.0f, 255.0f));
-        }
-    }
-    
     return true;
 }
 

@@ -32,6 +32,7 @@ add_executable(LumaTests
     Asset/AssetRegistryTests.cpp
     Asset/MaterialThumbnailTests.cpp
     Asset/AssetPathTests.cpp
+    Asset/TextureColorSpaceTests.cpp
     Material/MaterialModelTests.cpp
     Material/MaterialSerializerTests.cpp
     Material/MaterialLibraryTests.cpp

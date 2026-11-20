@@ -27,6 +27,7 @@ add_library(LumaAsset STATIC
     src/MeshImporter.cpp
     src/Factory.cpp
     src/TextureImporter.cpp
+    src/TextureColorSpace.cpp
     src/ImportDialog.cpp
     src/BatchImportManager.cpp
     src/AssetDependencyManager.cpp
