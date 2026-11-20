@@ -9,6 +9,7 @@
 
 #include "Luma/Platform/Cursor.h"
 #include "Luma/RHI/Renderer.h"
+#include "Luma/Slate/DragDrop.h"
 #include "Luma/Slate/DrawList.h"
 #include "Luma/Slate/Font.h"
 #include "Luma/Slate/IconKind.h"
@@ -188,6 +189,16 @@ public:
     ModalResult ModalButtonRow(u64 id, const Rect& content,
                                std::string_view okLabel = "OK",
                                std::string_view cancelLabel = "Cancel");
+    // --- Drag and drop (see DragDrop.h) -------------------------------------
+    // Source: call every frame the source is drawn. The drag starts once the
+    // left button, pressed inside `source`, moves 6 px. True while dragging.
+    bool BeginDrag(u64 sourceId, const Rect& source, const DragPayload& payload);
+    bool IsDragging(std::string_view type) const { return m_drag.IsDragging(type); }
+    bool IsDraggingAnything() const { return m_drag.Active(); }
+    // Target: highlights `target` while a `type` payload hovers it; returns the
+    // payload on release inside it (once per drop), else nullptr.
+    const DragPayload* AcceptDrop(const Rect& target, std::string_view type);
+
     // Progress bar (determinate). Optional centered text label.
     void ProgressBar(const Rect& rect, f32 fraction, std::string_view text = {});
 
@@ -406,6 +417,8 @@ private:
     f32 m_tipStart = 0.0f;
     bool m_tipSuppressed = false;  // a click on the control hides its tip
     void DrawTooltip();
+    void DrawDragGhost();
+    DragDropState m_drag;
     // Popup menu stack + the input it hides from widgets while open.
     MenuHost m_menus;
     bool m_inputBlocked = false;

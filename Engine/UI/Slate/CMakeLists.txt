@@ -8,6 +8,7 @@ add_library(LumaSlate STATIC
     src/Theme.cpp
     src/Icons.cpp
     src/Context.cpp
+    src/DragDrop.cpp
     src/Menu.cpp
     src/DockSpace.cpp
     src/ColorPicker.cpp

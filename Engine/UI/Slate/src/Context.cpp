@@ -147,6 +147,8 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     m_prevMouse = m_mouse;
     m_draw.Begin(displayWidth, displayHeight);
     ++m_frame;
+    m_drag.BeginFrame(m_mouse, m_mousePressed[0], m_mouseDown[0], m_mouseReleased[0],
+                      m_keyEscape);
     // An open menu owns input for the whole frame: panels draw normally but
     // see no pointer / keys, so clicks on (or outside) the menu never reach
     // the widgets underneath. EndFrame restores the real input for the menu.
@@ -313,6 +315,8 @@ const UIDrawData& Context::EndFrame() {
     // Tooltips draw last (above panels and menus). While a menu is open the
     // widgets are input-blocked, so no candidate exists and none shows.
     DrawTooltip();
+    DrawDragGhost();
+    m_drag.EndFrame();
     // Clear per-frame input accumulators.
     for (int i = 0; i < 3; ++i) {
         m_mousePressed[i] = false;
@@ -334,6 +338,46 @@ const UIDrawData& Context::EndFrame() {
         }
     }
     return m_draw.Build();
+}
+
+bool Context::BeginDrag(u64 sourceId, const Rect& source, const DragPayload& payload) {
+    if (m_menus.IsOpen()) return false;
+    const bool dragging = m_drag.Offer(sourceId, source, payload);
+    if (dragging) m_requestedCursor = CursorShape::Arrow;
+    return dragging;
+}
+
+const DragPayload* Context::AcceptDrop(const Rect& target, std::string_view type) {
+    bool hovered = false;
+    const DragPayload* payload = m_drag.Accept(target, type, hovered);
+    if (hovered) {
+        // Unreal-style drop highlight: accent outline on the hovered target.
+        m_draw.AddRectOutline(target, m_theme.accent, 2.0f);
+    }
+    return payload;
+}
+
+void Context::DrawDragGhost() {
+    if (!m_drag.Active()) return;
+    const DragPayload& p = m_drag.Payload();
+    const Vec2 mouse = m_drag.Mouse();
+    const f32 iconSize = p.icon ? 32.0f : 0.0f;
+    const f32 pad = m_theme.space.sm;
+    const f32 textW = m_uiFont.Measure(p.label).x;
+    const f32 h = std::max(iconSize, m_uiFont.LineHeight()) + pad * 2.0f;
+    const Rect ghost{mouse.x + 14.0f, mouse.y + 14.0f,
+                     textW + iconSize + pad * (p.icon ? 3.0f : 2.0f), h};
+    m_draw.AddRectShadow(ghost, m_theme.radius.md, 0.45f, 10.0f);
+    m_draw.AddRectFilledRounded(ghost, m_theme.surface2, m_theme.radius.md);
+    m_draw.AddRectOutline(ghost, m_theme.accent, m_theme.border.hairline);
+    f32 x = ghost.x + pad;
+    if (p.icon) {
+        m_draw.AddImage(p.icon, {x, ghost.y + pad, iconSize, iconSize}, {0, 0, 1, 1},
+                        Color::RGBA(255, 255, 255, 255));
+        x += iconSize + pad;
+    }
+    m_draw.AddText(m_uiFont, {x, ghost.y + (h - m_uiFont.LineHeight()) * 0.5f}, p.label,
+                   m_theme.text);
 }
 
 f32 Context::Animate(u64 id, bool active, f32 speed) {
