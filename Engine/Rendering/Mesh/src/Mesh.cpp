@@ -87,7 +87,7 @@ MeshData BuildSphere() {
             u32 a = static_cast<u32>(r * stride + s);
             u32 b = static_cast<u32>((r + 1) * stride + s);
             m.indices.insert(m.indices.end(),
-                             {a, b, a + 1, a + 1, b, b + 1});
+                             {a, a + 1, b, a + 1, b + 1, b});  // CCW from outside
         }
     }
     return m;
@@ -110,7 +110,7 @@ MeshData BuildCylinder() {
     for (int s = 0; s < sectors; ++s) {
         u32 a = static_cast<u32>(s * 2);
         m.indices.insert(m.indices.end(),
-                         {a, a + 1, a + 2, a + 2, a + 1, a + 3});
+                         {a, a + 2, a + 1, a + 2, a + 3, a + 1});  // CCW from outside
     }
     // Caps (flat normals).
     auto cap = [&](f32 y, Vec3 nrm, bool flip) {
@@ -131,10 +131,11 @@ MeshData BuildCylinder() {
         }
         for (int s = 0; s < sectors; ++s) {
             u32 a = first + static_cast<u32>(s);
+            // CCW seen from outside (from above for the top cap).
             if (flip)
-                m.indices.insert(m.indices.end(), {center, a + 1, a});
-            else
                 m.indices.insert(m.indices.end(), {center, a, a + 1});
+            else
+                m.indices.insert(m.indices.end(), {center, a + 1, a});
         }
     };
     cap(h, {0, 1, 0}, false);

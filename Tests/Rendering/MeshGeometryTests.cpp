@@ -183,3 +183,27 @@ TEST_CASE("Primitive tangent frames match OpenGL normal maps", "[mesh]") {
         CHECK(checked > 0);
     }
 }
+
+// Front faces are counter-clockwise seen from outside (the G-buffer pipeline
+// culls back faces with VK_FRONT_FACE_COUNTER_CLOCKWISE): every triangle's
+// geometric normal points the same way as its vertex normals.
+TEST_CASE("Primitive triangles wind counter-clockwise from outside", "[mesh]") {
+    for (MeshPrimitive p : {MeshPrimitive::Cube, MeshPrimitive::Plane, MeshPrimitive::Sphere,
+                            MeshPrimitive::Cylinder}) {
+        const MeshData m = BuildPrimitive(p);
+        int wrong = 0, checked = 0;
+        for (Luma::usize i = 0; i + 2 < m.indices.size(); i += 3) {
+            const MeshVertex& v0 = m.vertices[m.indices[i]];
+            const MeshVertex& v1 = m.vertices[m.indices[i + 1]];
+            const MeshVertex& v2 = m.vertices[m.indices[i + 2]];
+            const Vec3 face = Math::Cross(v1.position - v0.position, v2.position - v0.position);
+            if (Len(face) < 1e-9f) continue;  // degenerate (pole) triangle
+            const Vec3 n = v0.normal + v1.normal + v2.normal;
+            ++checked;
+            if (Math::Dot(face, n) <= 0.0f) ++wrong;
+        }
+        INFO("primitive " << static_cast<int>(p));
+        CHECK(checked > 0);
+        CHECK(wrong == 0);
+    }
+}
