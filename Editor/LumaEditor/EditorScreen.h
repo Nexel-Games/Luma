@@ -187,6 +187,7 @@ private:
     // re-upload. Watches are refreshed when the asset registry changes.
     void PollAssetChanges(f32 deltaSeconds);
     void RefreshAssetWatches();
+    void RefreshMaterialThumbnails();
     void OnAssetFileChanged(const std::filesystem::path& file);
     void DrawClosePrompt(Slate::Context& ui);
 

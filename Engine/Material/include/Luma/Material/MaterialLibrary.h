@@ -62,8 +62,8 @@ public:
     // Re-reads the asset from disk (external change). Skipped, with a warning,
     // when the asset has unsaved edits.
     void Reload(std::string_view path);
-    // Discards unsaved edits: re-reads the asset from disk, or forgets it if
-    // it was never saved.
+    // Discards unsaved edits: re-reads the asset from disk; an asset that was
+    // never saved returns to the state CreateInMemoryInstance made it in.
     void Revert(std::string_view path);
     // Re-validates textures (a texture file was added/removed/changed).
     void InvalidateTextures();
@@ -98,7 +98,8 @@ private:
     AssetPathResolver& m_paths;
     std::unordered_map<std::string, Entry> m_entries;
     std::unordered_map<std::string, CachedResolve> m_resolved;
-    std::set<std::string> m_missing;  // paths known not to exist (until reload)
+    std::set<std::string> m_missing;
+    std::unordered_map<std::string, MaterialInstance> m_created;  // never-saved originals  // paths known not to exist (until reload)
     std::set<std::string> m_warned;
     u64 m_nextVersion = 1;
     u64 m_textureEpoch = 0;

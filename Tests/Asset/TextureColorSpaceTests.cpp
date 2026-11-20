@@ -24,6 +24,11 @@ TEST_CASE("Texture color space is inferred from token-delimited names", "[textur
         {"wall_AO.tga", false},
         {"leaf_opacity.png", false},
         {"T_Brick_BaseColor.png", true},
+        // A color token wins over data words that are part of the asset name.
+        {"rusty_metal_02_diff_4k.png", true},
+        {"rough_plaster_diff.png", true},
+        {"metal_plate_albedo.jpg", true},
+        {"rough_plaster_rough.png", false},
     };
     for (const Row& r : rows) {
         INFO(r.name);

@@ -134,6 +134,11 @@ TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShap
     return m_renderer.GetViewportTextureHandle();
 }
 
+void MaterialPreview::CaptureExtent(u32& width, u32& height) const {
+    width = m_renderer.ViewportWidth() > 0 ? static_cast<u32>(m_renderer.ViewportWidth()) : 256u;
+    height = m_renderer.ViewportHeight() > 0 ? static_cast<u32>(m_renderer.ViewportHeight()) : 256u;
+}
+
 bool MaterialPreview::CaptureSquare(u32 size, std::vector<u8>& outRgba) {
     // Capture at the renderer's current size (no G-buffer rebuild per
     // thumbnail): a centered square crop, box-filtered down to `size`.
@@ -175,10 +180,11 @@ bool MaterialPreview::CaptureMaterial(std::string_view materialPath, u32 size,
     mr.meshAsset = AssetId{};
     mr.primitive = MeshPrimitive::Sphere;
     mr.materials = {std::string(materialPath)};
-    const u32 side = std::max(size, 256u);
+    u32 w = 0, h = 0;
+    CaptureExtent(w, h);
     // Two frames: the first captures the sky light; exposure snaps (dt 0).
-    RenderFrame(kThumbnailYaw, kThumbnailPitch, side, side, 0.0f);
-    RenderFrame(kThumbnailYaw, kThumbnailPitch, side, side, 0.0f);
+    RenderFrame(kThumbnailYaw, kThumbnailPitch, w, h, 0.0f);
+    RenderFrame(kThumbnailYaw, kThumbnailPitch, w, h, 0.0f);
     return CaptureSquare(size, outRgba);
 }
 
@@ -186,10 +192,11 @@ bool MaterialPreview::CaptureMesh(const AssetId& mesh, u32 size, std::vector<u8>
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.meshAsset = mesh;
     mr.materials.clear();
-    const u32 side = std::max(size, 256u);
-    RenderFrame(kThumbnailYaw, kThumbnailPitch, side, side, 0.0f);
+    u32 w = 0, h = 0;
+    CaptureExtent(w, h);
+    RenderFrame(kThumbnailYaw, kThumbnailPitch, w, h, 0.0f);
     if (!m_bridge.Bounds(mesh)) return false;  // mesh failed to load
-    RenderFrame(kThumbnailYaw, kThumbnailPitch, side, side, 0.0f);
+    RenderFrame(kThumbnailYaw, kThumbnailPitch, w, h, 0.0f);
     return CaptureSquare(size, outRgba);
 }
 

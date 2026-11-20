@@ -15,6 +15,18 @@ constexpr std::array<std::string_view, 18> kDataTokens = {
     "ao", "occlusion", "orm", "arm", "mask", "opacity", "height", "disp",
     "displacement", "normals"};
 
+// Color maps: a color token wins over data words that are part of the asset
+// name ("rusty_metal_02_diff" is a color map).
+constexpr std::array<std::string_view, 7> kColorTokens = {
+    "diff", "diffuse", "albedo", "basecolor", "color", "col", "emissive"};
+
+bool IsColorToken(const std::string& token) {
+    for (std::string_view t : kColorTokens) {
+        if (token == t) return true;
+    }
+    return false;
+}
+
 bool IsDelimiter(char c) { return c == '_' || c == '-' || c == '.' || c == ' '; }
 
 bool IsDataToken(const std::string& token) {
@@ -32,15 +44,17 @@ bool IsTextureSRGB(const std::filesystem::path& file, const LumaTextureMetadata*
     // The extension is not part of the name.
     const std::string name = file.stem().string();
     std::string token;
+    bool data = false;
     for (usize i = 0; i <= name.size(); ++i) {
         if (i == name.size() || IsDelimiter(name[i])) {
-            if (IsDataToken(token)) return false;
+            if (IsColorToken(token)) return true;
+            data = data || IsDataToken(token);
             token.clear();
         } else {
             token.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(name[i]))));
         }
     }
-    return true;
+    return !data;
 }
 
 }  // namespace Luma

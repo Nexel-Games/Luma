@@ -31,6 +31,12 @@ public:
     void DrawFloatingPickers(Slate::Context& ui);
 
     bool IsDirty() const;
+    // Call before the dock draws: tabs not drawn this frame are not hovered.
+    void BeginFrame() { m_drawnRect = {}; }
+    // The pointer is over this tab's content (drawn this frame).
+    bool Hovered(const Slate::Context& ui) const {
+        return m_drawnRect.w > 0.0f && m_drawnRect.Contains(ui.rawMouse());
+    }
     const std::string& AssetPath() const { return m_path; }
     // Tab title: the asset name, "*" appended while dirty.
     std::string Title() const;
@@ -67,6 +73,7 @@ private:
     std::array<Slate::ColorPickerPopup, Material::kMaterialParameterCount> m_constantPickers;
     std::array<Slate::ColorPickerPopup, Material::kMaterialParameterCount> m_tintPickers;
     std::string m_parentError;
+    Slate::Rect m_drawnRect{};
 };
 
 }  // namespace Luma::Editor::Panels

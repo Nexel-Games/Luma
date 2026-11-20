@@ -37,6 +37,12 @@ public:
     // Square RGBA8 captures (top row first) for thumbnails.
     bool CaptureMaterial(std::string_view materialPath, u32 size, std::vector<u8>& outRgba);
     bool CaptureMesh(const AssetId& mesh, u32 size, std::vector<u8>& outRgba);
+    // External file changes (the preview has its own GPU copies).
+    void OnTextureFileChanged(std::string_view virtualPath) {
+        m_bridge.OnTextureFileChanged(virtualPath);
+    }
+    void OnMeshFileChanged(const AssetId& mesh) { m_bridge.OnMeshFileChanged(mesh); }
+
     // CaptureMaterial written to a PNG.
     bool Capture(std::string_view materialPath, const std::filesystem::path& png, u32 size);
 
@@ -45,6 +51,9 @@ private:
     // renders one frame orbiting the actor's bounds.
     void RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height, f32 deltaSeconds);
     bool CaptureSquare(u32 size, std::vector<u8>& outRgba);
+    // Capture size: the renderer's current size (no G-buffer rebuild when
+    // the Material Editor is showing), 256 x 256 before its first frame.
+    void CaptureExtent(u32& width, u32& height) const;
 
     Rendering::VulkanDeferredRenderer& m_renderer;
     Material::MaterialLibrary& m_library;

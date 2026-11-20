@@ -500,6 +500,17 @@ std::vector<std::string> EditorScreen::ListAssets(bool materials) const {
     return out;
 }
 
+void EditorScreen::RefreshMaterialThumbnails() {
+    // Material thumbnails depend on their parents and textures, so any
+    // material/texture change re-renders all of them.
+    for (AssetType type : {AssetType::Material, AssetType::MaterialInstance}) {
+        for (const AssetData* a : m_assetRegistry.Filter(type, std::nullopt, {})) {
+            ThumbnailManager::Get().DirtyThumbnail(a->id);
+            m_contentBrowser.InvalidateThumbnail(a->id);
+        }
+    }
+}
+
 void EditorScreen::RefreshAssetWatches() {
     if (!m_project) return;
     m_watchedRegistrySize = m_assetRegistry.Size();
@@ -512,7 +523,7 @@ void EditorScreen::RefreshAssetWatches() {
         const std::string key = it->path().lexically_normal().string();
         if (!m_watchedFiles.insert(key).second) continue;
         m_assetWatcher.Watch(it->path(), [this](const VFS::WatchedChange& change) {
-            if (change.event != VFS::FileEvent::Removed) OnAssetFileChanged(change.path);
+            OnAssetFileChanged(change.path);  // created, modified or removed
         });
     }
 }
@@ -532,20 +543,33 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
     std::transform(ext.begin(), ext.end(), ext.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     if (ext == ".lmat" || ext == ".lmatinst") {
+        // A missing (deleted/renamed) file resolves to the Default Material
+        // with a user warning.
         m_materials->Reload(*virtualPath);
+        RefreshMaterialThumbnails();
     } else if (ext == ".lmesh") {
         if (const AssetData* data = m_assetRegistry.LookupByPath(file)) {
             m_bridge.OnMeshFileChanged(data->id);
+            if (m_preview) m_preview->OnMeshFileChanged(data->id);
         }
     } else {
+        // Changed or removed texture: re-validate (missing -> constant, warned
+        // once) and re-upload it in the viewport and the preview.
         m_materials->InvalidateTextures();
         m_bridge.OnTextureFileChanged(*virtualPath);
+        if (m_preview) m_preview->OnTextureFileChanged(*virtualPath);
+        RefreshMaterialThumbnails();
     }
 }
 
 void EditorScreen::SaveScene() {
     if (!m_project) return;
-    SaveMaterialAssets();
+    if (!SaveMaterialAssets()) {
+        // The scene may reference unsaved instances (e.g. migrated colors):
+        // writing it now would point it at assets that do not exist.
+        LUMA_USER_ERROR("Scene", "Scene not saved: fix the material save errors above first");
+        return;
+    }
     std::filesystem::path path = m_project->StartupScenePath();
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
@@ -1267,6 +1291,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     for (const auto& editor : m_materialEditors) {
         m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
     }
+    for (const auto& editor : m_materialEditors) editor->BeginFrame();
     m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f});
     // Tabs closed during the dock draw are freed now (the dock dropped them).
     for (const std::string& path : m_editorsToDelete) {
@@ -1392,7 +1417,10 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
     constexpr int kKeyS = 83, kKeyD = 68, kKeyF = 70;
     const bool ctrl = ui.ctrlDown();
     if (ctrl && ui.keyPressed(kKeyS)) {
-        SaveScene();
+        const bool overMaterialEditor =
+            std::any_of(m_materialEditors.begin(), m_materialEditors.end(),
+                        [&](const auto& e) { return e->Hovered(ui); });
+        if (!overMaterialEditor) SaveScene();
         return;
     }
     // Transform tools (Unreal W / E / R). While the right mouse button is

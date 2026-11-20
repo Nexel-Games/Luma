@@ -30,6 +30,9 @@ public:
     // What the asset renders with (resolved through the parent chain).
     Material::MaterialInput EffectiveInput(Material::MaterialParameter p) const;
     Material::MaterialSettings EffectiveSettings() const;
+    // True when the input references a texture whose file no longer exists
+    // (the renderer uses the constant; the reference is kept).
+    bool IsTextureMissing(Material::MaterialParameter p) const;
 
     // Materials: always true. Instances: the parameter's override flag.
     bool IsOverridden(Material::MaterialParameter p) const;

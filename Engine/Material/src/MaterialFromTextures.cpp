@@ -70,9 +70,14 @@ MaterialFromTexturesResult BuildMaterialFromTextures(
         const std::vector<std::string> tokens = Tokens(path);
         Role role = Role::None;
         usize roleAt = tokens.size();
-        for (usize i = 0; i < tokens.size() && role == Role::None; ++i) {
+        // The last role token decides ("rough_plaster_diff" is a color map;
+        // earlier words belong to the asset's name).
+        for (usize i = tokens.size(); i-- > 0;) {
             role = RoleOf(tokens[i]);
-            if (role != Role::None) roleAt = i;
+            if (role != Role::None) {
+                roleAt = i;
+                break;
+            }
         }
         Material& m = r.material;
         switch (role) {

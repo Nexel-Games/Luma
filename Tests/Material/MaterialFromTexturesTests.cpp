@@ -61,3 +61,13 @@ TEST_CASE("Unknown texture names are ignored and reported", "[material][fromtext
     CHECK(r.ignored == std::vector<std::string>{"/Game/T/wood_height", "/Game/T/random_thing"});
     CHECK(In(r.material, MaterialParameter::BaseColor).texture == "/Game/T/wood_diff");
 }
+
+TEST_CASE("The last role token decides the input", "[material][fromtextures]") {
+    const auto r = BuildMaterialFromTextures({"/Game/T/rough_plaster_diff",
+                                              "/Game/T/rough_plaster_rough",
+                                              "/Game/T/rusty_metal_02_nor_gl"});
+    CHECK(In(r.material, MaterialParameter::BaseColor).texture == "/Game/T/rough_plaster_diff");
+    CHECK(In(r.material, MaterialParameter::Roughness).texture == "/Game/T/rough_plaster_rough");
+    CHECK(In(r.material, MaterialParameter::Normal).texture == "/Game/T/rusty_metal_02_nor_gl");
+    CHECK(r.suggestedName == "M_rough_plaster");
+}

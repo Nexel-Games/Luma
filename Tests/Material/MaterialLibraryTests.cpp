@@ -286,9 +286,34 @@ TEST_CASE("Revert drops unsaved edits", "[material][library]") {
     CHECK(f.library->Resolve("/Game/Materials/MI_Red").inputs[0].constant.x == 1.0f);
     CHECK(f.library->Version("/Game/Materials/MI_Red") > version);
 
-    // A never-saved asset disappears.
+    // A never-saved asset returns to its created state (see the next test).
     const std::string fresh = f.library->CreateInMemoryInstance("/Game/Materials/MI_New", mi);
     f.library->Revert(fresh);
-    CHECK_FALSE(f.library->Exists(fresh));
-    CHECK(f.library->DirtyAssets().empty());
+    CHECK(f.library->Exists(fresh));
+}
+
+TEST_CASE("Revert keeps a never-saved asset at its created state", "[material][library]") {
+    Fixture f;
+    MaterialInstance mi;
+    mi.parent = std::string(kDefaultMaterialPath);
+    mi.Override(MaterialParameter::BaseColor, Color(1.0f, 0.0f, 0.0f));
+    const std::string path = f.library->CreateInMemoryInstance("/Game/Materials/MI_Migrated", mi);
+    MaterialInstance edited = *f.library->GetInstance(path);
+    edited.Override(MaterialParameter::BaseColor, Color(0.0f, 0.0f, 1.0f));
+    f.library->SetInstance(path, edited);
+
+    f.library->Revert(path);
+    REQUIRE(f.library->Exists(path));
+    CHECK(f.library->Resolve(path).inputs[0].constant.x == 1.0f);
+    CHECK(f.library->IsDirty(path));  // still unsaved
+}
+
+TEST_CASE("An unreadable engine Default Material falls back to the built-in one",
+          "[material][library]") {
+    Fixture f;
+    std::ofstream(f.root / "Engine" / "Materials" / "DefaultMaterial.lmat") << "{ not json";
+    MaterialLibrary lib(f.paths);
+    const auto& resolved = lib.Resolve("");
+    CHECK(resolved.inputs[0].constant.x == Material::MakeDefault().inputs[0].constant.x);
+    CHECK(lib.Resolve("/Game/Materials/M_Missing").inputs[3].constant.x == 0.5f);
 }

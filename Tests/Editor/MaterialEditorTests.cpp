@@ -144,3 +144,20 @@ TEST_CASE("Unknown assets give an invalid model", "[materialeditor]") {
     MaterialEditModel model("/Game/Materials/M_Missing", *f.lib);
     CHECK_FALSE(model.Valid());
 }
+
+TEST_CASE("Editing keeps references to textures that are missing", "[materialeditor]") {
+    EditorFixture f;
+    MaterialAsset m = MaterialAsset::MakeDefault();
+    m.name = "M_Moved";
+    m.inputs[static_cast<size_t>(MaterialParameter::BaseColor)].texture = "/Game/Textures/T_Gone";
+    f.lib->SetMaterial("/Game/Materials/M_Moved", m);
+    MaterialEditModel model("/Game/Materials/M_Moved", *f.lib);
+    CHECK(model.EffectiveInput(MaterialParameter::BaseColor).texture == "/Game/Textures/T_Gone");
+    auto rough = model.EffectiveInput(MaterialParameter::Roughness);
+    rough.constant = {0.9f, 0.9f, 0.9f, 0.9f};
+    model.SetInput(MaterialParameter::Roughness, rough);
+    CHECK(f.lib->GetMaterial("/Game/Materials/M_Moved")
+              ->inputs[static_cast<size_t>(MaterialParameter::BaseColor)].texture ==
+          "/Game/Textures/T_Gone");
+    CHECK(model.IsTextureMissing(MaterialParameter::BaseColor));
+}

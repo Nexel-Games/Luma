@@ -186,6 +186,12 @@ const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(
     image->desc.pixels = image->bytes.data();
     entry.handle = renderer.UploadTexture(TextureKey(path), image->desc);
     entry.failed = entry.handle == kInvalidHandle;
+    if (entry.failed) {
+        LUMA_USER_WARN("Materials",
+                       "Texture '{}' ({}x{}) could not be uploaded to the GPU (out of memory or "
+                       "texture slots); using the constant value",
+                       path, image->desc.width, image->desc.height);
+    }
     return entry;
 }
 

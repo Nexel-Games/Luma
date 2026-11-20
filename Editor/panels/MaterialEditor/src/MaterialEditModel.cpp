@@ -8,6 +8,21 @@ using Material::MaterialParameter;
 
 namespace {
 usize Index(MaterialParameter p) { return static_cast<usize>(p); }
+
+// The input as stored in the assets (walking the parent chain), without the
+// resolver's missing-texture cleanup, so edits never drop a reference to a
+// texture that is temporarily missing.
+MaterialInput StoredInput(Material::MaterialLibrary& lib, const std::string& path,
+                          MaterialParameter p, int depth = 0) {
+    if (depth < 16) {
+        if (const MaterialInstance* inst = lib.GetInstance(path)) {
+            if (inst->IsOverridden(p)) return inst->inputs[Index(p)];
+            return StoredInput(lib, inst->parent, p, depth + 1);
+        }
+        if (const Material::Material* mat = lib.GetMaterial(path)) return mat->inputs[Index(p)];
+    }
+    return lib.Resolve(path).inputs[Index(p)];  // broken chain: what renders
+}
 }  // namespace
 
 MaterialEditModel::MaterialEditModel(std::string assetPath, Material::MaterialLibrary& library)
@@ -22,11 +37,16 @@ bool MaterialEditModel::IsInstance() const { return m_library.IsInstance(m_path)
 bool MaterialEditModel::IsDirty() const { return m_library.IsDirty(m_path); }
 
 MaterialInput MaterialEditModel::EffectiveInput(MaterialParameter p) const {
-    return m_library.Resolve(m_path).inputs[Index(p)];
+    return StoredInput(m_library, m_path, p);
 }
 
 Material::MaterialSettings MaterialEditModel::EffectiveSettings() const {
     return m_library.Resolve(m_path).settings;
+}
+
+bool MaterialEditModel::IsTextureMissing(MaterialParameter p) const {
+    return !EffectiveInput(p).texture.empty() &&
+           m_library.Resolve(m_path).inputs[Index(p)].texture.empty();
 }
 
 bool MaterialEditModel::IsOverridden(MaterialParameter p) const {
@@ -52,7 +72,7 @@ void MaterialEditModel::SetOverride(MaterialParameter p, bool overridden) {
     MaterialInstance edited = *inst;
     // Either way the stored value becomes the inherited one: re-checking starts
     // from it, unchecking makes the instance follow its parent again.
-    edited.inputs[Index(p)] = m_library.Resolve(inst->parent).inputs[Index(p)];
+    edited.inputs[Index(p)] = StoredInput(m_library, inst->parent, p);
     edited.overridden[Index(p)] = overridden;
     m_library.SetInstance(m_path, std::move(edited));
 }

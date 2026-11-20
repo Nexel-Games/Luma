@@ -49,8 +49,12 @@ MaterialLibrary::Entry* MaterialLibrary::Load(std::string_view rawPath) {
         Material m;
         if (!MaterialSerializer::LoadFromFile(m, *file, &error)) {
             WarnOnce("load:" + path, "Could not read material '" + path + "': " + error);
-            m_missing.insert(path);
-            return nullptr;
+            if (path != kDefaultMaterialPath) {
+                m_missing.insert(path);
+                return nullptr;
+            }
+            // Every resolve falls back to the Default Material: it must exist.
+            m = Material::MakeDefault();
         }
         entry.asset = std::move(m);
     } else if (auto instFile = m_paths.ToFile(path, {"lmatinst"})) {
@@ -253,7 +257,16 @@ void MaterialLibrary::Revert(std::string_view rawPath) {
     const std::string path = Normalize(rawPath);
     m_entries.erase(path);
     m_missing.erase(path);
-    Load(path);  // fresh version from disk; never-saved assets stay missing
+    if (Load(path)) {
+        m_created.erase(path);  // on disk now: the file is the reference
+        return;
+    }
+    // Never saved: back to the state it was created in (e.g. a migrated
+    // instance), still unsaved.
+    if (auto it = m_created.find(path); it != m_created.end()) {
+        m_missing.erase(path);
+        SetInstance(path, it->second);
+    }
 }
 
 void MaterialLibrary::InvalidateTextures() { ++m_textureEpoch; }
@@ -280,6 +293,7 @@ std::string MaterialLibrary::CreateInMemoryInstance(std::string_view desiredPath
         candidate = base + "_" + std::to_string(n);
     }
     instance.name = LeafName(candidate);
+    m_created[candidate] = instance;  // what Revert restores until it is saved
     SetInstance(candidate, std::move(instance));
     return candidate;
 }

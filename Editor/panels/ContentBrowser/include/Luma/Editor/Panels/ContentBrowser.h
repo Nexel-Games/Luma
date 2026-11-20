@@ -68,6 +68,8 @@ public:
 
     // Selects the given asset (single-click selection, not activation).
     void SetSelected(const AssetId& id) { m_selected = id; }
+    // Drops the cached GPU thumbnail of `id` (re-requested when drawn).
+    void InvalidateThumbnail(const AssetId& id) { m_thumbnailCache.erase(id); }
     // Opens the folder holding `file` and selects it (Browse to Asset).
     void BrowseTo(const std::filesystem::path& file);
 

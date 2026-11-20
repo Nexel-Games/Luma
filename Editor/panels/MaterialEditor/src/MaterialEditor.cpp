@@ -122,6 +122,7 @@ void MaterialEditorPanel::DrawFloatingPickers(Context& ui) {
 
 void MaterialEditorPanel::Draw(Context& ui, const Rect& rect, PanelContext& ctx) {
     const Slate::Theme& t = ui.theme();
+    m_drawnRect = rect;
     ui.Panel(rect, t.panelBg);
     if (ctx.materials) Bind(*ctx.materials);
     if (!m_model || !m_model->Valid()) {
@@ -429,7 +430,11 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
         const f32 buttons = 2.0f * (f.h + 2.0f);
         const Rect pick{f.x + thumb + 4.0f, f.y, f.w - thumb - 4.0f - buttons, f.h};
         const u64 pickId = Context::ID("mated.tex." + key);
-        if (ui.MenuButton(pickId, pick, input.texture.empty() ? "None" : AssetName(input.texture)) &&
+        const bool missing = m_model->IsTextureMissing(p);
+        const std::string pickLabel = input.texture.empty() ? std::string("None")
+                                      : missing ? "Missing: " + AssetName(input.texture)
+                                                : AssetName(input.texture);
+        if (ui.MenuButton(pickId, pick, pickLabel) &&
             ctx.listTextures && !dim) {
             Slate::MenuBuilder b;
             b.BeginSection("Textures");
@@ -445,7 +450,12 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
             options.searchHint = "Search textures";
             ui.OpenMenuBelow(pickId, pick, b.Build(), options);
         }
-        if (!input.texture.empty()) ui.Tooltip(pickId, pick, input.texture);
+        if (!input.texture.empty()) {
+            ui.Tooltip(pickId, pick,
+                       missing ? input.texture + "\nThe file is missing: the value is used until "
+                                                 "it is restored."
+                               : input.texture);
+        }
         const Rect clear{pick.Right() + 2.0f, f.y, f.h, f.h};
         if (ui.IconTextButton(Context::ID("mated.clear." + key), clear, Slate::Icon::Close, {},
                               t.textDim) &&
