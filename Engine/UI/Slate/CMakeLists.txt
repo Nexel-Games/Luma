@@ -11,6 +11,8 @@ add_library(LumaSlate STATIC
     src/DragDrop.cpp
     src/Menu.cpp
     src/DockSpace.cpp
+    src/TextEditState.cpp
+    src/NumericText.cpp
     src/ColorPicker.cpp
     src/ColorPickerPopup.cpp)
 

@@ -29,6 +29,10 @@ add_executable(LumaTests
     Slate/MenuTests.cpp
     Slate/DragDropTests.cpp
     Slate/ModalTests.cpp
+    Slate/TextEditStateTests.cpp
+    Slate/NumericTextTests.cpp
+    Slate/TextFieldTests.cpp
+    Slate/SpinBoxTests.cpp
     Asset/AssetIdTests.cpp
     Asset/AssetScannerTests.cpp
     Asset/AssetRegistryTests.cpp
