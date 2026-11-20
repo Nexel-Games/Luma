@@ -19,6 +19,7 @@
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/Viewport.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
+#include "MaterialPreview.h"
 #include "PanelContext.h"
 #include "Luma/Gizmo/TransformGizmo.h"
 #include "Luma/Material/MaterialLibrary.h"
@@ -41,6 +42,7 @@ namespace Luma {
 class EditorScreen {
 public:
     explicit EditorScreen(const std::filesystem::path& projectFile);
+    ~EditorScreen();
 
     bool HasProject() const { return m_project.has_value(); }
 
@@ -80,6 +82,11 @@ public:
         m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
     }
 
+    // Renders `materialPath` (virtual path) in the preview scene to a PNG
+    // (the --preview-capture flag). False without a preview renderer.
+    bool CapturePreview(const std::string& materialPath, const std::filesystem::path& png,
+                        u32 size);
+
     // Selects the first entity named `name` (the --select capture flag).
     // Returns false when no entity has that name.
     bool SelectEntityByName(const std::string& name);
@@ -100,11 +107,9 @@ public:
     // (empty = content root) and rescans the asset registry.
     void ImportAssetsInto(const std::filesystem::path& folder);
 
-    // Wire the renderer for thumbnail generation
-    void SetRenderer(Luma::Renderer* renderer) {
-        m_renderer = renderer;
-        m_contentBrowser.SetRenderer(renderer);
-    }
+    // Wires the renderer: thumbnails, and the material preview scene on the
+    // backend's secondary deferred renderer (GPU material/mesh thumbnails).
+    void SetRenderer(Luma::Renderer* renderer);
     Luma::Renderer* Renderer() const noexcept { return m_renderer; }
     
     // Build scene view for deferred renderer. `width`/`height` are the
@@ -253,6 +258,8 @@ private:
     std::unordered_set<std::string> m_watchedFiles;
     usize m_watchedRegistrySize = 0;
     f32 m_watchTimer = 0.0f;
+    // Preview scene for material/mesh thumbnails and the Material Editor.
+    std::unique_ptr<MaterialPreview> m_preview;
     bool m_closeRequested = false;
     bool m_closeConfirmed = false;
 

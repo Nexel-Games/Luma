@@ -327,7 +327,7 @@ bool ThumbnailManager::GenerateThumbnail(const AssetId& assetId,
     } else if (ext == ".lmesh" || ext == ".fbx" || ext == ".obj" || ext == ".gltf" ||
                ext == ".glb" || ext == ".dae" || ext == ".blend" || ext == ".3ds") {
         type = AssetType::Mesh;
-    } else if (ext == ".lmat" || ext == ".lumat" || ext == ".mat") {
+    } else if (ext == ".lmat" || ext == ".lmatinst") {
         type = AssetType::Material;
     }
     
@@ -405,6 +405,26 @@ std::optional<ThumbnailData> ThumbnailManager::LoadThumbnail(const std::filesyst
     stbi_image_free(data);
     
     return thumbnail;
+}
+
+void ThumbnailManager::SetRenderCallback(ThumbnailRenderCallback callback) {
+    m_renderCallback = std::move(callback);
+}
+
+bool ThumbnailManager::RenderViaCallback(AssetType type, const std::filesystem::path& nativePath,
+                                         const std::filesystem::path& outputPath, u32 width,
+                                         u32 height) {
+    if (!m_renderCallback) return false;
+    ThumbnailData data;
+    data.width = width;
+    data.height = height;
+    if (!m_renderCallback(type, nativePath, width, height, data.pixels)) return false;
+    if (data.pixels.size() != static_cast<usize>(width) * height * 4) {
+        LUMA_LOG_ERROR("ThumbnailManager", "Render callback returned {} bytes for {}x{}",
+                       data.pixels.size(), width, height);
+        return false;
+    }
+    return SaveThumbnail(outputPath, data);
 }
 
 bool ThumbnailManager::SaveThumbnail(const std::filesystem::path& thumbnailPath, const ThumbnailData& data) {

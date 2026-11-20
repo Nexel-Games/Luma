@@ -4,7 +4,8 @@
 add_executable(LumaEditor
     main.cpp
     SplashScreen.cpp
-    EditorScreen.cpp)
+    EditorScreen.cpp
+    MaterialPreview.cpp)
 
 # Panels live under Editor/panels/ and expose their headers via
 # Editor/panels/<Name>/include plus the shared Editor/panels/PanelContext.h.

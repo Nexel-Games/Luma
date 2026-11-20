@@ -22,6 +22,7 @@
 #include "Luma/Scene/SceneSerializer.h"
 #include "Luma/VFS/VFS.h"
 #include "Luma/Renderer/DeferredSceneView.h"
+#include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
 #include "Luma/Slate/Image.h"
 
 #define STB_IMAGE_WRITE_STATIC
@@ -131,6 +132,41 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
     }
 }
 
+EditorScreen::~EditorScreen() {
+    // The thumbnail manager outlives the editor; drop the callback into it.
+    ThumbnailManager::Get().SetRenderCallback({});
+}
+
+void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
+    m_renderer = renderer;
+    m_contentBrowser.SetRenderer(renderer);
+    auto* previewRenderer = renderer ? static_cast<Rendering::VulkanDeferredRenderer*>(
+                                           renderer->GetVulkanMaterialDeferredRenderer())
+                                     : nullptr;
+    if (!previewRenderer) {
+        m_preview.reset();
+        ThumbnailManager::Get().SetRenderCallback({});
+        return;
+    }
+    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials, m_assetRegistry);
+    // Material and mesh thumbnails render on the GPU through the preview
+    // scene, so they match the viewport (square captures).
+    ThumbnailManager::Get().SetRenderCallback(
+        [this](AssetType type, const std::filesystem::path& path, u32 width, u32 height,
+               std::vector<u8>& rgba) {
+            if (!m_preview || width != height) return false;
+            if (type == AssetType::Material) {
+                const auto virtualPath = m_assetPaths.ToVirtual(path);
+                return virtualPath && m_preview->CaptureMaterial(*virtualPath, width, rgba);
+            }
+            if (type == AssetType::Mesh) {
+                const AssetData* data = m_assetRegistry.LookupByPath(path);
+                return data && m_preview->CaptureMesh(data->id, width, rgba);
+            }
+            return false;
+        });
+}
+
 void EditorScreen::CreateEnvironment() {
     m_environment = m_scene.CreateEntity("Environment");
     m_scene.Registry().emplace<EnvironmentComponent>(m_environment);
@@ -172,6 +208,11 @@ bool EditorScreen::SaveMaterialAssets() {
         }
     }
     return ok;
+}
+
+bool EditorScreen::CapturePreview(const std::string& materialPath,
+                                  const std::filesystem::path& png, u32 size) {
+    return m_preview && m_preview->Capture(materialPath, png, size);
 }
 
 bool EditorScreen::SelectEntityByName(const std::string& name) {

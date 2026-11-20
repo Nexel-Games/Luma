@@ -126,6 +126,9 @@ int main(int argc, char** argv) {
     std::filesystem::path projectFile;
     std::string screenshotPath;
     std::string selectName;  // --select <EntityName>: preselect for captures
+    // --preview-capture <material virtual path> <png>: material preview capture
+    std::string previewMaterial;
+    std::string previewPng;
     bool editorMode = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -138,6 +141,9 @@ int main(int argc, char** argv) {
             screenshotPath = argv[++i];
         } else if (arg == "--select" && i + 1 < argc) {
             selectName = argv[++i];
+        } else if (arg == "--preview-capture" && i + 2 < argc) {
+            previewMaterial = argv[++i];
+            previewPng = argv[++i];
         }
     }
 
@@ -183,12 +189,10 @@ int main(int argc, char** argv) {
         thumbnailMgr.RegisterRenderer(Luma::AssetType::Texture, 
                                      std::make_unique<Luma::TextureThumbnailRenderer>());
         
-        // Mesh thumbnails (CPU rasterized preview).
+        // Mesh and material thumbnails render on the GPU through the
+        // editor's preview scene (EditorScreen installs the render callback).
         thumbnailMgr.RegisterRenderer(Luma::AssetType::Mesh,
                                      std::make_unique<Luma::MeshThumbnailRenderer>());
-
-        // Material thumbnails: a studio-lit sphere shaded with the .lmat's
-        // constant fallbacks (base color / metallic / roughness / emissive).
         thumbnailMgr.RegisterRenderer(Luma::AssetType::Material,
                                      std::make_unique<Luma::MaterialThumbnailRenderer>());
         
@@ -353,6 +357,10 @@ int main(int argc, char** argv) {
         editor = std::make_unique<EditorScreen>(projectFile);
         editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
+        if (!previewMaterial.empty() &&
+            !editor->CapturePreview(previewMaterial, previewPng, 256)) {
+            LUMA_LOG_ERROR("Editor", "--preview-capture failed for '{}'", previewMaterial);
+        }
         if (!selectName.empty() && !editor->SelectEntityByName(selectName)) {
             LUMA_LOG_WARN("Editor", "--select: no entity named '{}'", selectName);
         }

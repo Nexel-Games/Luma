@@ -6,6 +6,7 @@
 #include "Luma/Asset/AssetMetadata.h"
 #include "Luma/Asset/ThumbnailRenderingInfo.h"
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -63,6 +64,16 @@ public:
      */
     virtual std::string GetRendererName() const = 0;
 };
+
+/**
+ * Renders an asset into `width` x `height` RGBA8 pixels (top row first) with
+ * the real renderer. The editor installs one on the ThumbnailManager so
+ * material and mesh thumbnails match the viewport; the asset module itself has
+ * no GPU access. Returns false when the asset cannot be rendered.
+ */
+using ThumbnailRenderCallback =
+    std::function<bool(AssetType type, const std::filesystem::path& nativePath, u32 width,
+                       u32 height, std::vector<u8>& outRgba)>;
 
 /**
  * Thumbnail settings for an asset
@@ -238,6 +249,20 @@ public:
     void SetRuntimeCacheLimits(usize maxEntries, usize maxBytes);
 
     /**
+     * Install (or clear, with an empty function) the GPU render callback used
+     * by the material and mesh thumbnail renderers.
+     */
+    void SetRenderCallback(ThumbnailRenderCallback callback);
+    bool HasRenderCallback() const { return static_cast<bool>(m_renderCallback); }
+
+    /**
+     * Renders `nativePath` through the render callback and writes the PNG to
+     * `outputPath`. False when no callback is installed or rendering failed.
+     */
+    bool RenderViaCallback(AssetType type, const std::filesystem::path& nativePath,
+                           const std::filesystem::path& outputPath, u32 width, u32 height);
+
+    /**
      * Setup checkerboard texture for transparent thumbnails
      */
     void SetupCheckerboardTexture();
@@ -285,6 +310,7 @@ private:
     // std::unique_ptr<ThumbnailLRUCache> m_ownedRuntimeCache;
 
     // Checkerboard texture for transparent thumbnails
+    ThumbnailRenderCallback m_renderCallback;
     std::vector<u8> m_checkerboardTexture;
     u32 m_checkerboardSize = 32;
 };

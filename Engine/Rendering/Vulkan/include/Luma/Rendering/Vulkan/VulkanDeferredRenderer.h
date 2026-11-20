@@ -107,6 +107,11 @@ public:
     void ReleaseMaterial(MaterialHandle material) override;
     MeshHandle PrimitiveMesh(MeshPrimitive primitive) const override;
 
+    // Copies the last rendered display image (post chain, outline and overlay
+    // included) into tightly packed RGBA8, top row first. Waits for the frame
+    // to finish. False before the first RenderScene.
+    bool ReadFinalImage(std::vector<u8>& outRgba, u32& outWidth, u32& outHeight);
+
     // True once Initialize() succeeded (resources exist: command pool, GBuffer
     // descriptor set, samplers).
     bool IsInitialized() const { return m_initialized; }

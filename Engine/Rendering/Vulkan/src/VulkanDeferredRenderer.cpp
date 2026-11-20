@@ -69,6 +69,33 @@ u16 FloatToHalf(f32 value) {
                             ((mantissa + 0x1000u) >> 13));
 }
 
+f32 HalfToFloat(u16 h) {
+    const u32 sign = static_cast<u32>(h & 0x8000u) << 16;
+    u32 exponent = (h >> 10) & 0x1fu;
+    u32 mantissa = h & 0x3ffu;
+    u32 bits;
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            bits = sign;
+        } else {  // subnormal: renormalize
+            exponent = 1;
+            while ((mantissa & 0x400u) == 0) {
+                mantissa <<= 1;
+                --exponent;
+            }
+            mantissa &= 0x3ffu;
+            bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+        }
+    } else if (exponent == 31) {
+        bits = sign | 0x7f800000u | (mantissa << 13);
+    } else {
+        bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+    }
+    f32 value;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
 }  // namespace
 
 VulkanDeferredRenderer::VulkanDeferredRenderer(
@@ -862,8 +889,10 @@ void VulkanDeferredRenderer::DestroyEnvironmentTexture() {
 
 bool VulkanDeferredRenderer::CreateFXAAPass() {
     // 1. Create the resolved output texture (same format/size as lightAccum)
+    // Transfer source: ReadFinalImage copies it back (thumbnails, captures).
     if (!CreateAttachment(kLightFormat,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                           &m_fxaaResolved)) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to create FXAA resolved texture");
         return false;
@@ -1793,6 +1822,61 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     if (vkEndCommandBuffer(m_commandBuffer) != VK_SUCCESS) return;
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO}; submit.commandBufferCount = 1; submit.pCommandBuffers = &m_commandBuffer; vkQueueSubmit(m_graphicsQueue, 1, &submit, m_fence);
     m_gBufferInitialized = true;
+}
+
+bool VulkanDeferredRenderer::ReadFinalImage(std::vector<u8>& outRgba, u32& outWidth,
+                                            u32& outHeight) {
+    if (!m_initialized || !m_gBufferInitialized || m_fxaaResolved.image == VK_NULL_HANDLE) {
+        return false;
+    }
+    vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, std::numeric_limits<u64>::max());
+    const u32 width = static_cast<u32>(m_gBuffer.width);
+    const u32 height = static_cast<u32>(m_gBuffer.height);
+    const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 8;  // RGBA16F
+    GpuBuffer staging = CreateBuffer(m_physicalDevice, m_device, bytes,
+                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                     true);
+    if (!staging.mapped) {
+        DestroyBuffer(m_device, staging);
+        return false;
+    }
+    VkCommandBuffer cmd = BeginOneTimeCommands(m_device, m_commandPool);
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = m_fxaaResolved.image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    b.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {width, height, 1};
+    vkCmdCopyImageToBuffer(cmd, m_fxaaResolved.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           staging.buffer, 1, &region);
+    b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    b.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    EndOneTimeCommands(m_device, m_commandPool, m_graphicsQueue, cmd);
+
+    // The image holds display-encoded values in [0, 1].
+    const u16* half = static_cast<const u16*>(staging.mapped);
+    outRgba.resize(static_cast<usize>(width) * height * 4);
+    for (usize i = 0; i < outRgba.size(); ++i) {
+        const f32 v = i % 4 == 3 ? 1.0f : std::clamp(HalfToFloat(half[i]), 0.0f, 1.0f);
+        outRgba[i] = static_cast<u8>(v * 255.0f + 0.5f);
+    }
+    DestroyBuffer(m_device, staging);
+    outWidth = width;
+    outHeight = height;
+    return true;
 }
 
 const VulkanDeferredRenderer::Attachment* VulkanDeferredRenderer::GetLightAccumulationBuffer() const {
