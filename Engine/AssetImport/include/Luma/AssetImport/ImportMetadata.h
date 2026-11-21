@@ -36,4 +36,11 @@ std::string HashFile(const std::filesystem::path& file);
 bool RenameAssetFile(const std::filesystem::path& from, const std::filesystem::path& to,
                      std::string* errorOrWarning);
 
+// Moves a file or folder into `folder`, keeping its name and any .meta sidecar.
+// False with an empty error means it is already in that folder. False with an
+// error means nothing was moved (the destination exists, or a folder would be
+// moved into itself).
+bool MoveAssetToFolder(const std::filesystem::path& from, const std::filesystem::path& folder,
+                       std::filesystem::path* movedTo, std::string* error);
+
 }  // namespace Luma::Import

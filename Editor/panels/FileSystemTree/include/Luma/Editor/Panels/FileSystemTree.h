@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_set>
 #include <functional>
+#include <vector>
 #include "PanelContext.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Types.h"
@@ -26,6 +27,16 @@ public:
     void SetRegistry(Luma::AssetRegistry* registry);
     
     void Draw(Slate::Context& ui, const Slate::Rect& body);
+
+    // Folder rows from the last Draw, in screen space. Used by the Content
+    // Browser to rename a row and to accept an asset dropped on it.
+    struct FolderRow {
+        std::filesystem::path path;
+        Slate::Rect row;
+        Slate::Rect label;
+        bool rightClicked = false;
+    };
+    const std::vector<FolderRow>& Rows() const noexcept { return m_rows; }
     
     std::filesystem::path SelectedFolder() const;
     
@@ -42,6 +53,7 @@ private:
     
     // Expansion state tracking
     std::unordered_set<std::string> m_expanded;
+    std::vector<FolderRow> m_rows;
     // Vertical scroll offset of the folder list (px).
     f32 m_scroll = 0.0f;
     

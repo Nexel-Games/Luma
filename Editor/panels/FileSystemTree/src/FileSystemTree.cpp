@@ -34,6 +34,7 @@ void FileSystemTreePanel::SetRegistry(Luma::AssetRegistry* registry) {
 }
 
 void FileSystemTreePanel::Draw(Slate::Context& ui, const Slate::Rect& body) {
+    m_rows.clear();
     if (!m_registry) return;
     
     constexpr f32 kHeaderHeight = 28.0f;
@@ -124,7 +125,10 @@ void FileSystemTreePanel::DrawFolderRow(Slate::Context& ui,
     f32 labelX = iconX + kIconSize + t.space.sm;
     
     Rect iconR{iconX, y + (kRowH - kIconSize) * 0.5f, kIconSize, kIconSize};
-    Rect labelR{labelX, y, panel.w - labelX, kRowH};
+    Rect labelR{labelX, y, panel.w - (labelX - panel.x), kRowH};
+    Rect rowR{panel.x, y, panel.w, kRowH};
+    const bool onRow = panel.Contains(ui.mouse()) && rowR.Contains(ui.mouse());
+    m_rows.push_back(FolderRow{path, rowR, labelR, onRow && ui.mousePressed(1)});
     
     // Expand/retract toggle - handle before selectable to avoid conflict
     if (hasChildren) {
