@@ -11,7 +11,8 @@ add_library(LumaMaterial STATIC
     src/MaterialInstanceSerializer.cpp
     src/MaterialLibrary.cpp
     src/MaterialFromTextures.cpp
-    src/GraphAssets.cpp)
+    src/GraphAssets.cpp
+    src/MaterialMigrationV4.cpp)
 
 add_library(Luma::Material ALIAS LumaMaterial)
 

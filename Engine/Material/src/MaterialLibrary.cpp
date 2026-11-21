@@ -1,5 +1,9 @@
 #include "Luma/Material/MaterialLibrary.h"
 
+#include <type_traits>
+
+#include "Luma/Material/MaterialMigrationV4.h"
+
 #include <algorithm>
 #include <filesystem>
 #include <system_error>
@@ -313,6 +317,33 @@ T* MaterialLibrary::LoadGraph(std::string_view rawPath, const char* ext) {
     if (!file) return nullptr;
     T asset;
     std::string err;
+    // Phase-1 files (version < 4) convert on load; the converted asset is
+    // clean (not dirty) and is written in the new format on its next save.
+    if constexpr (std::is_same_v<T, GraphMaterial> || std::is_same_v<T, GraphMaterialInstance>) {
+        if (GraphAssetSerializer::ProbeVersion(*file) < kGraphMaterialVersion) {
+            std::vector<std::string> notes;
+            if constexpr (std::is_same_v<T, GraphMaterial>) {
+                const Material* legacy = GetMaterial(path);
+                if (!legacy) return nullptr;
+                asset = MigrateV3(*legacy, &notes);
+            } else {
+                const MaterialInstance* legacy = GetInstance(path);
+                if (!legacy) return nullptr;
+                const ResolvedMaterial& parent = Resolve(legacy->parent);
+                Material resolved;
+                resolved.settings = parent.settings;
+                resolved.inputs = parent.inputs;
+                asset = MigrateInstanceV1(*legacy, resolved, &notes);
+            }
+            for (const std::string& n : notes) LUMA_LOG_INFO("Materials", "{}: {}", path, n);
+            LUMA_USER_INFO("Materials", "'{}' was converted to the node-graph format (saved on next save)",
+                           path);
+            GraphEntry& e = m_graph[path];
+            e.asset = std::move(asset);
+            e.version = m_nextVersion++;
+            return std::get_if<T>(&e.asset);
+        }
+    }
     if (!GraphAssetSerializer::Load(asset, *file, &err)) {
         WarnOnce("graph:" + path, "'" + path + "' could not be loaded: " + err);
         return nullptr;

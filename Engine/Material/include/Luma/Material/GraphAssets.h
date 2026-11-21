@@ -12,7 +12,7 @@
 // Graph-based material assets (Material Editor project 1):
 //
 //   .lmat v4     GraphMaterial          settings + node graph
-//   .lmatinst v2 GraphMaterialInstance  parent + parameter overrides by name
+//   .lmatinst v4 GraphMaterialInstance  parent + parameter overrides by name
 //   .lmatfunc    MaterialFunction       reusable sub-graph (Function Input/Output nodes)
 //   .lmpc        ParameterCollection    global scalar/vector parameters
 //
@@ -96,7 +96,9 @@ public:
 };
 
 inline constexpr i64 kGraphMaterialVersion = 4;
-inline constexpr i64 kGraphInstanceVersion = 2;
+// Instances share version 4 with materials: Phase-1 instance files were
+// written as version 3, so anything below 4 is the legacy format.
+inline constexpr i64 kGraphInstanceVersion = 4;
 inline constexpr i64 kFunctionVersion = 1;
 inline constexpr i64 kCollectionVersion = 1;
 

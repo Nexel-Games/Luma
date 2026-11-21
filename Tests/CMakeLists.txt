@@ -17,6 +17,7 @@ add_executable(LumaTests
     Material/GraphTests.cpp
     Material/ExpressionRegistryTests.cpp
     Material/MaterialAssetsV4Tests.cpp
+    Material/MaterialMigrationV4Tests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
     Serialization/SerialValueTests.cpp
