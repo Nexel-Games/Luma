@@ -41,6 +41,8 @@ add_library(LumaAsset STATIC
     src/Import/ImportScene.cpp
     src/Import/ImportSettings.cpp
     src/Import/ImportMetadata.cpp
+    src/Import/Translators/AxisConversion.cpp
+    src/Import/Translators/ModelTranslator.cpp
 )
 
 target_compile_options(LumaAsset PRIVATE /wd4100 /wd4189)

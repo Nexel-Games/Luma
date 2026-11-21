@@ -345,11 +345,11 @@ Assimp usage notes:
 - A texture used by several materials becomes **one** Texture node (dedupe by resolved
   path / embedded index).
 
-- [ ] **Step 1: Convention test first** (`[import][model]`): "Luma is Y-up right-handed":
+- [x] **Step 1: Convention test first** (`[import][model]`): "Luma is Y-up right-handed":
   assert with `Math::LookAt` / `Math::Perspective` (from `Engine/Math`) that a point at
   +Y projects above the screen centre and a camera at +Z looking at the origin sees +X
   on the right. If this fails, stop and report (Blocked).
-- [ ] **Step 2: Failing tests:**
+- [x] **Step 2: Failing tests:**
   - `robot.gltf` and `robot.glb`: File node + 2 Mesh (Body 24 v / 12 tris, Arm), 2
     Material (Paint: baseColorTex + normalTex set, metallic 0, roughness 0.6; Metal:
     baseColor 0.8, metallic 1, roughness 0.3, no textures), 2 Texture nodes
@@ -365,8 +365,8 @@ Assimp usage notes:
     UV exactly (top-left origin) for all three formats.
   - Missing external texture (copy robot.gltf to a temp dir without PNGs) → Texture
     node has an error, translation still succeeds.
-- [ ] **Step 3:** Run → fail. **Step 4:** Implement. **Step 5:** Pass; suite green.
-- [ ] **Step 6:** Commit `feat(import): model translator for gltf/glb/fbx/obj (T-0003)`.
+- [x] **Step 3:** Run → fail. **Step 4:** Implement. **Step 5:** Pass; suite green.
+- [x] **Step 6:** Commit `feat(import): model translator for gltf/glb/fbx/obj (T-0003)`.
 
 ## Task 5 — Image translator (PNG, JPEG, TGA, BMP, PSD, HDR, EXR)
 
@@ -787,5 +787,11 @@ colour space / HDR-EXR material textures (lead).
 ### Task 3
 
 `Json` in the plan is `Luma::SerialValue`. `[import][scene]` passed (41 assertions in 4 cases). Whole suite: `All tests passed (22799 assertions in 419 test cases)`. The first test build failed to link (headers only, no sources), then the implementation linked and passed.
+
+### Task 4
+
+Luma's `LookAt` / `Perspective` match the convention: a point at +Y projects above the screen centre (Vulkan NDC y < 0) and a camera on +Z sees +X on the right. `[import][model]` then failed to compile (`ModelTranslator.h` missing) and, after the translator landed, passed (142 assertions in 6 cases). Whole suite: `All tests passed (22941 assertions in 425 test cases)`.
+
+`SourceToLuma` does not apply the plan's extra minus on the front axis. `robot.fbx` already stores `FrontAxisSign = -1` for "into the screen", and that second minus mirrored Z against the glTF. Without it, default Y-up/metres is identity, source (0,0,1) on the Z-up axes maps to Luma (0,1,0), `unitScaleCm = 1` scales by 0.01, and Body's FBX bounds match the glTF within 1e-3. Assimp's own FBX root conversion is turned off (`AI_CONFIG_IMPORT_FBX_IGNORE_UP_DIRECTION`) so the unit/axis step is ours. UV of Body vertex 0 is (0, 1) for glTF, GLB, FBX, and OBJ after `aiProcess_FlipUVs`. Assimp adds an unreferenced default material; only materials a mesh uses are emitted.
 
 ## Review
