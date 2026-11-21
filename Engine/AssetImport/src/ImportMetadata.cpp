@@ -35,6 +35,30 @@ std::filesystem::path MetadataPathFor(const std::filesystem::path& assetFile) {
     return std::filesystem::path(assetFile.string() + ".meta");
 }
 
+bool RenameAssetFile(const std::filesystem::path& from, const std::filesystem::path& to,
+                     std::string* errorOrWarning) {
+    auto report = [&](std::string text) {
+        if (errorOrWarning != nullptr) *errorOrWarning = std::move(text);
+    };
+    report({});
+    std::error_code io;
+    if (std::filesystem::exists(to, io)) {
+        report("'" + to.filename().string() + "' already exists");
+        return false;
+    }
+    std::filesystem::rename(from, to, io);
+    if (io) {
+        report(io.message());
+        return false;
+    }
+    const std::filesystem::path oldMeta = MetadataPathFor(from);
+    if (std::filesystem::exists(oldMeta, io)) {
+        std::filesystem::rename(oldMeta, MetadataPathFor(to), io);
+        if (io) report("its import data (.meta) could not be renamed: " + io.message());
+    }
+    return true;
+}
+
 std::string HashFile(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary);
     if (!in) {

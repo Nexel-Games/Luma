@@ -103,6 +103,9 @@ struct PanelContext {
     // the system file browser.
     std::function<void(const std::filesystem::path& folder)> onCreateScene;
     std::function<void(const std::filesystem::path& path)> onDeleteAsset;
+    // An asset or folder was renamed in the Content Browser (virtual paths,
+    // extension-less; folders too): references to it should follow.
+    std::function<void(const std::string& oldPath, const std::string& newPath)> onAssetRenamed;
     std::function<void(const std::filesystem::path& path)> onRevealInExplorer;
 
     // World Outliner entity actions (EditorScreen owns naming, selection

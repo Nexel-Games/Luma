@@ -22,6 +22,7 @@
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Scene/AssetReferences.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
 #include "Luma/Editor/Panels/StaticMeshSlot.h"
@@ -920,6 +921,17 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onDropMesh = [this](const Math::Vec3& origin, const Math::Vec3& dir,
                             const std::string& mesh) { DropMesh(origin, dir, mesh); };
     ctx.onMeshDragEnd = [this] { m_bridge.ClearPlacementPreview(); };
+    ctx.onAssetRenamed = [this](const std::string& oldPath, const std::string& newPath) {
+        // Unreal leaves a redirector; Luma fixes the open scene up directly.
+        // Scenes that are not open keep the old path (see GOAL.md 5.6).
+        const u32 changed = RetargetAssetReferences(m_scene, oldPath, newPath);
+        m_bridge.OnMeshFileChanged(oldPath);
+        if (m_preview) m_preview->OnMeshFileChanged(oldPath);
+        if (changed > 0) {
+            LUMA_USER_INFO("Content", "Updated {} reference(s) to '{}' in the open scene (save it to keep them)",
+                           changed, newPath);
+        }
+    };
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);

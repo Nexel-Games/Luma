@@ -21,6 +21,7 @@ add_executable(LumaTests
     Serialization/ReflectionTests.cpp
     Scene/SceneSerializerTests.cpp
     Scene/MeshRendererSerializationTests.cpp
+    Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
     Math/MathTests.cpp
