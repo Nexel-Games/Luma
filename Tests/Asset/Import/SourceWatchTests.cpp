@@ -147,3 +147,25 @@ TEST_CASE("SourceWatch answers from its cache and checks in the background", "[i
         REQUIRE(watch.Query(asset) == SourceState::Unknown);
     }
 }
+
+TEST_CASE("Renaming an asset moves its .meta with it", "[import][rename]") {
+    Dir dir("luma-rename-meta");
+    WriteBytes(dir.root / "SM_Arm.lmesh", "mesh");
+    WriteBytes(dir.root / "SM_Arm.lmesh.meta", "{}");
+    std::string warning;
+    REQUIRE(RenameAssetFile(dir.root / "SM_Arm.lmesh", dir.root / "SM_RobotArm.lmesh", &warning));
+    CHECK(warning.empty());
+    CHECK(std::filesystem::exists(dir.root / "SM_RobotArm.lmesh"));
+    CHECK(std::filesystem::exists(dir.root / "SM_RobotArm.lmesh.meta"));
+    CHECK_FALSE(std::filesystem::exists(dir.root / "SM_Arm.lmesh"));
+    CHECK_FALSE(std::filesystem::exists(dir.root / "SM_Arm.lmesh.meta"));
+
+    // No sidecar: just the file. A taken name fails and changes nothing.
+    WriteBytes(dir.root / "T_A.png", "png");
+    WriteBytes(dir.root / "T_B.png", "png");
+    CHECK(RenameAssetFile(dir.root / "T_A.png", dir.root / "T_C.png", &warning));
+    std::string err;
+    CHECK_FALSE(RenameAssetFile(dir.root / "T_C.png", dir.root / "T_B.png", &err));
+    CHECK_FALSE(err.empty());
+    CHECK(std::filesystem::exists(dir.root / "T_C.png"));
+}

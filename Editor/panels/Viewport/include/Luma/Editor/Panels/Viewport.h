@@ -88,6 +88,7 @@ private:
     f32 m_frameMs = 0.0f;
     // Click-select tracking: a left press that ends without dragging picks.
     bool m_pickArmed = false;
+    bool m_meshPreviewing = false;  // a mesh drag is previewed in the viewport
     Slate::Vec2 m_pressPos{};
     bool m_altOrbit = false;  // Alt + left drag started an orbit
     bool m_flying = false;    // right button pressed inside the view

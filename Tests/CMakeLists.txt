@@ -24,6 +24,8 @@ add_executable(LumaTests
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
     Scene/SceneSerializerTests.cpp
+    Scene/MeshRendererSerializationTests.cpp
+    Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
     Math/MathTests.cpp
@@ -67,6 +69,8 @@ add_executable(LumaTests
     Editor/MaterialSceneBridgeTests.cpp
     Editor/MaterialEditorTests.cpp
     Editor/InspectorMaterialTests.cpp
+    Editor/StaticMeshSlotTests.cpp
+    Editor/MeshPlacementTests.cpp
     Editor/TransformGizmoTests.cpp
     Editor/BackgroundTasksTests.cpp
     VFS/PathTests.cpp
@@ -80,7 +84,7 @@ add_executable(LumaTests
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 

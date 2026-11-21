@@ -30,4 +30,10 @@ std::optional<ImportMetadata> ReadMetadata(const std::filesystem::path& assetFil
 std::filesystem::path MetadataPathFor(const std::filesystem::path& assetFile);
 std::string HashFile(const std::filesystem::path& file);
 
+// Renames/moves an asset file and its .meta sidecar (if any). Fails without
+// changing anything when the target exists or the file cannot be renamed;
+// a sidecar that cannot follow leaves the asset renamed and sets `warning`.
+bool RenameAssetFile(const std::filesystem::path& from, const std::filesystem::path& to,
+                     std::string* errorOrWarning);
+
 }  // namespace Luma::Import

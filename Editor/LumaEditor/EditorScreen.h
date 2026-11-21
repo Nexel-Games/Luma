@@ -20,6 +20,7 @@
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/MaterialEditor.h"
 #include "Luma/Editor/Panels/Viewport.h"
+#include "Luma/Editor/Panels/MeshPlacement.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "MaterialPreview.h"
 #include "PanelContext.h"
@@ -223,6 +224,12 @@ private:
     void CreateMaterialInstanceAsset(const std::string& parent, const std::filesystem::path& folder);
     void CreateMaterialFromTextures(const std::filesystem::path& texture);
     void DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& path);
+    // Static mesh drag and drop into the level: where it would land (bridge
+    // preview), and the real placement on release.
+    std::optional<Math::Vec3> MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
+                                               const std::string& mesh);
+    void PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);
+    void DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);
     // `desired` if no material asset uses it, else desired_1, desired_2, ...
     std::string UniqueMaterialPath(const std::string& desired);
     std::vector<std::string> ListAssets(bool materials) const;
@@ -232,6 +239,9 @@ private:
     // Nearest actor hit by a world ray (bounds of its mesh / a small sphere
     // for non-mesh actors). kNullEntity when nothing is hit.
     Entity PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const;
+    // Nearest mesh actor surface along the ray (its bounds), in world space.
+    std::optional<Editor::Panels::PlacementHit> PickSurface(const Math::Vec3& origin,
+                                                            const Math::Vec3& dir) const;
     // `path` relative to the project folder (for user-facing messages).
     std::string ProjectRelative(const std::filesystem::path& path) const;
 

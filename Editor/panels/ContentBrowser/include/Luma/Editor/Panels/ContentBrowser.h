@@ -202,7 +202,7 @@ private:
     static u64 NowMs() noexcept;
 
     // Inline rename lifecycle.
-    void CommitRename(const AssetData& a);
+    void CommitRename(const AssetData& a, PanelContext& ctx);
     void CancelRename() noexcept;
 };
 

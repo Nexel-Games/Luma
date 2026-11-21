@@ -26,7 +26,7 @@ enum class PreviewShape { Sphere, Cube, Plane, Cylinder };
 class MaterialPreview {
 public:
     MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
-                    Material::MaterialLibrary& library, const AssetRegistry& registry);
+                    Material::MaterialLibrary& library);
 
     // Renders `materialPath` on `shape`, orbiting by yaw/pitch (radians), at
     // width x height; `sky` = sky backdrop + sky light (else a dark studio).
@@ -36,12 +36,12 @@ public:
 
     // Square RGBA8 captures (top row first) for thumbnails.
     bool CaptureMaterial(std::string_view materialPath, u32 size, std::vector<u8>& outRgba);
-    bool CaptureMesh(const AssetId& mesh, u32 size, std::vector<u8>& outRgba);
+    bool CaptureMesh(std::string_view meshPath, u32 size, std::vector<u8>& outRgba);
     // External file changes (the preview has its own GPU copies).
     void OnTextureFileChanged(std::string_view virtualPath) {
         m_bridge.OnTextureFileChanged(virtualPath);
     }
-    void OnMeshFileChanged(const AssetId& mesh) { m_bridge.OnMeshFileChanged(mesh); }
+    void OnMeshFileChanged(std::string_view meshPath) { m_bridge.OnMeshFileChanged(meshPath); }
 
     // CaptureMaterial written to a PNG.
     bool Capture(std::string_view materialPath, const std::filesystem::path& png, u32 size);
@@ -57,7 +57,6 @@ private:
 
     Rendering::VulkanDeferredRenderer& m_renderer;
     Material::MaterialLibrary& m_library;
-    const AssetRegistry& m_registry;
     Editor::MaterialSceneBridge m_bridge;
     Scene m_scene;
     Entity m_actor = kNullEntity;

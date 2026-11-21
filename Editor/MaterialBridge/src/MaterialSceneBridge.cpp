@@ -46,9 +46,22 @@ u64 MaterialKey(const std::string& slotKey) {
 
 u64 TextureKey(const std::string& path) { return Hash(path, 0x9e3779b97f4a7c15ull); }
 
-u64 MeshKey(const AssetId& id) {
-    return Hash(std::string_view(reinterpret_cast<const char*>(id.bytes), sizeof(id.bytes)),
-                0x6a09e667f3bcc909ull);
+u64 MeshKey(std::string_view path) { return Hash(path, 0x6a09e667f3bcc909ull); }
+
+// Inspector label for a section: the material asset's name without its
+// M_/MI_ prefix ("/Game/M_Paint" -> "Paint"), the raw source name for
+// non-asset names ("lambert1"), else "Element N".
+std::string SlotNameFor(const std::string& materialName, u32 index) {
+    if (materialName.empty()) return "Element " + std::to_string(index);
+    if (materialName.front() != '/') return materialName;
+    std::string stem = materialName.substr(materialName.find_last_of('/') + 1);
+    for (std::string_view prefix : {std::string_view("MI_"), std::string_view("M_")}) {
+        if (stem.size() > prefix.size() && stem.compare(0, prefix.size(), prefix) == 0) {
+            stem.erase(0, prefix.size());
+            break;
+        }
+    }
+    return stem.empty() ? "Element " + std::to_string(index) : stem;
 }
 
 // One CPU image ready for upload.
@@ -93,8 +106,7 @@ std::string MaterialSceneBridge::SlotKey(std::string_view path) {
 }
 
 void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
-                               Material::MaterialLibrary& library,
-                               const AssetRegistry& registry) {
+                               Material::MaterialLibrary& library) {
     // Changed texture files: drop the GPU copy; materials sampling it rebuild.
     for (const std::string& path : m_staleTextures) {
         if (auto it = m_textures.find(path); it != m_textures.end()) {
@@ -109,8 +121,8 @@ void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
         }
     }
     m_staleTextures.clear();
-    for (const AssetId& id : m_staleMeshes) {
-        if (auto it = m_meshes.find(id); it != m_meshes.end()) {
+    for (const std::string& path : m_staleMeshes) {
+        if (auto it = m_meshes.find(path); it != m_meshes.end()) {
             if (it->second.handle != kInvalidHandle) renderer.ReleaseMesh(it->second.handle);
             m_meshes.erase(it);
         }
@@ -118,10 +130,22 @@ void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
     m_staleMeshes.clear();
 
     std::vector<std::string> used{std::string{}};  // the Default Material, always
+    if (m_preview) {
+        SyncMesh(m_preview->first, renderer, library.Paths());
+        if (const auto* sections = Sections(m_preview->first)) {
+            for (const MeshSectionInfo& s : *sections) used.push_back(SlotKey(s.defaultMaterial));
+        }
+    }
     auto view = scene.Registry().view<const TransformComponent, const MeshRendererComponent>();
     for (Entity e : view) {
         const auto& mr = view.get<const MeshRendererComponent>(e);
-        if (mr.UsesMeshAsset()) SyncMesh(mr.meshAsset, renderer, registry);
+        if (mr.UsesMeshAsset()) {
+            SyncMesh(mr.mesh, renderer, library.Paths());
+            // The mesh's own materials are the defaults for empty slots.
+            if (const auto* sections = Sections(mr.mesh)) {
+                for (const MeshSectionInfo& s : *sections) used.push_back(SlotKey(s.defaultMaterial));
+            }
+        }
         for (const std::string& slot : mr.materials) used.push_back(SlotKey(slot));
     }
     std::sort(used.begin(), used.end());
@@ -202,22 +226,27 @@ const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(
     return entry;
 }
 
-void MaterialSceneBridge::SyncMesh(const AssetId& id, SceneRenderer& renderer,
-                                   const AssetRegistry& registry) {
-    auto [it, inserted] = m_meshes.try_emplace(id);
+void MaterialSceneBridge::SyncMesh(const std::string& path, SceneRenderer& renderer,
+                                   const AssetPathResolver& paths) {
+    auto [it, inserted] = m_meshes.try_emplace(path);
     if (!inserted) return;
     MeshEntry& entry = it->second;
-    const AssetData* data = registry.Lookup(id);
     std::optional<LumaMeshData> source;
-    if (data) source = LumaMeshIO::ReadMesh(data->packagePath);
+    if (const auto file = paths.ToFile(path, {"lmesh"})) source = LumaMeshIO::ReadMesh(*file);
     if (!source || !source->IsValid()) {
         entry.failed = true;
-        LUMA_USER_WARN("Meshes", "Mesh '{}' could not be loaded; drawing its primitive instead",
-                       data ? data->assetName : std::string("(missing asset)"));
+        LUMA_USER_WARN("Meshes", "Mesh '{}' could not be loaded; drawing its primitive instead", path);
         return;
     }
+    for (u32 s = 0; s < source->submeshes.size(); ++s) {
+        const std::string& name = source->submeshes[s].materialName;
+        MeshSectionInfo info;
+        info.slotName = SlotNameFor(name, s);
+        if (!name.empty() && name.front() == '/') info.defaultMaterial = name;
+        entry.sections.push_back(std::move(info));
+    }
     const MeshData mesh = ConvertLumaMesh(*source);
-    entry.handle = renderer.UploadMesh(MeshKey(id), mesh);
+    entry.handle = renderer.UploadMesh(MeshKey(path), mesh);
     entry.failed = entry.handle == kInvalidHandle;
     entry.sectionCount = static_cast<u32>(std::max<usize>(mesh.sections.size(), 1));
     if (!mesh.vertices.empty()) {
@@ -244,40 +273,80 @@ void MaterialSceneBridge::BuildInstances(const Scene& scene, Entity selected,
         inst.primitive = mr.primitive;
         inst.selected = e == selected;
         inst.sectionCount = 1;
+        const std::vector<MeshSectionInfo>* sections = nullptr;
         if (mr.UsesMeshAsset()) {
-            if (auto it = m_meshes.find(mr.meshAsset);
-                it != m_meshes.end() && !it->second.failed) {
+            if (auto it = m_meshes.find(mr.mesh); it != m_meshes.end() && !it->second.failed) {
                 inst.mesh = it->second.handle;
                 inst.sectionCount = it->second.sectionCount;
+                sections = &it->second.sections;
             }
         }
         const u32 slots = std::min(inst.sectionCount, kMaxSectionMaterials);
         for (u32 s = 0; s < slots; ++s) {
-            inst.sectionMaterials[s] =
-                s < mr.materials.size() ? HandleFor(mr.materials[s]) : kDefaultMaterialHandle;
+            // Override > the mesh's own material > the Default Material.
+            if (s < mr.materials.size() && !mr.materials[s].empty()) {
+                inst.sectionMaterials[s] = HandleFor(mr.materials[s]);
+            } else if (sections && s < sections->size()) {
+                inst.sectionMaterials[s] = HandleFor((*sections)[s].defaultMaterial);
+            } else {
+                inst.sectionMaterials[s] = kDefaultMaterialHandle;
+            }
         }
         out.push_back(inst);
     }
+    if (m_preview) {
+        auto it = m_meshes.find(m_preview->first);
+        if (it != m_meshes.end() && !it->second.failed) {
+            SceneInstance inst;
+            inst.model = m_preview->second;
+            inst.mesh = it->second.handle;
+            inst.selected = true;  // outlined, like Unreal's drop preview
+            inst.sectionCount = it->second.sectionCount;
+            const u32 slots = std::min(inst.sectionCount, kMaxSectionMaterials);
+            for (u32 s = 0; s < slots; ++s) {
+                inst.sectionMaterials[s] = s < it->second.sections.size()
+                                               ? HandleFor(it->second.sections[s].defaultMaterial)
+                                               : kDefaultMaterialHandle;
+            }
+            out.push_back(inst);
+        }
+    }
 }
+
+void MaterialSceneBridge::SetPlacementPreview(std::string meshPath, const Math::Mat4& model) {
+    m_preview.emplace(std::move(meshPath), model);
+}
+
+void MaterialSceneBridge::ClearPlacementPreview() { m_preview.reset(); }
 
 void MaterialSceneBridge::OnTextureFileChanged(std::string_view virtualPath) {
     m_staleTextures.emplace_back(virtualPath);
 }
 
-void MaterialSceneBridge::OnMeshFileChanged(const AssetId& mesh) {
+void MaterialSceneBridge::OnMeshFileChanged(std::string_view meshPath) {
     // Released (the renderer frees it once no frame draws it) and re-read on
     // the next Sync.
-    m_staleMeshes.push_back(mesh);
+    m_staleMeshes.emplace_back(meshPath);
 }
 
-const MeshBounds* MaterialSceneBridge::Bounds(const AssetId& mesh) const {
-    auto it = m_meshes.find(mesh);
+const MeshBounds* MaterialSceneBridge::Bounds(std::string_view meshPath) const {
+    auto it = m_meshes.find(std::string(meshPath));
     return it != m_meshes.end() && !it->second.failed ? &it->second.bounds : nullptr;
+}
+
+const std::vector<MeshSectionInfo>* MaterialSceneBridge::Sections(std::string_view meshPath) const {
+    auto it = m_meshes.find(std::string(meshPath));
+    return it != m_meshes.end() && !it->second.failed ? &it->second.sections : nullptr;
+}
+
+void MaterialSceneBridge::EnsureMesh(std::string_view meshPath, SceneRenderer& renderer,
+                                     const AssetPathResolver& paths) {
+    if (!meshPath.empty()) SyncMesh(std::string(meshPath), renderer, paths);
 }
 
 u32 MaterialSceneBridge::SectionCount(const MeshRendererComponent& mesh) const {
     if (!mesh.UsesMeshAsset()) return 1;
-    auto it = m_meshes.find(mesh.meshAsset);
+    auto it = m_meshes.find(mesh.mesh);
     return it != m_meshes.end() && !it->second.failed ? it->second.sectionCount : 1u;
 }
 

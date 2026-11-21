@@ -36,6 +36,9 @@ public:
     // Material slot rows laid out by the last Draw (drop targets), one per
     // mesh section.
     const std::vector<Slate::Rect>& MaterialSlotRects() const { return m_slotRects; }
+    // The Static Mesh row laid out by the last Draw (drop target); empty when
+    // the selection has no Mesh Renderer.
+    const Slate::Rect& StaticMeshRowRect() const { return m_meshRowRect; }
 
     // Components the Details panel knows how to add/remove/reset.
     enum class ComponentKind { Transform, MeshRenderer, Camera, Light,
@@ -53,6 +56,10 @@ private:
     // browse, clear, create instance; drop target), extra slots as Unused.
     void DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx, MeshRendererComponent& mr,
                            f32 x, f32& y, f32 w);
+    // Mesh Renderer "Static Mesh" row (Unreal Details): thumbnail, searchable
+    // mesh picker, Use Selected / Browse / Reset; accepts dropped meshes.
+    void DrawStaticMeshRow(Slate::Context& ui, PanelContext& ctx, MeshRendererComponent& mr,
+                           f32 x, f32& y, f32 w);
 
     // Floating color pickers for the color property rows. State lives here so
     // each picker's edit buffers + open state persist across frames.
@@ -69,6 +76,7 @@ private:
     f32 m_scroll = 0.0f;
 
     std::vector<Slate::Rect> m_slotRects;
+    Slate::Rect m_meshRowRect{};
 };
 
 }  // namespace Luma::Editor::Panels

@@ -540,12 +540,15 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
 
         bool selected = (m_selected == a->id);
 
-        // Materials and textures drag onto Inspector slots / the viewport.
+        // Materials and textures drag onto Inspector slots / the viewport;
+        // static meshes into the level or onto the Inspector's Static Mesh row.
         if (!a->IsFolder() && ctx.virtualPathOf &&
             (a->type == AssetType::Material || a->type == AssetType::MaterialInstance ||
-             a->type == AssetType::Texture)) {
+             a->type == AssetType::Texture || a->type == AssetType::Mesh)) {
             Slate::DragPayload payload;
-            payload.type = a->type == AssetType::Texture ? "asset/texture" : "asset/material";
+            payload.type = a->type == AssetType::Texture ? "asset/texture"
+                           : a->type == AssetType::Mesh  ? "asset/mesh"
+                                                         : "asset/material";
             payload.data = ctx.virtualPathOf(a->packagePath);
             payload.label = a->assetName;
             if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {
@@ -679,13 +682,13 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
                 m_renameBuf = buf;
             }
             if (ui.enterPressed()) {
-                CommitRename(*a);
+                CommitRename(*a, ctx);
                 m_renaming = AssetId{};
             } else if (ui.keyEscape()) {
                 CancelRename();
                 m_renaming = AssetId{};
             } else if (ui.mouseReleased(0) && !nameR.Contains(ui.mouse())) {
-                CommitRename(*a);
+                CommitRename(*a, ctx);
                 m_renaming = AssetId{};
             }
         } else {
@@ -1133,7 +1136,7 @@ u64 ContentBrowserPanel::NowMs() noexcept {
         .count();
 }
 
-void ContentBrowserPanel::CommitRename(const AssetData& a) {
+void ContentBrowserPanel::CommitRename(const AssetData& a, PanelContext& ctx) {
     std::string newName = m_renameBuf;
     if (newName.empty() || newName == a.assetName) {
         m_renaming = AssetId{};
@@ -1146,16 +1149,22 @@ void ContentBrowserPanel::CommitRename(const AssetData& a) {
                  fs::path(newName + a.packagePath.extension().string());
     fs::path oldParent = a.packagePath.parent_path();
 
-    try {
-        fs::rename(a.packagePath, newPackage);
-    } catch (const std::filesystem::filesystem_error& e) {
-        LUMA_USER_ERROR("Content", "Could not rename '{}' to '{}': {}",
-                        a.assetName, newName, e.what());
+    // Virtual paths before the rename (the file must still exist to map).
+    const std::string oldVirtual = ctx.virtualPathOf ? ctx.virtualPathOf(a.packagePath) : std::string{};
+    std::string problem;
+    if (!Import::RenameAssetFile(a.packagePath, newPackage, &problem)) {
+        LUMA_USER_ERROR("Content", "Could not rename '{}' to '{}': {}", a.assetName, newName, problem);
         m_renaming = AssetId{};
         return;
     }
+    if (!problem.empty()) LUMA_USER_WARN("Content", "Renamed '{}', but {}", a.assetName, problem);
 
     LUMA_USER_INFO("Content", "Renamed '{}' to '{}'", a.assetName, newName);
+    // Scenes and editors that reference the old path follow it.
+    if (ctx.onAssetRenamed && ctx.virtualPathOf && !oldVirtual.empty()) {
+        const std::string newVirtual = ctx.virtualPathOf(newPackage);
+        if (!newVirtual.empty()) ctx.onAssetRenamed(oldVirtual, newVirtual);
+    }
     if (m_registry) {
         m_registry->RemoveUnder(oldParent);
         m_registry->RefreshPath(newPackage);

@@ -22,8 +22,10 @@
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Scene/AssetReferences.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
+#include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
@@ -155,7 +157,7 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
         ThumbnailManager::Get().SetRenderCallback({});
         return;
     }
-    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials, m_assetRegistry);
+    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials);
     // Material and mesh thumbnails render on the GPU through the preview
     // scene, so they match the viewport (square captures).
     ThumbnailManager::Get().SetRenderCallback(
@@ -167,8 +169,8 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
                 return virtualPath && m_preview->CaptureMaterial(*virtualPath, width, rgba);
             }
             if (type == AssetType::Mesh) {
-                const AssetData* data = m_assetRegistry.LookupByPath(path);
-                return data && m_preview->CaptureMesh(data->id, width, rgba);
+                const auto virtualPath = m_assetPaths.ToVirtual(path);
+                return virtualPath && m_preview->CaptureMesh(*virtualPath, width, rgba);
             }
             return false;
         });
@@ -464,6 +466,106 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
     OpenMaterialEditor(path);
 }
 
+std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math::Vec3& origin,
+                                                                     const Math::Vec3& dir) const {
+    using namespace Math;
+    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto transformPoint = [](const Mat4& m, const Vec3& p) {
+        return Vec3(m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
+                    m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
+                    m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]);
+    };
+    auto transformDir = [](const Mat4& m, const Vec3& v) {
+        return Vec3(m.m[0] * v.x + m.m[4] * v.y + m.m[8] * v.z,
+                    m.m[1] * v.x + m.m[5] * v.y + m.m[9] * v.z,
+                    m.m[2] * v.x + m.m[6] * v.y + m.m[10] * v.z);
+    };
+    std::optional<Editor::Panels::PlacementHit> best;
+    f32 bestDistance = 1e30f;
+    auto view = reg.view<const TransformComponent, const MeshRendererComponent>();
+    for (Entity e : view) {
+        const auto& tf = view.get<const TransformComponent>(e);
+        const auto& mr = view.get<const MeshRendererComponent>(e);
+        Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
+        if (mr.UsesMeshAsset()) {
+            const Editor::MeshBounds* bounds = m_bridge.Bounds(mr.mesh);
+            if (!bounds) continue;
+            lo = bounds->min;
+            hi = bounds->max;
+        } else if (mr.primitive == MeshPrimitive::Plane) {
+            lo.y = hi.y = 0.0f;  // the plane's surface
+        }
+        const Mat4 model = tf.Matrix();
+        const Mat4 inv = Inverse(model);
+        const auto local = Editor::Panels::RayAabb(transformPoint(inv, origin), transformDir(inv, dir), lo, hi);
+        if (!local) continue;
+        const Vec3 world = transformPoint(model, local->point);
+        const Vec3 d = world - origin;
+        const f32 distance = Dot(d, d);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            Vec3 n = transformDir(model, local->normal);
+            const f32 len = std::sqrt(Dot(n, n));
+            best = Editor::Panels::PlacementHit{world, len > 1e-6f ? n * (1.0f / len) : Vec3(0, 1, 0)};
+        }
+    }
+    return best;
+}
+
+std::optional<Math::Vec3> EditorScreen::MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
+                                                         const std::string& mesh) {
+    if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
+        m_bridge.EnsureMesh(mesh, *sceneRenderer, m_assetPaths);
+    }
+    const Editor::MeshBounds* bounds = m_bridge.Bounds(mesh);
+    Editor::Panels::MeshPlacementInput in;
+    in.rayOrigin = origin;
+    in.rayDir = dir;
+    in.hit = PickSurface(origin, dir);
+    if (bounds) {
+        in.boundsMin = bounds->min;
+        in.boundsMax = bounds->max;
+    }
+    in.snap = m_gizmo.Snap().translate;
+    in.snapStep = m_gizmo.Snap().translateStep;
+    if (!bounds) return std::nullopt;  // not loaded (or failed): nothing to rest
+    return Editor::Panels::ComputeMeshPlacement(in);
+}
+
+void EditorScreen::PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir,
+                                   const std::string& mesh) {
+    if (const auto position = MeshDropPosition(origin, dir, mesh)) {
+        m_bridge.SetPlacementPreview(mesh, Math::Translate(*position));
+    } else {
+        m_bridge.ClearPlacementPreview();
+    }
+}
+
+void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh) {
+    m_bridge.ClearPlacementPreview();
+    // A mesh that fails to load is still placed (it draws its primitive and
+    // the bridge warns once), on the surface under the cursor.
+    Math::Vec3 position;
+    if (const auto placed = MeshDropPosition(origin, dir, mesh)) {
+        position = *placed;
+    } else {
+        Editor::Panels::MeshPlacementInput in;
+        in.rayOrigin = origin;
+        in.rayDir = dir;
+        in.hit = PickSurface(origin, dir);
+        in.boundsMin = {-0.5f, -0.5f, -0.5f};
+        in.boundsMax = {0.5f, 0.5f, 0.5f};
+        position = Editor::Panels::ComputeMeshPlacement(in);
+    }
+    const std::string name = UniqueEntityName(m_scene, Editor::Panels::AssetNameOf(mesh));
+    const Entity e = m_scene.CreateEntity(name);
+    m_scene.Registry().get<TransformComponent>(e).position = position;
+    auto& mr = m_scene.Registry().emplace<MeshRendererComponent>(e);
+    Editor::Panels::AssignStaticMesh(mr, mesh);
+    m_selected = e;
+    LUMA_USER_INFO("Level", "Placed '{}'", name);
+}
+
 void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) {
     const Entity e = PickEntity(origin, dir);
@@ -482,7 +584,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
 TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
     if (!m_renderer) return 0;
     auto file = m_assetPaths.ToFile(assetPath, {"png", "jpg", "jpeg", "tga", "bmp", "psd", "gif",
-                                                "lmat", "lmatinst"});
+                                                "lmat", "lmatinst", "lmesh"});
     if (!file) return 0;
     const AssetData* data = m_assetRegistry.LookupByPath(*file);
     return data ? static_cast<TextureHandle>(
@@ -557,10 +659,8 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
         m_materials->Reload(*virtualPath);
         RefreshMaterialThumbnails();
     } else if (ext == ".lmesh") {
-        if (const AssetData* data = m_assetRegistry.LookupByPath(file)) {
-            m_bridge.OnMeshFileChanged(data->id);
-            if (m_preview) m_preview->OnMeshFileChanged(data->id);
-        }
+        m_bridge.OnMeshFileChanged(*virtualPath);
+        if (m_preview) m_preview->OnMeshFileChanged(*virtualPath);
     } else {
         // Changed or removed texture: re-validate (missing -> constant, warned
         // once) and re-upload it in the viewport and the preview.
@@ -783,6 +883,23 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.assetThumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
     ctx.listTextures = [this] { return ListAssets(false); };
     ctx.listMaterials = [this] { return ListAssets(true); };
+    ctx.listMeshes = [this] {
+        std::vector<std::string> out;
+        for (const AssetData* a : m_assetRegistry.Filter(AssetType::Mesh, std::nullopt, {})) {
+            if (auto vp = m_assetPaths.ToVirtual(a->packagePath)) out.push_back(*vp);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    ctx.meshSections = [this](Entity e) {
+        std::vector<Editor::Panels::MeshSlotInfo> out;
+        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        if (!mesh || !mesh->UsesMeshAsset()) return out;
+        if (const auto* sections = m_bridge.Sections(mesh->mesh)) {
+            for (const Editor::MeshSectionInfo& s : *sections) out.push_back({s.slotName, s.defaultMaterial});
+        }
+        return out;
+    };
     ctx.onOpenAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
     ctx.virtualPathOf = [this](const std::filesystem::path& file) {
         return m_assetPaths.ToVirtual(file).value_or(std::string{});
@@ -799,11 +916,27 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     };
     ctx.onDropMaterial = [this](const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) { DropMaterial(origin, dir, path); };
+    ctx.onMeshDragPreview = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                                   const std::string& mesh) { PreviewMeshDrop(origin, dir, mesh); };
+    ctx.onDropMesh = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                            const std::string& mesh) { DropMesh(origin, dir, mesh); };
+    ctx.onMeshDragEnd = [this] { m_bridge.ClearPlacementPreview(); };
+    ctx.onAssetRenamed = [this](const std::string& oldPath, const std::string& newPath) {
+        // Unreal leaves a redirector; Luma fixes the open scene up directly.
+        // Scenes that are not open keep the old path (see GOAL.md 5.6).
+        const u32 changed = RetargetAssetReferences(m_scene, oldPath, newPath);
+        m_bridge.OnMeshFileChanged(oldPath);
+        if (m_preview) m_preview->OnMeshFileChanged(oldPath);
+        if (changed > 0) {
+            LUMA_USER_INFO("Content", "Updated {} reference(s) to '{}' in the open scene (save it to keep them)",
+                           changed, newPath);
+        }
+    };
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);
-        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "png", "jpg", "jpeg", "tga",
-                                                          "bmp", "psd", "gif"})) {
+        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "lmesh", "png", "jpg", "jpeg",
+                                                          "tga", "bmp", "psd", "gif"})) {
             m_contentBrowser.BrowseTo(*file);
         }
     };
@@ -848,7 +981,7 @@ SceneView EditorScreen::BuildSceneView() {
     // through the renderer's SceneRenderer; the selection draws normally
     // (the selection outline marks it).
     if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
-        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials, m_assetRegistry);
+        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials);
     }
     m_bridge.BuildInstances(m_scene, m_selected, m_instances);
 
@@ -1558,7 +1691,7 @@ Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir)
             // unnormalized local direction keeps t in world ray units).
             Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
             if (mr->UsesMeshAsset()) {
-                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->meshAsset)) {
+                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->mesh)) {
                     lo = bounds->min;
                     hi = bounds->max;
                 }
