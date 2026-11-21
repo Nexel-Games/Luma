@@ -72,6 +72,7 @@ add_executable(LumaTests
     Rendering/MeshGeometryTests.cpp
     Rendering/MaterialGpuDescTests.cpp
     Rendering/VulkanTextureCacheTests.cpp
+    Rendering/VulkanUITextureTests.cpp
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 

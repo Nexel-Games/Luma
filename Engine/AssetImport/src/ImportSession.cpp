@@ -1,5 +1,6 @@
 #include "Luma/AssetImport/ImportSession.h"
 #include "Luma/AssetImport/SourceWatch.h"
+#include "Luma/AssetImport/Translators/ModelTranslator.h"
 
 #include "Luma/AssetImport/ImportMetadata.h"
 #include "Luma/Core/Log.h"
@@ -139,6 +140,11 @@ void ImportSession::Run() {
     std::vector<AssetRequest> materials;
     bool cancelled = false;
     const size_t total = m_plan.requests.size();
+    // One parse per source model for the whole run (a 100-mesh FBX is read
+    // once, not 100 times).
+    ModelPayloadCache models;
+    FactoryContext context = Context();
+    context.modelCache = &models;
     for (size_t index = 0; index < total; ++index) {
         if (IsCancelled()) {
             cancelled = true;
@@ -148,7 +154,7 @@ void ImportSession::Run() {
         if (request.type == AssetType::Material) {
             materials.push_back(request);
         } else {
-            FactoryResult result = CreateAsset(request, Context());
+            FactoryResult result = CreateAsset(request, context);
             if (!result.ok && result.error.find("cancel") != std::string::npos) {
                 cancelled = true;
             }

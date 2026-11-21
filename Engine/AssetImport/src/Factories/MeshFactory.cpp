@@ -66,7 +66,8 @@ FactoryResult CreateMeshAsset(const AssetRequest& request, const FactoryContext&
     std::string error;
     ModelTranslator translator;
     std::vector<Luma::LumaMeshData> built =
-        translator.BuildMeshes(primary.sourceFile, names, OptionsFrom(context.settings.Meshes()), &error);
+        translator.BuildMeshes(primary.sourceFile, names, OptionsFrom(context.settings.Meshes()), &error,
+                               context.modelCache);
     if (built.empty()) {
         return Failed(error.empty() ? "The mesh could not be built" : error);
     }

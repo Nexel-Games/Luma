@@ -46,17 +46,7 @@ VulkanUIPass::VulkanUIPass(VkPhysicalDevice physical, VkDevice device,
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
                                          &m_setLayout));
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 128;
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolInfo.maxSets = 128;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
-    VK_CHECK(vkCreateDescriptorPool(device, &poolInfo, nullptr,
-                                    &m_descriptorPool));
+    AddDescriptorPool();
 
     // Pipeline layout: set 0 + push constant (screen size).
     VkPushConstantRange pushRange{};
@@ -201,18 +191,61 @@ VulkanUIPass::~VulkanUIPass() {
     if (m_pipeline) vkDestroyPipeline(m_device, m_pipeline, nullptr);
     if (m_pipelineLayout)
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-    if (m_descriptorPool)
-        vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+    for (VkDescriptorPool pool : m_descriptorPools)
+        vkDestroyDescriptorPool(m_device, pool, nullptr);
     if (m_setLayout)
         vkDestroyDescriptorSetLayout(m_device, m_setLayout, nullptr);
     if (m_sampler) vkDestroySampler(m_device, m_sampler, nullptr);
 }
 
+VkDescriptorPool VulkanUIPass::AddDescriptorPool() {
+    constexpr u32 kSetsPerPool = 256;
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = kSetsPerPool;
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = kSetsPerPool;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &pool));
+    m_descriptorPools.push_back(pool);
+    return pool;
+}
+
+VkDescriptorSet VulkanUIPass::AllocateSet(VkDescriptorPool* fromPool) {
+    VkDescriptorSetAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc.descriptorSetCount = 1;
+    alloc.pSetLayouts = &m_setLayout;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    // Newest pool first: older ones are usually full.
+    for (auto it = m_descriptorPools.rbegin(); it != m_descriptorPools.rend(); ++it) {
+        alloc.descriptorPool = *it;
+        const VkResult result = vkAllocateDescriptorSets(m_device, &alloc, &set);
+        if (result == VK_SUCCESS) {
+            *fromPool = *it;
+            return set;
+        }
+        if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL) {
+            VK_CHECK(result);
+        }
+    }
+    alloc.descriptorPool = AddDescriptorPool();
+    VK_CHECK(vkAllocateDescriptorSets(m_device, &alloc, &set));
+    *fromPool = alloc.descriptorPool;
+    return set;
+}
+
 TextureHandle VulkanUIPass::CreateTexture(u32 width, u32 height,
                                           const void* pixels) {
+    VkDescriptorPool setPool = VK_NULL_HANDLE;
+    const VkDescriptorSet set = AllocateSet(&setPool);
     auto texture = std::make_unique<VulkanTexture>(
         m_physical, m_device, m_uploadPool, m_uploadQueue, width, height,
-        pixels, m_descriptorPool, m_setLayout, m_sampler);
+        pixels, set, setPool, m_sampler);
     TextureHandle handle = m_nextHandle++;
     m_textures.emplace(handle, std::move(texture));
     return handle;
@@ -224,13 +257,8 @@ void VulkanUIPass::DestroyTexture(TextureHandle handle) {
 }
 
 TextureHandle VulkanUIPass::RegisterExternalTexture(VkImageView view) {
-    VkDescriptorSetAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc.descriptorPool = m_descriptorPool;
-    alloc.descriptorSetCount = 1;
-    alloc.pSetLayouts = &m_setLayout;
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    VK_CHECK(vkAllocateDescriptorSets(m_device, &alloc, &set));
+    VkDescriptorPool setPool = VK_NULL_HANDLE;
+    const VkDescriptorSet set = AllocateSet(&setPool);
 
     TextureHandle handle = m_nextHandle++;
     m_externalSets.emplace(handle, set);

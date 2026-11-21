@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +37,25 @@ struct ModelPayloadOptions {
     AxisOverride axis = AxisOverride::Auto;
 };
 
+// Parsed source models kept for one import run: a file with many meshes is
+// read once instead of once per mesh asset. Holds the most recent model only
+// (requests are grouped by file), so memory stays bounded. Not thread-safe;
+// one per import worker.
+class ModelPayloadCache {
+public:
+    ModelPayloadCache();
+    ~ModelPayloadCache();
+    ModelPayloadCache(const ModelPayloadCache&) = delete;
+    ModelPayloadCache& operator=(const ModelPayloadCache&) = delete;
+    u32 Reads() const { return m_reads; }  // files actually parsed
+
+private:
+    friend class ModelTranslator;
+    struct Entry;
+    std::unique_ptr<Entry> m_entry;
+    u32 m_reads = 0;
+};
+
 class ModelTranslator final : public ITranslator {
 public:
     std::string_view Name() const override;
@@ -48,7 +68,8 @@ public:
     std::vector<Luma::LumaMeshData> BuildMeshes(const std::filesystem::path& file,
                                                 const std::vector<std::string>& meshNodeNames,
                                                 const ModelPayloadOptions& options,
-                                                std::string* error);
+                                                std::string* error,
+                                                ModelPayloadCache* cache = nullptr);
 };
 
 }  // namespace Luma::Import

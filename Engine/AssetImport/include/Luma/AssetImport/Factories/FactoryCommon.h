@@ -14,12 +14,16 @@ class MaterialLibrary;
 
 namespace Luma::Import {
 
+class ModelPayloadCache;
+
 struct FactoryContext {
     const ImportScene& scene;
     const PipelineStack& settings;
     Material::MaterialLibrary* materials;
     const AssetPathResolver& paths;
     std::function<bool()> cancelled;
+    // Parsed models shared by the mesh requests of one run (optional).
+    ModelPayloadCache* modelCache = nullptr;
 };
 
 struct FactoryResult {

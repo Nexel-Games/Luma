@@ -49,7 +49,13 @@ private:
 
     VkSampler m_sampler = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_setLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    // Combined-image-sampler sets for UI textures. Pools are added on demand
+    // (thumbnails alone can need hundreds); sets are freed back individually.
+    std::vector<VkDescriptorPool> m_descriptorPools;
+    VkDescriptorPool AddDescriptorPool();
+    // Allocates one set from the first pool with room (adding a pool when all
+    // are full). Returns the pool it came from via `fromPool`.
+    VkDescriptorSet AllocateSet(VkDescriptorPool* fromPool);
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pipeline = VK_NULL_HANDLE;
 

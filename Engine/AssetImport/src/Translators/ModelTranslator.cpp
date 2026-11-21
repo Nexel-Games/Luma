@@ -593,15 +593,55 @@ bool ModelTranslator::Translate(const std::filesystem::path& file, ImportScene& 
     return true;
 }
 
+struct ModelPayloadCache::Entry {
+    std::string path;
+    bool importNormals = true;
+    f32 smoothingAngleDeg = 0.0f;
+    bool computeTangents = true;
+    Assimp::Importer importer;  // owns `scene`
+    const aiScene* scene = nullptr;
+
+    // Only the options that change how Assimp reads the file; scale, offsets,
+    // pivot, axis, UV flip and combining are applied afterwards.
+    bool Matches(const std::string& key, const ModelPayloadOptions& o) const {
+        return path == key && importNormals == o.importNormals && smoothingAngleDeg == o.smoothingAngleDeg &&
+               computeTangents == o.computeTangents;
+    }
+};
+
+ModelPayloadCache::ModelPayloadCache() = default;
+ModelPayloadCache::~ModelPayloadCache() = default;
+
 std::vector<Luma::LumaMeshData> ModelTranslator::BuildMeshes(const std::filesystem::path& file,
                                                             const std::vector<std::string>& meshNodeNames,
                                                             const ModelPayloadOptions& options,
-                                                            std::string* error) {
+                                                            std::string* error,
+                                                            ModelPayloadCache* cache) {
     if (error != nullptr) {
         *error = {};
     }
     Assimp::Importer importer;
-    const aiScene* scene = ReadForPayload(importer, file, options, error);
+    const aiScene* scene = nullptr;
+    if (cache != nullptr) {
+        const std::string key = file.lexically_normal().generic_string();
+        if (cache->m_entry == nullptr || !cache->m_entry->Matches(key, options)) {
+            cache->m_entry.reset();  // release the previous model before reading the next
+            auto entry = std::make_unique<ModelPayloadCache::Entry>();
+            entry->scene = ReadForPayload(entry->importer, file, options, error);
+            if (entry->scene == nullptr) {
+                return {};
+            }
+            entry->path = key;
+            entry->importNormals = options.importNormals;
+            entry->smoothingAngleDeg = options.smoothingAngleDeg;
+            entry->computeTangents = options.computeTangents;
+            ++cache->m_reads;
+            cache->m_entry = std::move(entry);
+        }
+        scene = cache->m_entry->scene;
+    } else {
+        scene = ReadForPayload(importer, file, options, error);
+    }
     if (scene == nullptr) {
         return {};
     }

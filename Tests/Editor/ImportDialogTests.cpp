@@ -266,3 +266,32 @@ TEST_CASE("Typing a value and pressing Enter opens no drop-down", "[import][dial
     REQUIRE_THAT(session.Settings().Meshes().GetFloat("uniformScale"), WithinAbs(2.0, 1e-4));
     REQUIRE_FALSE(h.ui.ctx.AnyMenuOpen());
 }
+
+TEST_CASE("A reimport does not change the remembered import settings", "[import][dialog]") {
+    std::string error;
+    ImportSession session;
+    REQUIRE(session.Translate({Fixture("robot.gltf")}, &error));
+    const auto config = std::filesystem::temp_directory_path() / "luma-import-reimport-last";
+    std::filesystem::remove_all(config);
+    std::filesystem::create_directories(config);
+
+    DialogHarness h;
+    ImportDialog::Action action = ImportDialog::Action::None;
+    auto draw = [&] { action = h.dialog.Draw(h.ui.ctx, 1400.0f, 900.0f); };
+    h.dialog.Open(&session, config / "Assets", "/Game", true);
+    h.dialog.LoadPresets(config);
+    session.Settings().Meshes().Set("uniformScale", 2.0);
+    session.Settings().Common().Set("conflict", std::string("Overwrite"));
+    h.Frame(draw);
+    h.Click(ImportButton(), draw);
+    REQUIRE(action == ImportDialog::Action::Import);
+
+    ImportSession next;
+    REQUIRE(next.Translate({Fixture("robot.gltf")}, &error));
+    ImportDialog fresh;
+    fresh.Open(&next, config / "Assets", "/Game", false);
+    fresh.LoadPresets(config);
+    REQUIRE_THAT(next.Settings().Meshes().GetFloat("uniformScale"), WithinAbs(1.0, 1e-4));
+    REQUIRE(next.Settings().Common().GetString("conflict") == "Keep Both");
+    std::filesystem::remove_all(config);
+}

@@ -220,6 +220,9 @@ void ImportDialog::WritePresets(const SerialValue& root) const {
 }
 
 void ImportDialog::RememberLast() {
+    // A reimport runs with the asset's own recorded settings (and Overwrite);
+    // those are not the user's choice for the next import.
+    if (m_reimport) return;
     if (m_session == nullptr || m_configDir.empty()) return;
     SerialValue root = SerialValue::MakeObject();
     ReadPresets(root);

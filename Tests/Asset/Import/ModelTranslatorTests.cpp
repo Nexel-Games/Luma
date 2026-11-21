@@ -296,3 +296,30 @@ TEST_CASE("A missing external texture is reported and translation still succeeds
 
     std::filesystem::remove_all(temp);
 }
+
+TEST_CASE("A payload cache reads each model once per import run", "[import][model]") {
+    const std::filesystem::path file = std::filesystem::path(LUMA_SOURCE_DIR) / "Tests" / "Fixtures" / "Import" / "robot.fbx";
+    Luma::Import::ModelTranslator translator;
+    Luma::Import::ModelPayloadOptions options;
+    std::string error;
+    const auto plainBody = translator.BuildMeshes(file, {"Body"}, options, &error);
+    REQUIRE(plainBody.size() == 1);
+
+    Luma::Import::ModelPayloadCache cache;
+    const auto body = translator.BuildMeshes(file, {"Body"}, options, &error, &cache);
+    const auto arm = translator.BuildMeshes(file, {"Arm"}, options, &error, &cache);
+    REQUIRE(body.size() == 1);
+    REQUIRE(arm.size() == 1);
+    REQUIRE(cache.Reads() == 1);
+    REQUIRE(body[0].vertices.size() == plainBody[0].vertices.size());
+    REQUIRE(body[0].vertices[0].position.x == plainBody[0].vertices[0].position.x);
+
+    // Options that change how the file is read need a new read.
+    options.computeTangents = false;
+    REQUIRE(translator.BuildMeshes(file, {"Body"}, options, &error, &cache).size() == 1);
+    REQUIRE(cache.Reads() == 2);
+    // Options applied after reading (scale) reuse it.
+    options.uniformScale = 2.0f;
+    REQUIRE(translator.BuildMeshes(file, {"Body"}, options, &error, &cache).size() == 1);
+    REQUIRE(cache.Reads() == 2);
+}
