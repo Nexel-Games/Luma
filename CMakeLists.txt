@@ -57,6 +57,7 @@ endif()
 # Engine modules
 # ---------------------------------------------------------------------------
 add_subdirectory(Engine/Core)
+add_subdirectory(Engine/Jobs)
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Math/CMakeLists.txt)
     add_subdirectory(Engine/Math)
