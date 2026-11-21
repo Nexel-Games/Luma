@@ -127,7 +127,7 @@ std::vector<std::filesystem::path> ContentBrowserPanel::BreadcrumbSegments()
 Slate::Icon ContentBrowserPanel::IconForType(AssetType t) noexcept {
     switch (t) {
         case AssetType::Texture: return Icon::Image;
-        case AssetType::Mesh: return Icon::Cube;
+        case AssetType::Mesh: return Icon::StaticMesh;
         case AssetType::Material: return Icon::Sphere;
         case AssetType::Shader: return Icon::Plane;
         case AssetType::Script: return Icon::Cylinder;
@@ -908,7 +908,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFilterMenu() {
     };
     static const Item kItems[] = {
         {"All Assets", std::nullopt, Slate::Icon::None},
-        {"Mesh (3D model)", AssetType::Mesh, Slate::Icon::Cube},
+        {"Mesh (3D model)", AssetType::Mesh, Slate::Icon::StaticMesh},
         {"Material", AssetType::Material, Slate::Icon::Sphere},
         {"Texture", AssetType::Texture, Slate::Icon::Image},
         {"Scene", AssetType::Scene, Slate::Icon::Plane},

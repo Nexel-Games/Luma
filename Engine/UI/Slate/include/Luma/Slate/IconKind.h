@@ -38,6 +38,7 @@ enum class Icon {
     ArrowLeft,  // "use selected" (take the Content Browser selection)
     Reset,      // "reset to default" (counter-clockwise hooked arrow)
     Image,
+    StaticMesh,  // a static mesh asset (faceted low-poly gem, not the Cube primitive)
 };
 
 }  // namespace Luma::Slate
