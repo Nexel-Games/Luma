@@ -304,7 +304,7 @@ void MenuHost::BuildRows(Context& ctx, Level& level) const {
                 }
                 group = &h.group;
             }
-            push(Row::Type::Entry, h.entry, {}, t.menu.rowH);
+            push(Row::Type::Entry, h.entry, {}, EntryRowHeight(t));
         }
     } else {
         const std::vector<MenuEntry>& list = root ? m_root : level.parent->children;
@@ -317,7 +317,7 @@ void MenuHost::BuildRows(Context& ctx, Level& level) const {
                     push(Row::Type::Separator, &e, {}, t.menu.separatorH);
                     break;
                 default:
-                    push(Row::Type::Entry, &e, {}, t.menu.rowH);
+                    push(Row::Type::Entry, &e, {}, EntryRowHeight(t));
                     break;
             }
         }
@@ -328,12 +328,20 @@ void MenuHost::BuildRows(Context& ctx, Level& level) const {
     level.contentH = y + t.menu.padY;
 }
 
+f32 MenuHost::IconSize(const Theme& t) const {
+    return m_options.iconSize > 0.0f ? m_options.iconSize : t.menu.iconSize;
+}
+
+f32 MenuHost::EntryRowHeight(const Theme& t) const {
+    return std::max(t.menu.rowH, IconSize(t) + 8.0f);
+}
+
 f32 MenuHost::MeasureWidth(Context& ctx, const Level& level) const {
     const Theme& t = ctx.theme();
     const bool root = (level.parent == nullptr);
     f32 w = root ? (m_options.minWidth > 0.0f ? m_options.minWidth : t.menu.minWidth)
                  : t.menu.subMinWidth;
-    const f32 labelX = t.menu.padX + t.menu.iconSize + 8.0f;
+    const f32 labelX = t.menu.padX + IconSize(t) + 8.0f;
     for (const Row& r : level.rows) {
         f32 rw = 0.0f;
         switch (r.type) {
@@ -711,10 +719,14 @@ void MenuHost::DrawLevel(Context& ctx, int index) {
                 const Color icon = !e.enabled ? t.textDisabled
                                    : highlight ? t.menu.highlightText
                                                : t.menu.iconTint;
-                const f32 is = t.menu.iconSize;
+                const f32 is = IconSize(t);
                 Rect ib{rr.x + t.menu.padX - 2.0f, rr.y + (rr.h - is) * 0.5f, is, is};
+                const TextureHandle thumb = e.icon.thumbnail ? e.icon.thumbnail() : 0;
                 if (e.checked) {
                     DrawIcon(ctx, ib, Icon::Check, highlight ? t.menu.highlightText : t.accent);
+                } else if (thumb) {
+                    dl.AddImage(thumb, ib, {0.0f, 0.0f, 1.0f, 1.0f},
+                                e.enabled ? Color::RGB(255, 255, 255) : t.textDisabled);
                 } else if (e.icon.texture) {
                     dl.AddImage(e.icon.texture, ib, {0.0f, 0.0f, 1.0f, 1.0f}, icon);
                 } else if (e.icon.glyph != Icon::None) {
