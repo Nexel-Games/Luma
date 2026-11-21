@@ -176,3 +176,45 @@ TEST_CASE("Pipeline settings clamp and round-trip through JSON", "[import][pipel
     REQUIRE(loaded.Common().GetString("prefixMesh") == "SK_");
     REQUIRE(loaded.Meshes().GetBool("combineMeshes"));
 }
+
+TEST_CASE("Sub-folder names are set in the import settings", "[import][pipeline]") {
+    const ImportScene scene = Robot();
+    PipelineStack stack;
+    SettingsBlock& common = stack.Common();
+
+    // The four name fields only show while sub-folders are on.
+    const SettingField* meshesField = nullptr;
+    for (const SettingField& field : common.Fields()) {
+        if (field.key == "folderMeshes") meshesField = &field;
+    }
+    REQUIRE(meshesField != nullptr);
+    REQUIRE_FALSE(common.IsVisible(*meshesField));
+    common.Set("subfolders", true);
+    REQUIRE(common.IsVisible(*meshesField));
+
+    // Defaults.
+    ImportPlan plan = stack.BuildPlan(scene, kDest);
+    REQUIRE(HasFile(plan, "SM_Body.lmesh"));
+    for (const AssetRequest& request : plan.requests) {
+        const std::string folder = request.destFile.parent_path().filename().string();
+        if (request.type == AssetType::Mesh) REQUIRE(folder == "Meshes");
+        if (request.type == AssetType::Material) REQUIRE(folder == "Materials");
+        if (request.type == AssetType::Texture) REQUIRE(folder == "Textures");
+    }
+
+    // Custom names; unsafe characters and path tricks are cleaned; empty falls back.
+    common.Set("folderMeshes", std::string("Robot Meshes"));
+    common.Set("folderMaterials", std::string("../Mats"));
+    common.Set("folderTextures", std::string("   "));
+    plan = stack.BuildPlan(scene, kDest);
+    for (const AssetRequest& request : plan.requests) {
+        REQUIRE(request.destFile.parent_path().parent_path() == kDest);
+        const std::string folder = request.destFile.parent_path().filename().string();
+        if (request.type == AssetType::Mesh) REQUIRE(folder == "Robot Meshes");
+        if (request.type == AssetType::Material) REQUIRE(folder == "Mats");
+        if (request.type == AssetType::Texture) REQUIRE(folder == "Textures");
+    }
+    REQUIRE(SubfolderName("a/b\\c:d*e") == "a_b_c_d_e");
+    REQUIRE(SubfolderName("..") == "");
+    REQUIRE(SubfolderName("  Rock  ") == "Rock");
+}

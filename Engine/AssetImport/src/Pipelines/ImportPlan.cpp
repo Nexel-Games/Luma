@@ -120,6 +120,50 @@ std::string PrefixedName(std::string_view prefix, std::string_view stem) {
     return std::string(prefix) + clean;
 }
 
+std::string SubfolderName(std::string_view requested) {
+    // One folder level: path pieces are joined with '_', and "."/".." pieces
+    // (which would leave the destination) are dropped.
+    auto trimmed = [](std::string s) {
+        const auto first = s.find_first_not_of(" .");
+        if (first == std::string::npos) return std::string{};
+        const auto last = s.find_last_not_of(" .");
+        return s.substr(first, last - first + 1);
+    };
+    std::string out;
+    std::string piece;
+    auto flush = [&] {
+        std::string part = trimmed(piece);
+        piece.clear();
+        if (part.empty()) return;
+        if (!out.empty()) out.push_back('_');
+        out += part;
+    };
+    for (const char c : requested) {
+        if (c == '/' || c == '\\') {
+            flush();
+            continue;
+        }
+        const bool forbidden = c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' ||
+                               c == '|' || static_cast<unsigned char>(c) < 32;
+        piece.push_back(forbidden ? '_' : c);
+    }
+    flush();
+    return out;
+}
+
+std::string SubfolderFor(const SettingsBlock& common, AssetType type) {
+    const char* key = "folderMeshes";
+    const char* fallback = "Meshes";
+    switch (type) {
+        case AssetType::Material: key = "folderMaterials"; fallback = "Materials"; break;
+        case AssetType::Texture: key = "folderTextures"; fallback = "Textures"; break;
+        case AssetType::Sound: key = "folderSounds"; fallback = "Sounds"; break;
+        default: break;
+    }
+    std::string name = SubfolderName(common.GetString(key));
+    return name.empty() ? std::string(fallback) : name;
+}
+
 std::filesystem::path PlannedFile(const std::filesystem::path& destFolder, bool subfolders,
                                   std::string_view subfolder, std::string_view name, std::string_view extension) {
     std::filesystem::path dir = destFolder;

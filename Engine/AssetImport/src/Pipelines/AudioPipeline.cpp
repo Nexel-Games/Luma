@@ -52,7 +52,7 @@ void AppendSoundRequests(const ImportScene& scene, const SettingsBlock& common,
         AssetRequest request;
         request.type = AssetType::Sound;
         request.sources = {id};
-        request.destFile = PlannedFile(dest, subfolders, "Sounds", PrefixedName(prefix, node.name), ext);
+        request.destFile = PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Sound), PrefixedName(prefix, node.name), ext);
         out.push_back(std::move(request));
     }
 }

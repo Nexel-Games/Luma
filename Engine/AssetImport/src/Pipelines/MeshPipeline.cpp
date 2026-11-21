@@ -126,7 +126,7 @@ void AppendMeshRequests(const ImportScene& scene, const SettingsBlock& common, c
             request.type = AssetType::Mesh;
             request.sources = {id};
             const std::string name = PrefixedName(prefix, node.name);
-            request.destFile = PlannedFile(dest, subfolders, "Meshes", name, ".lmesh");
+            request.destFile = PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Mesh), name, ".lmesh");
             out.push_back(std::move(request));
             continue;
         }
@@ -148,7 +148,7 @@ void AppendMeshRequests(const ImportScene& scene, const SettingsBlock& common, c
         AssetRequest request;
         request.type = AssetType::Mesh;
         request.sources = std::move(groups[i]);
-        request.destFile = PlannedFile(dest, subfolders, "Meshes", PrefixedName(prefix, stem), ".lmesh");
+        request.destFile = PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Mesh), PrefixedName(prefix, stem), ".lmesh");
         out.push_back(std::move(request));
     }
 }

@@ -115,7 +115,7 @@ void AppendTextureRequests(const ImportScene& scene, const SettingsBlock& common
         request.type = AssetType::Texture;
         request.sources = {id};
         request.destFile =
-            PlannedFile(dest, subfolders, "Textures", PrefixedName(prefix, node.name), TextureExtension(node));
+            PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Texture), PrefixedName(prefix, node.name), TextureExtension(node));
         out.push_back(std::move(request));
     }
 }
