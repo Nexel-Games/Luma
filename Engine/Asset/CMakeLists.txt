@@ -38,6 +38,9 @@ add_library(LumaAsset STATIC
     src/TextureThumbnailRenderer.cpp
     src/MeshThumbnailRenderer.cpp
     src/MaterialThumbnailRenderer.cpp
+    src/Import/ImportScene.cpp
+    src/Import/ImportSettings.cpp
+    src/Import/ImportMetadata.cpp
 )
 
 target_compile_options(LumaAsset PRIVATE /wd4100 /wd4189)

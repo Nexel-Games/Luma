@@ -246,14 +246,14 @@ std::string HashFile(const std::filesystem::path&);
 (Use the engine's existing JSON type from `Engine/Serialization` — check its header for
 the actual class name and use it where this plan says `Json`.)
 
-- [ ] **Step 1: Failing tests** (`[import][scene]`): AddNode/Children/OfKind; Append remaps
+- [x] **Step 1: Failing tests** (`[import][scene]`): AddNode/Children/OfKind; Append remaps
   `meshMaterials`/`TextureRef` ids; SettingsBlock defaults, Set clamps a Float to
   `[min,max]`, wrong type rejected (value unchanged), JSON round-trip, unknown key
   ignored; Metadata write→read round-trip; `MetadataPathFor("a/T_X.png") ==
   "a/T_X.png.meta"`; `HashFile` stable for the same bytes and different after a 1-byte
   change.
-- [ ] **Step 2:** Run → compile failure. **Step 3:** Implement. **Step 4:** Pass; suite green.
-- [ ] **Step 5:** Commit `feat(asset): import scene, settings schema, metadata (T-0003)`.
+- [x] **Step 2:** Run → compile failure. **Step 3:** Implement. **Step 4:** Pass; suite green.
+- [x] **Step 5:** Commit `feat(asset): import scene, settings schema, metadata (T-0003)`.
 
 ## Task 4 — Model translator (glTF, GLB, FBX, OBJ)
 
@@ -783,5 +783,9 @@ colour space / HDR-EXR material textures (lead).
 ### Task 2
 
 `ImportFixtureGen` loaded `robot.gltf` and wrote `Tests/Fixtures/Import/robot.fbx`. Reloading that FBX with Assimp reported meshes=2, materials Paint and Metal, nodes RootNode / Body / Arm. The exporter did write the global settings: UpAxis=2, UpAxisSign=1, FrontAxis=1, FrontAxisSign=-1, CoordAxis=0, CoordAxisSign=1, UnitScaleFactor=1 (float, centimetres).
+
+### Task 3
+
+`Json` in the plan is `Luma::SerialValue`. `[import][scene]` passed (41 assertions in 4 cases). Whole suite: `All tests passed (22799 assertions in 419 test cases)`. The first test build failed to link (headers only, no sources), then the implementation linked and passed.
 
 ## Review
