@@ -416,3 +416,12 @@ TEST_CASE("A Tab-focused checkbox loses focus on a click elsewhere", "[slate][wi
     ctx.EndFrame();
     CHECK_FALSE(on);
 }
+
+TEST_CASE("An unloaded font measures and lays out nothing instead of crashing", "[slate][font]") {
+    Luma::Slate::Font font;  // never loaded (e.g. the font file was missing)
+    const auto size = font.Measure("Luma");
+    CHECK(size.x == 0.0f);
+    int glyphs = 0;
+    font.Layout({0, 0}, "Luma", [&](const Rect&, const Rect&) { ++glyphs; });
+    CHECK(glyphs == 0);
+}

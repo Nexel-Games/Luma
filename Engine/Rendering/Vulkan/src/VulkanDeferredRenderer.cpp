@@ -256,7 +256,7 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
         return false;
     }
     if (!CreateEnvironmentTexture(m_useEnvironment
-            ? "D:/Luma Engine/Content/skybox/braustuble_alley_2k.hdr"
+            ? std::string(LUMA_CONTENT_DIR) + "/skybox/braustuble_alley_2k.hdr"
             : std::string{})) {
         LUMA_LOG_WARN("VulkanDeferredRenderer",
                       "HDR environment unavailable; using fallback sky");
