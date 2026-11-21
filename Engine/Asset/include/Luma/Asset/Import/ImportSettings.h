@@ -38,6 +38,8 @@ public:
     SerialValue ToJson() const;
     void FromJson(const SerialValue& json);
     void ResetToDefaults();
+    // visibleIfKey empty → always shown. A leading '!' means the named bool is false.
+    bool IsVisible(const SettingField& field) const;
 
 private:
     struct Entry {

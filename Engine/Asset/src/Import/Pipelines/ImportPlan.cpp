@@ -1,0 +1,192 @@
+#include "Luma/Asset/Import/Pipelines/ImportPlan.h"
+
+#include "Luma/Asset/Import/Pipelines/AudioPipeline.h"
+#include "Luma/Asset/Import/Pipelines/CommonPipeline.h"
+#include "Luma/Asset/Import/Pipelines/MaterialPipeline.h"
+#include "Luma/Asset/Import/Pipelines/MeshPipeline.h"
+#include "Luma/Asset/Import/Pipelines/TexturePipeline.h"
+
+#include <cctype>
+#include <unordered_set>
+
+namespace Luma::Import {
+
+bool EnabledMeshUses(const ImportScene& scene, NodeId material) {
+    for (const ImportNode& node : scene.nodes) {
+        if (node.kind != NodeKind::Mesh || !node.enabled) {
+            continue;
+        }
+        for (NodeId id : node.meshMaterials) {
+            if (id == material) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool MaterialUsesTexture(const MaterialDesc& material, NodeId texture) {
+    return material.baseColorTex.texture == texture || material.normalTex.texture == texture ||
+           material.metallicRoughnessTex.texture == texture || material.occlusionTex.texture == texture ||
+           material.emissiveTex.texture == texture || material.opacityTex.texture == texture;
+}
+
+bool TextureIsStandalone(const ImportScene& scene, const ImportNode& texture) {
+    for (const ImportNode& node : scene.nodes) {
+        if (node.kind == NodeKind::Mesh && node.parent == texture.parent) {
+            return false;
+        }
+    }
+    return true;
+}
+
+namespace {
+
+ConflictPolicy PolicyFrom(std::string_view label) {
+    if (label == "Overwrite") {
+        return ConflictPolicy::Overwrite;
+    }
+    if (label == "Skip") {
+        return ConflictPolicy::Skip;
+    }
+    return ConflictPolicy::KeepBoth;
+}
+
+std::filesystem::path WithSuffix(const std::filesystem::path& file, int index) {
+    const std::string name = file.stem().string() + "_" + std::to_string(index) + file.extension().string();
+    return file.parent_path() / name;
+}
+
+bool PathExists(const std::filesystem::path& file) {
+    std::error_code error;
+    return std::filesystem::exists(file, error);
+}
+
+void ApplyConflicts(ImportPlan& plan, const SettingsBlock& common, const SettingsBlock& materials) {
+    const ConflictPolicy policy = PolicyFrom(common.GetString("conflict"));
+    const bool reuseExisting = materials.GetString("materialMode") == "Use Existing";
+    std::unordered_set<std::string> taken;
+    for (AssetRequest& request : plan.requests) {
+        const bool lookup = reuseExisting && request.type == AssetType::Material && PathExists(request.destFile);
+        if (lookup) {
+            request.exists = true;
+            request.policy = ConflictPolicy::Skip;
+            taken.insert(request.destFile.generic_string());
+            continue;
+        }
+        request.policy = policy;
+        if (policy == ConflictPolicy::KeepBoth) {
+            std::filesystem::path file = request.destFile;
+            int index = 1;
+            while (PathExists(file) || taken.contains(file.generic_string())) {
+                file = WithSuffix(request.destFile, index++);
+            }
+            request.destFile = file;
+            request.exists = false;
+        } else {
+            request.exists = PathExists(request.destFile);
+        }
+        taken.insert(request.destFile.generic_string());
+    }
+}
+
+}  // namespace
+
+std::string SanitizeAssetName(std::string_view name) {
+    std::string out;
+    bool pending = false;
+    for (unsigned char c : name) {
+        if (std::isalnum(c)) {
+            if (pending && !out.empty()) {
+                out.push_back('_');
+            }
+            pending = false;
+            out.push_back(static_cast<char>(c));
+        } else {
+            pending = true;
+        }
+    }
+    if (out.empty()) {
+        return "Asset";
+    }
+    return out;
+}
+
+std::string PrefixedName(std::string_view prefix, std::string_view stem) {
+    const std::string clean = SanitizeAssetName(stem);
+    if (!prefix.empty() && clean.starts_with(prefix)) {
+        return clean;
+    }
+    return std::string(prefix) + clean;
+}
+
+std::filesystem::path PlannedFile(const std::filesystem::path& destFolder, bool subfolders,
+                                  std::string_view subfolder, std::string_view name, std::string_view extension) {
+    std::filesystem::path dir = destFolder;
+    if (subfolders) {
+        dir /= std::string(subfolder);
+    }
+    std::string ext(extension);
+    if (!ext.empty() && ext.front() != '.') {
+        ext.insert(ext.begin(), '.');
+    }
+    return dir / (std::string(name) + ext);
+}
+
+PipelineStack::PipelineStack() {
+    DefineCommonPipeline(m_common);
+    DefineMeshPipeline(m_meshes);
+    DefineMaterialPipeline(m_materials);
+    DefineTexturePipeline(m_textures);
+    DefineAudioPipeline(m_audio);
+}
+
+SettingsBlock& PipelineStack::Common() { return m_common; }
+SettingsBlock& PipelineStack::Meshes() { return m_meshes; }
+SettingsBlock& PipelineStack::Materials() { return m_materials; }
+SettingsBlock& PipelineStack::Textures() { return m_textures; }
+SettingsBlock& PipelineStack::Audio() { return m_audio; }
+
+std::vector<SettingsBlock*> PipelineStack::Blocks() {
+    return {&m_common, &m_meshes, &m_materials, &m_textures, &m_audio};
+}
+
+ImportPlan PipelineStack::BuildPlan(const ImportScene& scene, const std::filesystem::path& destFolder) const {
+    ImportPlan plan;
+    AppendMeshRequests(scene, m_common, m_meshes, destFolder, plan.requests);
+    AppendMaterialRequests(scene, m_common, m_materials, destFolder, plan.requests, plan.warnings);
+    AppendTextureRequests(scene, m_common, m_materials, m_textures, destFolder, plan.requests);
+    AppendSoundRequests(scene, m_common, destFolder, plan.requests);
+    ApplyConflicts(plan, m_common, m_materials);
+    return plan;
+}
+
+SerialValue PipelineStack::ToJson() const {
+    SerialValue json = SerialValue::MakeObject();
+    json["Common"] = m_common.ToJson();
+    json["Meshes"] = m_meshes.ToJson();
+    json["Materials"] = m_materials.ToJson();
+    json["Textures"] = m_textures.ToJson();
+    json["Audio"] = m_audio.ToJson();
+    return json;
+}
+
+void PipelineStack::FromJson(const SerialValue& json) {
+    if (const SerialValue* common = json.Find("Common")) {
+        m_common.FromJson(*common);
+    }
+    if (const SerialValue* meshes = json.Find("Meshes")) {
+        m_meshes.FromJson(*meshes);
+    }
+    if (const SerialValue* materials = json.Find("Materials")) {
+        m_materials.FromJson(*materials);
+    }
+    if (const SerialValue* textures = json.Find("Textures")) {
+        m_textures.FromJson(*textures);
+    }
+    if (const SerialValue* audio = json.Find("Audio")) {
+        m_audio.FromJson(*audio);
+    }
+}
+
+}  // namespace Luma::Import

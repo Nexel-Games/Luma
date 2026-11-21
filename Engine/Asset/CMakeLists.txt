@@ -46,6 +46,12 @@ add_library(LumaAsset STATIC
     src/Import/Translators/ModelTranslator.cpp
     src/Import/Translators/ImageTranslator.cpp
     src/Import/Translators/AudioTranslator.cpp
+    src/Import/Pipelines/ImportPlan.cpp
+    src/Import/Pipelines/CommonPipeline.cpp
+    src/Import/Pipelines/MeshPipeline.cpp
+    src/Import/Pipelines/MaterialPipeline.cpp
+    src/Import/Pipelines/TexturePipeline.cpp
+    src/Import/Pipelines/AudioPipeline.cpp
 )
 
 target_compile_options(LumaAsset PRIVATE /wd4100 /wd4189)

@@ -505,15 +505,15 @@ falls back to Create New); `Do Not Import` → no material/texture requests from
 exists; KeepBoth → `_1`, `_2`, … first free name; Skip → request kept with
 `policy=Skip` (factory does nothing, summary says skipped).
 
-- [ ] **Step 1: Failing tests** (`[import][pipeline]`): plan for `robot.gltf` → 2 meshes,
+- [x] **Step 1: Failing tests** (`[import][pipeline]`): plan for `robot.gltf` → 2 meshes,
   2 materials, 2 textures with expected names/paths; combine → 1 mesh `SM_robot`;
   disable Arm → its material (Metal, not used elsewhere) gone, Paint kept; disable
   T_Paint_N → Paint still requested, texture gone; Do Not Import materials → only
   meshes; KeepBoth with an existing `SM_Body.lmesh` → `SM_Body_1.lmesh`; Skip → policy
   Skip; Sanitize cases (`"Robot Arm (L).001"` → `"Robot_Arm_L_001"`, `""` → `"Asset"`);
   Set out-of-range scale clamps; stack JSON round-trip.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): pipelines and import plan (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): pipelines and import plan (T-0003)`.
 
 ## Task 8 — Factories
 
@@ -805,5 +805,11 @@ ffmpeg's `img.exr` omits `pixelAspectRatio` (OpenEXR default 1). tinyexr rejects
 `[import][audio]` failed to compile (headers missing), then passed (161 assertions in 2 cases). Whole suite: `All tests passed (23229 assertions in 429 test cases)`. `tone_mono.wav` is 1 channel, 44100 Hz, 1.0 s ±0.01. `tone_stereo.mp3` is 2 channels, 44100 Hz, 1.0 s ±0.06. A corrupt WAV returns nullopt with a message. The translator adds one Sound node (`tone_mono` / `tone_stereo`) with that probe. Tests do not open an audio device. `AudioPreview::Init` warns once with `LUMA_USER_WARN("Audio", ...)` when no device is available and does not throw.
 
 The committed sine is not full scale: ffmpeg's `sine` source peaks at s16 ±4095 (about ±0.125). `ComputePeaks(wav, 64)` therefore expects every column near that amplitude, not [0.9, 1.0]. Samples themselves stay in [-1, 1].
+
+### Task 7
+
+`[import][pipeline]` failed to compile (`ImportPlan.h` missing), then passed (48 assertions in 5 cases). Whole suite: `All tests passed (23277 assertions in 434 test cases)`.
+
+`Json` on `PipelineStack` is `Luma::SerialValue`. `SettingsBlock::IsVisible` treats an empty `visibleIfKey` as always shown and a leading `!` as "the named bool is false" (`smoothingAngle` uses `!importNormals`). Prefix labels for materials, textures, and sounds follow the mesh label ("Material Prefix", "Texture Prefix", "Sound Prefix"). A combined mesh is named from the source file stem, one mesh per source file. `subfolders` places sounds in `Sounds/` alongside Meshes, Materials, and Textures. `Use Existing` looks up the planned `.lmat` path (including the Materials subfolder); a hit keeps that path with `policy = Skip` so the factory will not overwrite it, and a miss warns and falls through to Create New. Standalone image files still produce a texture request when materials are "Do Not Import".
 
 ## Review

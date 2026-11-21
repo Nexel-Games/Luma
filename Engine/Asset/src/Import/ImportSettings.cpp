@@ -156,4 +156,18 @@ void SettingsBlock::ResetToDefaults() {
     }
 }
 
+bool SettingsBlock::IsVisible(const SettingField& field) const {
+    if (field.visibleIfKey.empty()) {
+        return true;
+    }
+    std::string_view key = field.visibleIfKey;
+    bool invert = false;
+    if (key.front() == '!') {
+        invert = true;
+        key.remove_prefix(1);
+    }
+    const bool value = GetBool(key);
+    return invert ? !value : value;
+}
+
 }  // namespace Luma::Import
