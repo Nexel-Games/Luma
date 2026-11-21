@@ -87,6 +87,9 @@ elseif(Vulkan_ROOT)
     set(_luma_vk_layer_dir "${Vulkan_ROOT}/Bin")
 endif()
 if(_luma_vk_layer_dir)
+    # VULKAN_SDK is usually a Windows path (D:\VulkanSDK\...): normalise to
+    # forward slashes so it is a valid C++ string literal.
+    file(TO_CMAKE_PATH "${_luma_vk_layer_dir}" _luma_vk_layer_dir)
     target_compile_definitions(LumaRenderVulkan PRIVATE
         LUMA_VULKAN_LAYER_PATH="${_luma_vk_layer_dir}")
 endif()
