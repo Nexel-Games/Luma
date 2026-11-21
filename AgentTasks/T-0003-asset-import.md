@@ -696,15 +696,15 @@ tri-state `Checkbox` with `CheckState`, `VerticalScroll`, `Combo`, `SpinBox`,
 - Remember last-used settings per project in `Config/ImportPresets.json` under the key
   `"__last"`; presets file format: `{ "presets": { "<name>": <PipelineStack JSON> }, "__last": {...} }`.
 
-- [ ] **Step 1: Failing tests** (`[import][dialog]`): open with a `robot.gltf` session;
+- [x] **Step 1: Failing tests** (`[import][dialog]`): open with a `robot.gltf` session;
   clicking the "Meshes (2)" checkbox unchecks Body and Arm and their scene nodes'
   `enabled` flags; un-checking only Arm makes the File checkbox Undetermined; changing
   the uniform-scale SpinBox (drag) changes `Settings().Meshes().GetFloat("uniformScale")`;
   a sound-only session hides the Meshes category; Escape → `Action::Cancel`; clicking
   Import → `Action::Import`; preset save → `Config/ImportPresets.json` contains it and
   reloads.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(editor): Import window (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(editor): Import window (T-0003)`.
 
 ## Task 13 — Editor wiring, cleanup, manual verification
 
@@ -844,5 +844,13 @@ A sound thumbnail is 128×128. The background is `#262626`, the centre row is `#
 Texture thumbnails other than `.ltex` go through `DecodeImageFile`. Float images are tone-mapped with `c / (1 + c)`, sRGB-encoded (`c <= 0.0031308` → `12.92c`, else `1.055 * c^(1/2.4) - 0.055`), and stored as RGB so an opaque HDR alpha is not tone-mapped into the checkerboard blend. `img.hdr` is a flat (2, 0.5, 0.25), so the centre pixel matches that red/green/blue within ±3 after a bilinear resize. EXR and PSD thumbnails are 128×128. `.psd` and `.exr` are now accepted by `CanRender`.
 
 Linking `LumaEditor` pulled tinyexr's stb_image (the HDR/EXR decode) against Slate's copy and failed with LNK2005. `Engine/UI/Slate/src/Image.cpp` now compiles stb with `STB_IMAGE_STATIC`, so those symbols stay inside that file. The editor links.
+
+### Task 12
+
+`[import][dialog]` failed to compile (`ImportDialog.h` missing), then passed (22 assertions in 3 cases). Whole suite: `All tests passed (23446 assertions in 446 test cases)`.
+
+The window is a 960×620 modal (clamped to 90% of the screen), titled "Import Content" or "Reimport <name>". The left tree is one row per file, then "Meshes (n)" / "Materials (n)" / "Textures (n)" / "Sounds (n)". A parent checkbox writes `enabled` on every child that has no error. With Body on and Arm off, the file checkbox is Undetermined, so the next click turns both on (a checked parent would have turned both off). Dragging Uniform Scale by 50 px adds 1.0 at the default spin speed of 0.02. A wav session hides Meshes, Materials, and Textures, so that same drag leaves `uniformScale` at 1. Escape returns `Cancel`. Import returns `Import` and closes. `SavePreset("Wide")` writes `ImportPresets.json` with that name under `presets` and copies the stack to `__last`; `LoadPresets` applies `__last`.
+
+The dialog is its own module, `Luma::PanelImportDialog`. It is not opened from the editor yet (Task 13). Slate has no disabled checkbox, so an item with `error` is forced back to unchecked on the same click, drawn in `theme.error`, and given the error as its tooltip. "Import All" appears only when two file nodes share an extension.
 
 ## Review
