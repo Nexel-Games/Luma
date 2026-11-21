@@ -34,7 +34,31 @@ std::string SoundCaption(const std::filesystem::path& file) {
     return buf;
 }
 
+static f64 SteadyMs() {
+    using namespace std::chrono;
+    return duration<f64, std::milli>(steady_clock::now().time_since_epoch()).count();
+}
+
 ContentBrowserPanel::ContentBrowserPanel() = default;
+
+// Last frame's deferred count drives a Background Tasks entry, so a folder of
+// fresh imports shows progress instead of looking idle.
+void ContentBrowserPanel::UpdateThumbnailTask(PanelContext& ctx) {
+    const u32 waiting = m_thumbBudget.DeferredThisFrame();
+    if (waiting > 0 && !m_thumbTask.IsValid() && ctx.tasks != nullptr) {
+        Tasks::TaskDesc desc;
+        desc.title = "Generating thumbnails";
+        desc.category = "Content Browser";
+        m_thumbTask = ctx.tasks->Begin(std::move(desc));
+    }
+    if (!m_thumbTask.IsValid()) return;
+    if (waiting == 0) {
+        m_thumbTask.Complete();
+        m_thumbTask = Tasks::TaskToken{};
+    } else {
+        m_thumbTask.SetStatus(std::to_string(waiting) + " waiting");
+    }
+}
 
 void ContentBrowserPanel::SetIcons(Luma::TextureHandle sortUp,
                                    Luma::TextureHandle sortDown,
@@ -713,6 +737,11 @@ u64 ContentBrowserPanel::GetThumbnailTexture(const AssetId& assetId, const std::
     if (it != m_thumbnailCache.end()) {
         return it->second;  // Return cached result (may be 0 if failed before)
     }
+    // Producing a thumbnail can mean a GPU preview render; keep the frame
+    // responsive and leave the rest for the next frames (tile shows its icon).
+    if (!m_thumbBudget.TryStart(SteadyMs())) {
+        return 0;
+    }
     
     // Request or load thumbnail from thumbnail manager
     auto& thumbnailMgr = ThumbnailManager::Get();
@@ -777,6 +806,8 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                    Align::Center);
         return;
     }
+    UpdateThumbnailTask(ctx);
+    m_thumbBudget.BeginFrame(SteadyMs());
     m_contextTarget = AssetId{};
     m_hovered = body.Contains(ui.rawMouse());
     Rect toolbar{body.x, body.y, body.w, kToolbarH};

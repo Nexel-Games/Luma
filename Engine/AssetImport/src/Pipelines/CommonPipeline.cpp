@@ -25,7 +25,13 @@ void DefineCommonPipeline(SettingsBlock& block) {
     conflict.enumValues = {"Overwrite", "Skip", "Keep Both"};
     block.Define(std::move(conflict), "Keep Both");
 
-    add("subfolders", "Create Sub-folders (Meshes/Materials/Textures)", FieldType::Bool, false);
+    SettingField subfolders;
+    subfolders.key = "subfolders";
+    subfolders.label = "Create Sub-folders";
+    subfolders.tooltip = "Put imported assets in Meshes/, Materials/, Textures/ and Sounds/ sub-folders.";
+    subfolders.category = "Common";
+    subfolders.type = FieldType::Bool;
+    block.Define(std::move(subfolders), false);
 }
 
 }  // namespace Luma::Import

@@ -390,9 +390,9 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
         }
         const Slate::Rect nodeRect{box.Right() + 4.0f, y, std::max(0.0f, rowRect.Right() - box.Right() - 4.0f), kRowH};
         if (row.kind == Row::Kind::Item) {
-            bool unused = false;
-            const bool clicked = ui.TreeNode(Slate::Context::ID("import.node." + std::to_string(row.node)), nodeRect,
-                                             row.label, KindIcon(row.group), unused, 0, m_selected == row.node);
+            // Leaves have nothing to expand: no disclosure arrow.
+            const bool clicked = ui.Selectable(Slate::Context::ID("import.node." + std::to_string(row.node)), nodeRect,
+                                               row.label, m_selected == row.node, KindIcon(row.group));
             if (clicked) {
                 m_selected = row.node;
                 m_scrollCategory = CategoryFor(row.group);

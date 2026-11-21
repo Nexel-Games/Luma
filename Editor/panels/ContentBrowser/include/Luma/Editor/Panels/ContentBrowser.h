@@ -9,6 +9,8 @@
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Editor/Panels/FileSystemTree.h"
+#include "Luma/Editor/Panels/ThumbnailBudget.h"
+#include "Luma/Tasks/TaskManager.h"
 #include "Luma/RHI/Renderer.h"
 #include "PanelContext.h"
 #include "Luma/Slate/Context.h"
@@ -155,6 +157,9 @@ private:
     
     // Thumbnail cache (asset ID -> texture handle)
     std::unordered_map<AssetId, u64> m_thumbnailCache;
+    ThumbnailBudget m_thumbBudget;
+    Tasks::TaskToken m_thumbTask;  // "Generating thumbnails" while tiles wait
+    void UpdateThumbnailTask(PanelContext& ctx);
 
     // Layout constants.
     static constexpr f32 kToolbarH = 36.0f;

@@ -2,6 +2,7 @@
 # link against its public API.
 add_library(LumaPanelContentBrowserForTest STATIC
     ${CMAKE_SOURCE_DIR}/Editor/panels/ContentBrowser/src/ContentBrowser.cpp
+    ${CMAKE_SOURCE_DIR}/Editor/panels/ContentBrowser/src/ThumbnailBudget.cpp
     ${CMAKE_SOURCE_DIR}/Editor/panels/FileSystemTree/src/FileSystemTree.cpp)
 
 add_library(Luma::PanelContentBrowserForTest ALIAS LumaPanelContentBrowserForTest)
@@ -15,5 +16,6 @@ target_link_libraries(LumaPanelContentBrowserForTest
     PUBLIC Luma::Core Luma::Asset Luma::Scene Luma::Slate
            Luma::PanelFileSystemTree
     PRIVATE Luma::Audio Luma::AssetImport)
+target_link_libraries(LumaPanelContentBrowserForTest PUBLIC Luma::Tasks)
 
 set_target_properties(LumaPanelContentBrowserForTest PROPERTIES FOLDER "Tests/Editor")
