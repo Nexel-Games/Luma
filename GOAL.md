@@ -452,6 +452,7 @@ any DPI in a consistent theme; all editor/project-browser UI is built from them.
 ### 4.3 Text  ·  🟡 PARTIAL
 `Font.h`/`Font.cpp`, `Image` glyph atlas.
 - [x] Font atlas + text rendering in the draw list
+- [x] UTF-8 text with a Latin-1 glyph range (unit symbols such as `°`); atlas grows to fit
 - [ ] Sub-pixel/hinted crisp rendering; per-DPI atlas regeneration
 - [ ] Text layout: wrapping, alignment, ellipsis, mixed weights
 - **DoD:** text is sharp at 100–200% DPI; long labels ellipsize; multi-weight runs lay out.
@@ -472,6 +473,14 @@ Target reusable set: `LumaButton, LumaIconButton, LumaInput, LumaDropdown, LumaC
 LumaToggle, LumaSlider, LumaTab, LumaPanel, LumaTree, LumaProperty, LumaSearchBox,
 LumaMenu, LumaContextMenu, LumaTooltip, LumaDialog, LumaProgressBar`.
 - [x] Panels, tabs, drag-number fields, menu bar
+- [x] **Input widgets (Unreal-grade, 2026-11-20):** shared `TextEditState` core (selection,
+      word motion, Ctrl+A/C/X/V/Z/Y, undo, Escape revert, UTF-8 carets, scroll-to-caret);
+      `EditableText` with commit reasons (Enter / focus lost / cleared); `SpinBox` /
+      `SpinBoxInt` (click to type math expressions, drag to scrub with Shift/Ctrl, pointer
+      lock, limits, snapping, slider fill, units, drag begin/end events for undo);
+      `VectorField` (2-4); tri-state `Checkbox` with a tick glyph; Tab / Shift+Tab focus
+      chain; system clipboard through `Context::SetClipboardHandlers`. Existing
+      `TextField` / `SearchBox` / `DragFloat` / `Vector3Field` route through them.
 - [ ] Fill out the full widget catalog above with consistent states
       (hover/active/focus/disabled/selected)
 - [ ] Tree, property row, search box, dialog, tooltip, context menu, progress bar
@@ -548,7 +557,9 @@ Shows selected entity's components; colored X/Y/Z transform fields.
 - [ ] Add/remove component UI; multi-edit
 - **DoD:** adding a reflected field to any component makes it appear+edit in the Inspector
   with no Inspector code changes.
-- **Log:** _transform editing done; reflection-driven UI pending (needs 1.9)._
+- [x] Numeric rows use `SpinBox` with limits, units and slider fills; Unreal-style material
+      slots (thumbnail, searchable combo, Use Selected / Browse / Reset, double-click opens)
+- **Log:** _transform editing done; spin boxes + material slots 2026-11-20; reflection-driven UI pending (needs 1.9)._
 
 ### 5.4 Content Browser  ·  🔲 TODO
 - [ ] Folder tree + asset grid/list; thumbnails; search/filter/sort
