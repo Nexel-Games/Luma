@@ -2,14 +2,18 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <optional>
 #include <sstream>
 
-#include "Luma/Slate/Icons.h"
+#include "Luma/Asset/Import/ImportMetadata.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Slate/Icons.h"
 
 namespace Luma::Editor::Panels {
 
@@ -17,6 +21,18 @@ using Slate::Align;
 using Slate::Icon;
 using Slate::Rect;
 using Slate::Vec2;
+
+std::string SoundCaption(const std::filesystem::path& file) {
+    const auto meta = Import::ReadMetadata(file);
+    if (!meta) return "Sound";
+    const SerialValue* seconds = meta->settings.Find("seconds");
+    if (seconds == nullptr || !seconds->IsNumber()) return "Sound";
+    int total = static_cast<int>(std::lround(seconds->AsFloat()));
+    if (total < 0) total = 0;
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%d:%02d", total / 60, total % 60);
+    return buf;
+}
 
 ContentBrowserPanel::ContentBrowserPanel() = default;
 
@@ -113,7 +129,8 @@ std::vector<const AssetData*> ContentBrowserPanel::CurrentEntries() const {
 }
 
 void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
-                                      const Slate::Rect& rect) {
+                                      const Slate::Rect& rect,
+                                      PanelContext& ctx) {
     Slate::Theme& t = ui.theme();
     ui.GradientRect(rect, t.surface2, t.surface1);
     ui.Panel({rect.x, rect.Bottom() - 1.0f, rect.w, 1.0f}, t.separator);
@@ -231,12 +248,12 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
                        "Import", Slate::Mix(labelRest, labelHover, hoverT),
                        Align::Left);
         }
-        (void)clicked;
+        if (clicked && ctx.onImportAssets) ctx.onImportAssets(m_currentFolder);
     }
     ui.Tooltip(Slate::Context::ID("tip.cb.reload"), reloadR,
                "Refresh\nRescan the project's content from disk.");
     ui.Tooltip(Slate::Context::ID("tip.cb.import"), importR,
-               "Import\nCopy files from disk into the current folder.");
+               "Import\nImport files into the current folder.");
     constexpr f32 kImportGap = 8.0f;
     f32 contentStartX = importR.Right() + kImportGap;
 
@@ -248,7 +265,8 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
     constexpr f32 kSepW = 1.0f;
     constexpr f32 kBarMaxW = 200.0f;
     constexpr f32 kBarGap = 4.0f;
-    f32 barRight = rect.Right() - 8.0f;
+    const f32 importChrome = ctx.importProgress != nullptr ? 248.0f : 0.0f;
+    f32 barRight = rect.Right() - 8.0f - importChrome;
     f32 toggleX = barRight - kToggleW;
     // Keep the search bar a fixed, Unreal-style width (not the full
     // toolbar); right-align it against the filter toggle.
@@ -295,6 +313,16 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
                     {toggleR.x + (kToggleW - 12.0f) * 0.5f,
                      toggleR.y + (kBarH - 12.0f) * 0.5f, 12.0f, 12.0f},
                     chev, toggleHover ? t.text : t.textDim);
+
+    if (ctx.importProgress != nullptr) {
+        const Rect prog{rect.Right() - 8.0f - 72.0f - 8.0f - 160.0f, rect.y + 6.0f, 160.0f, kBarH};
+        ui.ProgressBar(prog, *ctx.importProgress);
+        if (ui.Button(Slate::Context::ID("cb.import.cancel"),
+                      {rect.Right() - 8.0f - 72.0f, rect.y + 6.0f, 72.0f, kBarH}, "Cancel") &&
+            ctx.onCancelImport) {
+            ctx.onCancelImport();
+        }
+    }
 
     // Breadcrumb: lives in the gap between Refresh and the search bar,
     // same row, wrapped in a rounded "field" box that matches the search
@@ -520,8 +548,11 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         Rect nameRProbe{card.x + 4.0f, card.y + kThumbH + 2.0f,
                         card.w - 8.0f, 14.0f};
         bool onNameRow = nameRProbe.Contains(ui.mouse());
+        const bool soundTile = !a->IsFolder() && a->type == AssetType::Sound;
+        Rect playR{card.x + 8.0f, card.y + kThumbH - 26.0f, 20.0f, 20.0f};
+        const bool onPlay = soundTile && playR.Contains(ui.mouse());
         bool allowCard = !(selected && onNameRow);
-        if (ui.Selectable(cardId, card, "", false, Icon::None) && allowCard) {
+        if (ui.Selectable(cardId, card, "", false, Icon::None) && allowCard && !onPlay) {
             if (a->IsFolder()) {
                 m_currentFolder = a->packagePath;
                 m_selected = a->id;
@@ -535,6 +566,9 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             if (a->IsFolder()) {
                 m_currentFolder = a->packagePath;
                 m_selected = AssetId{};
+            } else if (soundTile && ctx.audioPreview) {
+                m_selected = a->id;
+                ctx.audioPreview->Play(a->packagePath);
             } else {
                 m_selected = a->id;
                 m_activated = a->id;
@@ -597,6 +631,24 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             }
         }
 
+        if (soundTile && hover && ctx.audioPreview != nullptr) {
+            const bool playing = ctx.audioPreview->IsPlaying() && ctx.audioPreview->Current() == a->packagePath;
+            ui.PanelRounded(playR, t.surface3, t.radius.sm);
+            Slate::DrawIcon(ui, playR.Inset(3.0f, 3.0f), playing ? Icon::Stop : Icon::Play, t.text);
+            if (playR.Contains(ui.mouse()) && ui.mousePressed(0)) m_soundPress = a->id;
+            if (ui.mouseReleased(0) && m_soundPress == a->id && playR.Contains(ui.mouse()) &&
+                !ui.mouseDoubleClicked(0)) {
+                if (playing) ctx.audioPreview->Stop();
+                else ctx.audioPreview->Play(a->packagePath);
+            }
+        }
+
+        if (!isFolder && ctx.sourceChanged &&
+            std::filesystem::exists(Import::MetadataPathFor(a->packagePath)) &&
+            ctx.sourceChanged(a->packagePath)) {
+            ui.drawList().AddCircleFilled({thumb.Right() - 6.0f, thumb.y + 6.0f}, 4.0f, t.warning);
+        }
+
         // Asset name / rename + type row.
         f32 nameX = card.x + 4.0f;
         f32 nameY = card.y + kThumbH + 2.0f;
@@ -631,10 +683,12 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         if (!isFolder) {
             std::string_view typeName = AssetTypeName(a->type);
             f32 typeY = card.y + kTileH - 16.0f;  // Position at bottom of card
-            ui.LabelIn({nameX, typeY, nameW, 12.0f}, typeName,
+            ui.LabelIn({nameX, typeY, nameW, 12.0f},
+                       soundTile ? SoundCaption(a->packagePath) : std::string(typeName),
                        t.textDisabled, Align::Center);
         }
     }
+    if (ui.mouseReleased(0)) m_soundPress = AssetId{};
     ui.PopClip();
     (void)kTextRowsH;  // layout constant kept for future tweaks
     (void)f;  // future-proofing for ellipsizing
@@ -755,7 +809,7 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     Rect gridPane{gridSplit.x + kTreeMargin, bodyTop,
                   gridSplit.w - kTreeMargin * 2.0f, bodyArea.h};
 
-    DrawToolbar(ui, toolbar);
+    DrawToolbar(ui, toolbar, ctx);
     // Reusable FileSystemTreePanel handles the dark inset folder list.
     // Keep its selection synced with our navigation state both ways.
     m_tree.SetRegistry(m_registry);
@@ -983,6 +1037,22 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
                        if (create) create(virtualPath, folder);
                    },
                    oi);
+    }
+    if (!isFolder && std::filesystem::exists(Import::MetadataPathFor(path)) && ctx.onReimport) {
+        auto reimport = ctx.onReimport;
+        Slate::MenuEntryOptions o;
+        o.tooltip = "Import this asset again from its source file.";
+        b.AddEntry("Reimport", Icon::Refresh,
+                   [reimport, path] {
+                       if (reimport) reimport(path);
+                   },
+                   o);
+        if (ctx.sourceChanged && ctx.sourceChanged(path)) {
+            b.AddEntry("Source changed — Reimport", Icon::Refresh,
+                       [reimport, path] {
+                           if (reimport) reimport(path);
+                       });
+        }
     }
     if (asset.type == AssetType::Texture) {
         auto create = ctx.onCreateMaterialFromTextures;

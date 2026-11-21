@@ -12,6 +12,7 @@ target_include_directories(LumaPanelContentBrowser
 
 target_link_libraries(LumaPanelContentBrowser
     PUBLIC Luma::Core Luma::Asset Luma::Scene Luma::Slate
-           Luma::PanelFileSystemTree)
+           Luma::PanelFileSystemTree
+    PRIVATE Luma::Audio)
 
 set_target_properties(LumaPanelContentBrowser PROPERTIES FOLDER "Editor/Panels")

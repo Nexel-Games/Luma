@@ -22,7 +22,8 @@ target_link_libraries(LumaEditor
             Luma::Project Luma::ProjectBrowser Luma::Grid Luma::Scene
             Luma::Gizmo Luma::VFS Luma::Asset Luma::Renderer
             Luma::PanelWorldOutliner Luma::PanelViewport Luma::PanelInspector
-            Luma::PanelConsole Luma::PanelContentBrowser
+            Luma::PanelConsole Luma::PanelContentBrowser Luma::PanelImportDialog
+            Luma::Audio
             Luma::PanelFileSystemTree Luma::PanelBackgroundTasks Luma::Jobs Luma::Tasks
             Luma::PanelProjectSettings
             Luma::Material Luma::MaterialBridge Luma::PanelMaterialEditor

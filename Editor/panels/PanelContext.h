@@ -18,6 +18,9 @@ class JobSystem;
 namespace Luma::Tasks {
 class TaskManager;
 }
+namespace Luma::Audio {
+class AudioPreview;
+}
 
 namespace Luma {
 // Forward declarations keep PanelContext.h lightweight; only the panels that
@@ -82,6 +85,15 @@ struct PanelContext {
     // (empty = content root), then rescans the registry. Implemented by
     // EditorScreen; panels just invoke it.
     std::function<void(const std::filesystem::path& folder)> onImportAssets;
+    // Reimport an asset that has a .meta (Content Browser context menu).
+    std::function<void(const std::filesystem::path& asset)> onReimport;
+    // True when the asset's recorded source no longer matches its .meta.
+    std::function<bool(const std::filesystem::path& asset)> sourceChanged;
+    // Non-null while an import worker is running. The browser draws a bar.
+    const f32* importProgress = nullptr;
+    std::function<void()> onCancelImport;
+    // One-shot sound preview. Null when no device is available.
+    Audio::AudioPreview* audioPreview = nullptr;
 
     // Content Browser: create an empty scene asset in `folder`; move a file
     // or folder to the platform recycle bin (recoverable); reveal a path in

@@ -131,6 +131,7 @@ private:
     // Right-click target resolved by the grid this frame: the asset under
     // the cursor (invalid = empty space -> folder menu).
     AssetId m_contextTarget{};
+    AssetId m_soundPress{};
     bool m_hovered = false;
     // Set when a menu action starts an inline rename; the rename field takes
     // keyboard focus on the next frame it is drawn.
@@ -164,7 +165,7 @@ private:
     static constexpr f32 kTileGap = 6.0f;
 
     // Draw helpers (called from Draw).
-    void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect);
+    void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect, PanelContext& ctx);
     void DrawGridPane(Slate::Context& ui, const Slate::Rect& rect,
                       PanelContext& ctx);
     // Menus (Slate::MenuBuilder; drawn + input-handled by the Slate menu

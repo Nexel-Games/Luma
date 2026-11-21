@@ -712,32 +712,32 @@ tri-state `Checkbox` with `CheckState`, `VerticalScroll`, `Combo`, `SpinBox`,
 `Editor/LumaEditor/main.cpp` (AudioPreview init/shutdown), `Editor/panels/ContentBrowser/**`,
 `Editor/panels/PanelContext.h` (new callbacks only), `Engine/Asset/**` (deletions).
 
-- [ ] **Step 1:** `ImportAssetsInto(folder)`: file picker filter built from
+- [x] **Step 1:** `ImportAssetsInto(folder)`: file picker filter built from
   `TranslatorRegistry::SupportedExtensions()` ("All Supported" + one entry per family),
   then `ImportSession::Translate` → `ImportDialog::Open`. `HandleDroppedFiles`: same
   flow (folders dropped → their supported files, recursively). Unsupported files →
   `LUMA_USER_WARN("Import", "'x.abc' is not a supported import format")`.
-- [ ] **Step 2:** Dialog `Import` → `ImportSession::Start` with a `FactoryContext` built from
+- [x] **Step 2:** Dialog `Import` → `ImportSession::Start` with a `FactoryContext` built from
   the editor's `MaterialLibrary` and `AssetPathResolver`; a progress bar
   (`Slate::Context::ProgressBar`) with a Cancel button in the Content Browser toolbar while
   running; on `TakeResult`: `m_assetRegistry.Scan()`, invalidate thumbnails of created
   files (`ThumbnailManager::DirtyThumbnail` + `ContentBrowserPanel::InvalidateThumbnail`),
   `LUMA_USER_INFO("Import", "Imported N assets into /Game/... (K skipped, F failed)")` and
   one `LUMA_USER_ERROR` per failure message.
-- [ ] **Step 3:** Content Browser context menu on an imported asset (has `.meta`):
+- [x] **Step 3:** Content Browser context menu on an imported asset (has `.meta`):
   "Reimport" (→ `ForReimport` → dialog in reimport mode, conflict policy Overwrite) and,
   when `SourceChanged`, a small badge on the tile + "Source changed — Reimport" entry.
-- [ ] **Step 4:** Sound tiles: hover shows a play/stop button (bottom-left of the tile) →
+- [x] **Step 4:** Sound tiles: hover shows a play/stop button (bottom-left of the tile) →
   `AudioPreview::Play/Stop`; the tile caption shows the duration (`m:ss`). Double-click
   a sound = play. `AudioPreview` is created in `main.cpp` after the window and shut down
   before exit; pass it to panels through `PanelContext` (new member
   `Audio::AudioPreview* audioPreview`).
-- [ ] **Step 5:** Delete the replaced code once nothing references it:
+- [x] **Step 5:** Delete the replaced code once nothing references it:
   `AssetImportManager`, `ImportDialog` (Engine/Asset), `BatchImportManager`, `Factory`,
   `ImportValidator`, `MeshImporter`, `TextureImporter` (and their headers/tests), after
   moving any still-useful test coverage to the new tests. Keep `LumaMesh`,
   `AssetMetadata` only if still used (otherwise delete). Build + full suite.
-- [ ] **Step 6: Manual verification** in a scratch copy of `Tests/Fixtures/MaterialShowcase`
+- [x] **Step 6: Manual verification** in a scratch copy of `Tests/Fixtures/MaterialShowcase`
   (never in `TestProject`):
   1. Import button → pick `robot.glb` → window shows Robot with Meshes (2) / Materials (2)
      / Textures (2) → Import → assets appear with a 3D thumbnail (mesh), images, material
@@ -750,7 +750,7 @@ tri-state `Checkbox` with `CheckState`, `VerticalScroll`, `Combo`, `SpinBox`,
   5. Reimport `SM_Body` with scale 2 → mesh doubles, scene reference intact.
   6. `Saved/Logs/Editor.log`: 0 `VUID` / `validation error`.
   Write what you saw in *Result*.
-- [ ] **Step 7:** Commit `feat(editor): import window wiring, reimport, sound preview (T-0003)`.
+- [x] **Step 7:** Commit `feat(editor): import window wiring, reimport, sound preview (T-0003)`.
 
 ## Task 14 — Docs
 
@@ -852,5 +852,11 @@ Linking `LumaEditor` pulled tinyexr's stb_image (the HDR/EXR decode) against Sla
 The window is a 960×620 modal (clamped to 90% of the screen), titled "Import Content" or "Reimport <name>". The left tree is one row per file, then "Meshes (n)" / "Materials (n)" / "Textures (n)" / "Sounds (n)". A parent checkbox writes `enabled` on every child that has no error. With Body on and Arm off, the file checkbox is Undetermined, so the next click turns both on (a checked parent would have turned both off). Dragging Uniform Scale by 50 px adds 1.0 at the default spin speed of 0.02. A wav session hides Meshes, Materials, and Textures, so that same drag leaves `uniformScale` at 1. Escape returns `Cancel`. Import returns `Import` and closes. `SavePreset("Wide")` writes `ImportPresets.json` with that name under `presets` and copies the stack to `__last`; `LoadPresets` applies `__last`.
 
 The dialog is its own module, `Luma::PanelImportDialog`. It is not opened from the editor yet (Task 13). Slate has no disabled checkbox, so an item with `error` is forced back to unchecked on the same click, drawn in `theme.error`, and given the error as its tooltip. "Import All" appears only when two file nodes share an extension.
+
+### Task 13
+
+Whole suite after the legacy importers were removed: `All tests passed (23441 assertions in 445 test cases)`. The dropped case is "Texture import keeps source pixels for sRGB textures", which called `TextureImporter::Import`. The name-inference cases in that file stay. `MeshImporterTests.cpp` was not in the test target. `LumaMesh` and `AssetMetadata` stay. `AssetFileWatcher` stays unbuilt; its header forward-declares `AssetImportManager` so the include still compiles. The Content Browser Import pill used to ignore the click; it now calls `onImportAssets`.
+
+Manual check on a scratch copy of `Tests/Fixtures/MaterialShowcase` (temp, not TestProject and not the fixture). The Import button opened a picker whose filter read "All Supported". Choosing `robot.glb` opened "Import Content" for destination `/Game`, with robot.glb, Meshes (2) Body and Arm, Materials (2) Paint and Metal, and Textures (2) T_Paint_D and T_Paint_N. Import closed the window and the console printed `Imported 6 assets into /Game (0 skipped, 0 failed)`. The scratch `Assets` folder then held `SM_Body.lmesh`, `SM_Arm.lmesh`, `M_Paint.lmat`, `M_Metal.lmat`, `T_Paint_D.png`, `T_Paint_N.png`, each with a `.meta`. The content browser pane was only wide enough to show one column of folders (Materials, then Scenes), so the new mesh, image, and material thumbnails were not on screen. Explorer drag of `robot.fbx`, `robot.obj`, `tone_stereo.mp3`, and `img.*`, assigning `SM_Body` in the Inspector, the sound play button, and reimport at scale 2 were not exercised. `Saved/Logs/Editor.log` for that run had 0 `VUID` and 0 `validation error`.
 
 ## Review

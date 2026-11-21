@@ -10,9 +10,8 @@
 
 #include "Luma/Asset/AssetPath.h"
 #include "Luma/Asset/AssetRegistry.h"
-#include "Luma/Asset/AssetImportManager.h"
-#include "Luma/Asset/AssetFileWatcher.h"
 #include "Luma/Asset/LumaMesh.h"
+#include "Luma/Editor/Panels/ImportDialog.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
 #include "Luma/Editor/Panels/BackgroundTasks.h"
 #include "Luma/Editor/Panels/Console.h"
@@ -33,6 +32,13 @@
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/DockSpace.h"
 #include "Luma/VFS/FileWatcher.h"
+
+namespace Luma::Import {
+class ImportSession;
+}
+namespace Luma::Audio {
+class AudioPreview;
+}
 
 namespace Luma {
 
@@ -104,10 +110,15 @@ public:
     // Handle dropped files from the OS (forwarded to Content Browser)
     void HandleDroppedFiles(const std::vector<std::filesystem::path>& files);
 
-    // "Import to Current Folder" (Content Browser right-click menu): opens a
-    // native multi-select file dialog, copies the picked files into `folder`
-    // (empty = content root) and rescans the asset registry.
+    // "Import to Current Folder": native multi-select picker, then the import
+    // window. Dropped files and folders take the same path.
     void ImportAssetsInto(const std::filesystem::path& folder);
+    void SetAudioPreview(Audio::AudioPreview* preview) { m_audioPreview = preview; }
+    void OpenImport(const std::vector<std::filesystem::path>& files, const std::filesystem::path& folder,
+                    bool reimport);
+    void ReimportAsset(const std::filesystem::path& asset);
+    void PollImport();
+    void OnImportDialog(Editor::Panels::ImportDialog::Action action);
 
     // Wires the renderer: thumbnails, and the material preview scene on the
     // backend's secondary deferred renderer (GPU material/mesh thumbnails).
@@ -274,6 +285,13 @@ private:
     // and textures resident in the renderer.
     AssetPathResolver m_assetPaths;
     std::unique_ptr<Material::MaterialLibrary> m_materials;
+    std::unique_ptr<Import::ImportSession> m_importSession;
+    Editor::Panels::ImportDialog m_importDialog;
+    std::filesystem::path m_importDest;
+    std::string m_importVirtual;
+    bool m_importActive = false;
+    f32 m_importProgress = 0.0f;
+    Audio::AudioPreview* m_audioPreview = nullptr;
     Editor::MaterialSceneBridge m_bridge;
     VFS::FileWatcher m_assetWatcher;
     std::unordered_set<std::string> m_watchedFiles;

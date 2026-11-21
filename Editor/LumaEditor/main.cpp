@@ -22,6 +22,7 @@
 #include "Luma/Slate/Image.h"
 #include "Luma/VFS/Path.h"
 #include "Luma/VFS/VFS.h"
+#include "Luma/Audio/AudioPreview.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Asset/SoundThumbnailRenderer.h"
 #include "Luma/Asset/TextureThumbnailRenderer.h"
@@ -385,8 +386,12 @@ int main(int argc, char** argv) {
         LUMA_LOG_WARN("Editor", "Vulkan deferred renderer not available");
     }
     Log::Flush();
+    Audio::AudioPreview audioPreview;
     if (editorMode) {
+        std::string audioError;
+        audioPreview.Init(&audioError);
         editor = std::make_unique<EditorScreen>(projectFile);
+        editor->SetAudioPreview(&audioPreview);
         editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
         editor->SetBackgroundServices(&jobs, &tasks);
@@ -538,6 +543,7 @@ int main(int argc, char** argv) {
     }
 
     renderer->WaitIdle();
+    audioPreview.Shutdown();
     editor.reset();
     renderer.reset();
     window.reset();

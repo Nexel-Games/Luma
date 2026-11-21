@@ -12,10 +12,11 @@
 #include <shellapi.h>
 #endif
 
+#include "Luma/Asset/Import/ImportSession.h"
+#include "Luma/Asset/Import/TranslatorRegistry.h"
 #include "Luma/Asset/LumaMeshFormat.h"
-#include "Luma/Asset/MeshImporter.h"
-#include "Luma/Asset/TextureImporter.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
@@ -742,6 +743,13 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onImportAssets = [this](const std::filesystem::path& folder) {
         ImportAssetsInto(folder);
     };
+    ctx.onReimport = [this](const std::filesystem::path& asset) { ReimportAsset(asset); };
+    ctx.sourceChanged = [](const std::filesystem::path& asset) { return Import::SourceChanged(asset); };
+    ctx.importProgress = m_importActive ? &m_importProgress : nullptr;
+    ctx.onCancelImport = [this] {
+        if (m_importSession) m_importSession->Cancel();
+    };
+    ctx.audioPreview = m_audioPreview;
     ctx.onCreateScene = [this](const std::filesystem::path& folder) {
         CreateSceneAsset(folder);
     };
@@ -1083,85 +1091,96 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
     return deferredScene;
 }
 
+namespace {
+
+std::string FamilyLabel(std::string_view name) {
+    if (name.find("Model") != std::string_view::npos) return "Models";
+    if (name.find("Image") != std::string_view::npos) return "Images";
+    if (name.find("Audio") != std::string_view::npos) return "Audio";
+    return std::string(name);
+}
+
+std::vector<char> ImportFileFilter(const Import::TranslatorRegistry& registry) {
+    std::vector<std::pair<std::string, std::string>> families;
+    std::string all;
+    for (const std::string& ext : registry.SupportedExtensions()) {
+        const Import::ITranslator* translator = registry.Find(std::filesystem::path("import").concat(ext));
+        const std::string label = FamilyLabel(translator != nullptr ? translator->Name() : "Other");
+        const std::string pattern = "*" + ext;
+        if (!all.empty()) all += ";";
+        all += pattern;
+        auto it = std::find_if(families.begin(), families.end(),
+                               [&](const auto& family) { return family.first == label; });
+        if (it == families.end()) families.push_back({label, pattern});
+        else {
+            it->second += ";";
+            it->second += pattern;
+        }
+    }
+    std::vector<char> filter;
+    auto append = [&](const std::string& text) {
+        filter.insert(filter.end(), text.begin(), text.end());
+        filter.push_back('\0');
+    };
+    append("All Supported");
+    append(all);
+    for (const auto& family : families) {
+        append(family.first);
+        append(family.second);
+    }
+    filter.push_back('\0');
+    return filter;
+}
+
+void CollectImportFiles(const std::filesystem::path& path, const Import::TranslatorRegistry& registry,
+                        std::vector<std::filesystem::path>& out) {
+    std::error_code error;
+    if (std::filesystem::is_directory(path, error)) {
+        for (std::filesystem::recursive_directory_iterator it(path, error), end; it != end && !error; it.increment(error)) {
+            if (!it->is_regular_file(error)) continue;
+            CollectImportFiles(it->path(), registry, out);
+        }
+        return;
+    }
+    if (!std::filesystem::is_regular_file(path, error)) return;
+    if (registry.Find(path) != nullptr) out.push_back(path);
+    else LUMA_USER_WARN("Import", "'{}' is not a supported import format", path.filename().string());
+}
+
+}  // namespace
+
 void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& files) {
     if (files.empty() || !m_project) return;
-
-    std::filesystem::path targetDir = m_contentBrowser.CurrentFolder();
-    if (targetDir.empty() || !std::filesystem::exists(targetDir)) {
-        targetDir = m_project->AssetsDir();
-    }
-    std::error_code ec;
-    std::filesystem::create_directories(targetDir, ec);
-
-    LUMA_LOG_INFO("Editor", "Handling dropped assets/packs ({}) into target folder {}", files.size(), targetDir.string());
-
-    auto processSingleFile = [&](const std::filesystem::path& srcPath, const std::filesystem::path& destDir) {
-        std::error_code copyEc;
-        std::filesystem::path destPath = destDir / srcPath.filename();
-
-        // Copy source file to target directory if not already there
-        if (std::filesystem::canonical(srcPath, copyEc) != std::filesystem::canonical(destPath, copyEc)) {
-            std::filesystem::copy_file(srcPath, destPath, std::filesystem::copy_options::overwrite_existing, copyEc);
-            if (copyEc) {
-                LUMA_USER_ERROR("Content", "Could not import '{}': {}", srcPath.filename().string(), copyEc.message());
-                return;
-            }
-        }
-        LUMA_LOG_INFO("Editor", "Copied dropped file to {}", destPath.string());
-    };
-
-    for (const auto& file : files) {
-        if (std::filesystem::is_directory(file)) {
-            // Recursive copy for directories
-            std::filesystem::path destDir = targetDir / file.filename();
-            std::error_code copyEc;
-            std::filesystem::copy(file, destDir, std::filesystem::copy_options::recursive, copyEc);
-            if (copyEc) {
-                LUMA_USER_ERROR("Content", "Could not import folder '{}': {}", file.filename().string(), copyEc.message());
-            } else {
-                LUMA_LOG_INFO("Editor", "Copied dropped directory to {}", destDir.string());
-            }
-        } else {
-            processSingleFile(file, targetDir);
-        }
-    }
-
-    // Refresh the registry after dropping files
-    m_assetRegistry.Scan();
-    LUMA_LOG_INFO("Editor", "Registry refreshed after drop ({} entries)", m_assetRegistry.Size());
-    LUMA_USER_INFO("Content", "Imported {} item(s) into '{}'", files.size(),
-                   ProjectRelative(targetDir));
+    std::filesystem::path target = m_contentBrowser.CurrentFolder();
+    if (target.empty()) target = m_project->AssetsDir();
+    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    std::vector<std::filesystem::path> supported;
+    for (const std::filesystem::path& file : files) CollectImportFiles(file, registry, supported);
+    OpenImport(supported, target, false);
 }
 
 void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
     if (!m_project) return;
-    std::filesystem::path target = folder;
-    if (target.empty()) target = m_project->AssetsDir();
-    std::error_code ec;
-    std::filesystem::create_directories(target, ec);
-
-    // Native multi-select file picker (Windows).
+    std::filesystem::path target = folder.empty() ? m_project->AssetsDir() : folder;
+    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    const std::vector<char> filter = ImportFileFilter(registry);
     std::vector<std::filesystem::path> picked;
 #ifdef _WIN32
     {
         char buffer[16384] = {0};
         OPENFILENAMEA ofn{};
         ofn.lStructSize = sizeof(ofn);
-        ofn.lpstrFilter = "All Files (*.*)\0*.*\0";
+        ofn.lpstrFilter = filter.data();
         ofn.lpstrFile = buffer;
         ofn.nMaxFile = static_cast<DWORD>(sizeof(buffer));
         ofn.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_FILEMUSTEXIST;
         ofn.lpstrTitle = "Import Assets";
         if (GetOpenFileNameA(&ofn)) {
-            // With OFN_ALLOWMULTISELECT + OFN_EXPLORER the buffer is
-            // "dir\0file1\0file2\0\0" for several files, or a single full
-            // path when exactly one file is chosen.
             const char* p = buffer;
             std::string first(p);
             p += first.size() + 1;
-            if (*p == '\0') {
-                picked.push_back(first);
-            } else {
+            if (*p == '\0') picked.push_back(first);
+            else {
                 const std::filesystem::path dir(first);
                 while (*p != '\0') {
                     picked.push_back(dir / p);
@@ -1171,45 +1190,96 @@ void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
         }
     }
 #endif
-    if (picked.empty()) return;
+    std::vector<std::filesystem::path> supported;
+    for (const std::filesystem::path& file : picked) CollectImportFiles(file, registry, supported);
+    OpenImport(supported, target, false);
+}
 
-    LUMA_LOG_INFO("Editor", "Importing {} file(s) into {}", picked.size(),
-                  target.string());
-    usize failed = 0;
-    for (const auto& src : picked) {
-        std::error_code copyEc;
-        if (!std::filesystem::exists(src, copyEc) || copyEc) {
-            continue;  // no longer exists — skip
-        }
-        std::filesystem::path dest = target / src.filename();
-        copyEc.clear();
-        std::filesystem::path srcReal = std::filesystem::canonical(src, copyEc);
-        if (copyEc) continue;
-        copyEc.clear();
-        std::filesystem::path destReal =
-            std::filesystem::canonical(dest, copyEc);
-        if (!copyEc && srcReal == destReal) continue;  // already there
-        copyEc.clear();
-        std::filesystem::copy_file(src, dest,
-                                   std::filesystem::copy_options::overwrite_existing,
-                                   copyEc);
-        if (copyEc) {
-            ++failed;
-            LUMA_USER_ERROR("Content", "Could not import '{}' -> {}: {}",
-                           src.string(), dest.string(), copyEc.message());
-        }
+void EditorScreen::OpenImport(const std::vector<std::filesystem::path>& files,
+                              const std::filesystem::path& folder, bool reimport) {
+    if (!m_project || files.empty()) return;
+    if (m_importSession && m_importSession->Running()) {
+        LUMA_USER_WARN("Import", "An import is already running");
+        return;
     }
+    auto session = std::make_unique<Import::ImportSession>();
+    std::string error;
+    if (!session->Translate(files, &error)) {
+        LUMA_USER_ERROR("Import", "{}", error.empty() ? "Could not read the selected files" : error);
+        return;
+    }
+    m_importDest = folder.empty() ? m_project->AssetsDir() : folder;
+    std::error_code io;
+    std::filesystem::create_directories(m_importDest, io);
+    if (auto virtualPath = m_assetPaths.ToVirtual(m_importDest)) m_importVirtual = *virtualPath;
+    else m_importVirtual = "/Game";
+    m_importSession = std::move(session);
+    m_importDialog.Open(m_importSession.get(), m_importDest, m_importVirtual, reimport);
+    m_importDialog.LoadPresets(m_project->ConfigDir());
+}
 
+void EditorScreen::ReimportAsset(const std::filesystem::path& asset) {
+    std::string error;
+    auto session = Import::ImportSession::ForReimport(asset, &error);
+    if (!session) {
+        LUMA_USER_ERROR("Import", "{}", error.empty() ? "Could not reimport that asset" : error);
+        return;
+    }
+    const SerialValue restored = session->Settings().ToJson();
+    m_importDest = asset.parent_path();
+    if (auto virtualPath = m_assetPaths.ToVirtual(m_importDest)) m_importVirtual = *virtualPath;
+    else m_importVirtual = "/Game";
+    m_importSession = std::move(session);
+    m_importDialog.Open(m_importSession.get(), m_importDest, m_importVirtual, true);
+    if (m_project) m_importDialog.LoadPresets(m_project->ConfigDir());
+    m_importSession->Settings().FromJson(restored);
+    m_importSession->Settings().Common().Set("conflict", std::string("Overwrite"));
+}
+
+void EditorScreen::OnImportDialog(Editor::Panels::ImportDialog::Action action) {
+    if (!m_importSession || action == Editor::Panels::ImportDialog::Action::None) return;
+    if (action == Editor::Panels::ImportDialog::Action::Cancel) {
+        m_importSession.reset();
+        m_importActive = false;
+        return;
+    }
+    Import::FactoryContext context{m_importSession->Scene(), m_importSession->Settings(), m_materials.get(),
+                                   m_assetPaths, {}};
+    const Import::ImportPlan plan = m_importSession->Plan(m_importDest);
+    m_importSession->Start(plan, context);
+    m_importActive = true;
+    m_importProgress = 0.0f;
+}
+
+void EditorScreen::PollImport() {
+    if (!m_importSession || !m_importActive) return;
+    if (m_importSession->Running()) {
+        m_importProgress = m_importSession->Progress();
+        return;
+    }
+    const auto result = m_importSession->TakeResult();
+    m_importActive = false;
+    m_importProgress = 0.0f;
+    if (!result) {
+        m_importSession.reset();
+        return;
+    }
     m_assetRegistry.Scan();
-    if (picked.size() > failed) {
-        LUMA_USER_INFO("Content", "Imported {} file(s) into '{}'", picked.size() - failed,
-                       ProjectRelative(target));
+    for (const std::filesystem::path& file : result->files) {
+        const AssetData* data = m_assetRegistry.LookupByPath(file);
+        const AssetId id = data != nullptr ? data->id : MakeAssetIdFromKey(file.string());
+        ThumbnailManager::Get().DirtyThumbnail(id);
+        m_contentBrowser.InvalidateThumbnail(id);
     }
-    LUMA_LOG_INFO("Editor", "Registry refreshed after import ({} entries)",
-                  m_assetRegistry.Size());
+    const u32 imported = result->created + result->overwritten;
+    LUMA_USER_INFO("Import", "Imported {} assets into {} ({} skipped, {} failed)", imported, m_importVirtual,
+                   result->skipped, result->failed);
+    for (const std::string& message : result->messages) LUMA_USER_ERROR("Import", "{}", message);
+    m_importSession.reset();
 }
 
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
+    PollImport();
     Slate::Theme& t = ui.theme();
     if (!m_dockBuilt) BuildDock();
     ui.Panel({0, 0, width, height}, t.windowBg);
@@ -1341,6 +1411,9 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
     DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
+    if (m_importDialog.IsOpen()) {
+        OnImportDialog(m_importDialog.Draw(ui, width, height));
+    }
 }
 
 Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const {
