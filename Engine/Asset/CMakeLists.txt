@@ -36,6 +36,7 @@ add_library(LumaAsset STATIC
     src/ThumbnailRenderingInfo.cpp
     src/ThumbnailRenderer.cpp
     src/TextureThumbnailRenderer.cpp
+    src/SoundThumbnailRenderer.cpp
     src/MeshThumbnailRenderer.cpp
     src/MaterialThumbnailRenderer.cpp
     src/Import/ImportScene.cpp

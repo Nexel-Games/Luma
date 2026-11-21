@@ -23,6 +23,7 @@
 #include "Luma/VFS/Path.h"
 #include "Luma/VFS/VFS.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Asset/SoundThumbnailRenderer.h"
 #include "Luma/Asset/TextureThumbnailRenderer.h"
 #include "Luma/Asset/MeshThumbnailRenderer.h"
 #include "Luma/Asset/MaterialThumbnailRenderer.h"
@@ -199,8 +200,10 @@ int main(int argc, char** argv) {
                                      std::make_unique<Luma::MeshThumbnailRenderer>());
         thumbnailMgr.RegisterRenderer(Luma::AssetType::Material,
                                      std::make_unique<Luma::MaterialThumbnailRenderer>());
+        thumbnailMgr.RegisterRenderer(Luma::AssetType::Sound,
+                                     std::make_unique<Luma::SoundThumbnailRenderer>());
         
-        LUMA_LOG_INFO("Editor", "Thumbnail system initialized with {} renderers", 3);
+        LUMA_LOG_INFO("Editor", "Thumbnail system initialized with {} renderers", 4);
     }
 
     // Fonts: Red Hat Display (variable font) is the primary UI family. The variable font

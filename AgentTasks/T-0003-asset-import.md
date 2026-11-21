@@ -638,13 +638,13 @@ tests `Tests/Asset/ThumbnailImportTests.cpp`.
   renderer is registered (search `RegisterRenderer`).
 - Textures: decode through `DecodeImageFile` so PSD/HDR/EXR work; float images
   tone-mapped `c / (1 + c)` then sRGB-encoded.
-- [ ] **Step 1: Failing tests** (`[import][thumbnail]`): sound thumbnail of
+- [x] **Step 1: Failing tests** (`[import][thumbnail]`): sound thumbnail of
   `tone_mono.wav` → file written, 128×128, centre column has accent-coloured pixels
   above and below the centre line, identical bytes on a second render (deterministic);
   HDR/EXR/PSD thumbnails written with expected size; HDR pixel ≈ tone-mapped value
   (2.0/(3.0)) sRGB-encoded ±3.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(asset): sound waveform and HDR/EXR/PSD thumbnails (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(asset): sound waveform and HDR/EXR/PSD thumbnails (T-0003)`.
 
 ## Task 12 — Import window (editor panel)
 
@@ -834,5 +834,15 @@ Each asset's `.meta` now stores the whole pipeline stack (plus sound probe field
 `[asset][scan]` and `[asset][registry]` failed on the old mapping (5 cases: `psd` was Unknown, `.meta` was not ignored, `.obj` was still a mesh), then passed (96 assertions in 26 cases). Whole suite: `All tests passed (23394 assertions in 441 test cases)`.
 
 `AssetTypeFromExtension` maps `psd`, `hdr`, and `exr` to Texture (case-insensitive, with or without a leading dot). The mesh extension list is only `lmesh`, so `gltf`, `glb`, `fbx`, `obj`, `bin`, and `mtl` are `Unknown`. The scanner skips `*.meta` and `*.tmp`. Two older tests that treated `.obj` / `.glb` as meshes now expect `Unknown`.
+
+### Task 11
+
+`[import][thumbnail]` failed to compile (`SoundThumbnailRenderer.h` missing), then passed (30 assertions in 2 cases). Whole suite: `All tests passed (23424 assertions in 443 test cases)`.
+
+A sound thumbnail is 128×128. The background is `#262626`, the centre row is `#3A3A3A`, and each column in the 4 px margin is filled between the min and max from `ComputePeaks` in `#2D9CDB`. Positive samples sit above the centre line. `tone_mono.wav` peaks near ±0.125, so the accent band is narrow and is not normalised. A second render of the same file matches the first byte for byte. The editor registers the renderer next to the texture one (`Thumbnail system initialized with 4 renderers`).
+
+Texture thumbnails other than `.ltex` go through `DecodeImageFile`. Float images are tone-mapped with `c / (1 + c)`, sRGB-encoded (`c <= 0.0031308` → `12.92c`, else `1.055 * c^(1/2.4) - 0.055`), and stored as RGB so an opaque HDR alpha is not tone-mapped into the checkerboard blend. `img.hdr` is a flat (2, 0.5, 0.25), so the centre pixel matches that red/green/blue within ±3 after a bilinear resize. EXR and PSD thumbnails are 128×128. `.psd` and `.exr` are now accepted by `CanRender`.
+
+Linking `LumaEditor` pulled tinyexr's stb_image (the HDR/EXR decode) against Slate's copy and failed with LNK2005. `Engine/UI/Slate/src/Image.cpp` now compiles stb with `STB_IMAGE_STATIC`, so those symbols stay inside that file. The editor links.
 
 ## Review

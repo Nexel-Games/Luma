@@ -1,16 +1,15 @@
 #include "Luma/Asset/TextureThumbnailRenderer.h"
+
+#include "Luma/Asset/Import/ImageDecode.h"
 #include "Luma/Core/Log.h"
 
-#include <fstream>
 #include <algorithm>
+#include <cmath>
+#include <fstream>
 
 #if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4505)
+#pragma warning(push, 0)
 #endif
-#define STB_IMAGE_STATIC
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
@@ -35,7 +34,8 @@ bool TextureThumbnailRenderer::CanRender(const AssetId& assetId, const std::file
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     
     return (ext == ".ltex" || ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
-            ext == ".tga" || ext == ".bmp" || ext == ".webp" || ext == ".hdr");
+            ext == ".tga" || ext == ".bmp" || ext == ".webp" || ext == ".hdr" ||
+            ext == ".exr" || ext == ".psd");
 }
 
 bool TextureThumbnailRenderer::RenderThumbnail(const AssetId& assetId,
@@ -145,23 +145,36 @@ bool TextureThumbnailRenderer::LoadTexture(const std::filesystem::path& path,
         header.magic[1] != 'T' || 
         header.magic[2] != 'E' || 
         header.magic[3] != 'X') {
-        // Not a .ltex file, try stb_image
         file.close();
-        
-        int w, h, c;
-        unsigned char* data = stbi_load(path.string().c_str(), &w, &h, &c, 0);
-        
-        if (!data) {
-            LUMA_LOG_ERROR("TextureThumbnailRenderer", "Failed to load texture with stb_image: {}", path.string());
+
+        std::string error;
+        const auto decoded = Import::DecodeImageFile(path, &error);
+        if (!decoded) {
+            LUMA_LOG_ERROR("TextureThumbnailRenderer", "Failed to decode {}: {}", path.string(), error);
             return false;
         }
-        
-        outWidth = static_cast<u32>(w);
-        outHeight = static_cast<u32>(h);
-        outChannels = static_cast<u32>(c);
-        outPixels.assign(data, data + w * h * c);
-        
-        stbi_image_free(data);
+        outWidth = decoded->width;
+        outHeight = decoded->height;
+        const size_t count = static_cast<size_t>(outWidth) * outHeight;
+        if (decoded->isFloat) {
+            outChannels = 3;
+            outPixels.resize(count * 3);
+            auto encode = [](float sample) -> u8 {
+                if (!(sample > 0.0f)) return 0;
+                const float mapped = std::min(sample / (1.0f + sample), 1.0f);
+                const float srgb = mapped <= 0.0031308f ? 12.92f * mapped
+                                                        : 1.055f * std::pow(mapped, 1.0f / 2.4f) - 0.055f;
+                return static_cast<u8>(std::lround(std::clamp(srgb, 0.0f, 1.0f) * 255.0f));
+            };
+            for (size_t i = 0; i < count; ++i) {
+                outPixels[i * 3 + 0] = encode(decoded->pixelsF[i * 4 + 0]);
+                outPixels[i * 3 + 1] = encode(decoded->pixelsF[i * 4 + 1]);
+                outPixels[i * 3 + 2] = encode(decoded->pixelsF[i * 4 + 2]);
+            }
+        } else {
+            outChannels = 4;
+            outPixels = decoded->pixels8;
+        }
         return true;
     }
     
