@@ -144,6 +144,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             m_listScroll = 0.0f;
         } else {
             const f32 kIconS = 16.0f;
+            const f32 kRowStep = 22.0f;  // row pitch; stripes are one row tall
             // The list lives below the header; it is clipped to its region so
             // scrolled rows can't overlap the header, and shifted up by the
             // scroll offset. The scrollbar is added after the loop once the
@@ -160,9 +161,9 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 // Unreal-style striping: every other row on a darker band,
                 // full width and touching, so the rows read as a table.
                 if (rowIndex++ % 2 == 0) {
-                    ui.drawList().AddRectFilled({body.x, y - 1.0f, body.w, 26.0f}, t.listRowAlt);
+                    ui.drawList().AddRectFilled({body.x, y, body.w, kRowStep}, t.listRowAlt);
                 }
-                Rect row{body.x + 4, y, body.w - 8, 24};
+                Rect row{body.x + 4, y, body.w - 8, kRowStep};
                 bool selected = (e == *ctx.selected);
                 const u64 rowId =
                     Slate::Context::ID(name.c_str()) ^ 0x0F0F0F0Full;
@@ -227,7 +228,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                              name, selected ? t.selectionText : t.text);
                 }
                 if (clicked) *ctx.selected = e;
-                y += 26.0f;
+                y += kRowStep;
             }
             ui.PopClip();
             // Scroll region spans the list area below the header. Content
