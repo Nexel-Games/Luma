@@ -32,9 +32,10 @@ Big-picture docs (read before your first task):
 1. **Production quality, no shortcuts.** No demos, placeholders, stubbed features,
    hardcoded content or "TODO later" paths. If something can't be done properly, stop
    and ask (see §5).
-2. **Unreal is the reference — study, never copy.** The UE 5.8 source may be available
-   at `D:/output/UnrealEngine-5.8`. Read it to understand architecture and behaviour;
-   never paste or transliterate its code.
+2. **Unreal is the reference, through the plan.** You do **not** have the Unreal Engine
+   source (it is not in this repository). Each task's plan describes the relevant
+   Unreal behaviour and gives our own reference code where needed — that is your
+   source of truth. Never copy Unreal code from anywhere else either.
 3. **Modular architecture.** Every feature is its own module/folder with a clear API.
    The Vulkan backend stays generic: feature modules feed it data through the RHI
    (`Engine/Rendering/RHI`). Group `.cpp` files by subsystem, not into flat folders.

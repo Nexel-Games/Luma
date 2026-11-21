@@ -1,0 +1,10 @@
+newmtl Paint
+Kd 1.0 1.0 1.0
+Ns 64
+map_Kd T_Paint_D.png
+norm T_Paint_N.png
+
+newmtl Metal
+Kd 0.8 0.8 0.8
+Ks 1.0 1.0 1.0
+Ns 400
