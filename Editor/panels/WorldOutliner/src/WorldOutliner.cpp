@@ -144,7 +144,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             m_listScroll = 0.0f;
         } else {
             const f32 kIconS = 16.0f;
-            const f32 kRowStep = 22.0f;  // row pitch; stripes are one row tall
+            const f32 kRowStep = 19.0f;  // row pitch; stripes are one row tall
             // The list lives below the header; it is clipped to its region so
             // scrolled rows can't overlap the header, and shifted up by the
             // scroll offset. The scrollbar is added after the loop once the
