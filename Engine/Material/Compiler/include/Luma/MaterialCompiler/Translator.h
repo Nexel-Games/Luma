@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <functional>
 #include <map>
 #include <set>
@@ -11,6 +12,7 @@
 
 #include "Luma/Material/GraphAssets.h"
 #include "Luma/MaterialCompiler/CompiledMaterial.h"
+#include "Luma/MaterialCompiler/Preshader.h"
 #include "Luma/MaterialGraph/ExpressionRegistry.h"
 
 namespace Luma::Material {
@@ -26,6 +28,8 @@ namespace Luma::MaterialCompiler {
 // Static Switch / Static Bool parameter values of a permutation, by name.
 // Parameters not listed use their default.
 using StaticSwitchSet = std::map<std::string, bool>;
+// Permutation key of a static-switch set (order-independent).
+u64 StaticSwitchKey(const StaticSwitchSet& set);
 
 class Translator {
 public:
@@ -51,6 +55,19 @@ public:
     i32 Cast(i32 chunk, MaterialGraph::ValueType to, MaterialGraph::NodeId at);
     // A new chunk of arbitrary code (no folding).
     i32 Emit(std::string code, MaterialGraph::ValueType type, Frequency freq);
+
+    // --- Uniform expressions (preshader) ------------------------------------
+    // True for Constant chunks and Uniform chunks the preshader computes.
+    bool Preshadable(i32 chunk) const;
+    // A Uniform chunk computed on the CPU by `op` over the operands; -1 when
+    // an operand isn't preshadable (the caller falls back to GLSL). `extra`
+    // holds the op's inline operands (Dot width, Swizzle count + lanes,
+    // Append widths).
+    i32 Preshade(PreOp op, std::initializer_list<i32> operands, MaterialGraph::ValueType result,
+                 std::array<u8, 5> extra = {});
+    // A collection parameter's current value (Uniform, preshaded).
+    i32 CollectionValue(const std::string& collection, const std::string& parameter,
+                        MaterialGraph::ValueType type);
 
     // A chunk for code that needs no local variable (an existing local,
     // interpolant or uniform read).
@@ -97,6 +114,21 @@ public:
 private:
     i32 AddChunk(std::string code, MaterialGraph::ValueType type, Frequency freq,
                  std::optional<Math::Vec4> constant);
+    i32 PreNodeOf(i32 chunk);
+    i32 UniformFromPre(i32 node, MaterialGraph::ValueType type);
+    u16 PreParam(const std::string& name, bool vector, const Math::Vec4& def);
+    // Replaces uniform / texture placeholders in generated text with their
+    // slots, assigning slots (and preshader programs) in first-use order.
+    std::string Resolve(const std::string& text, CompiledMaterial& out);
+    void EmitPreshader(i32 node, PreshaderProgram& program);
+
+    struct PreNode {
+        PreOp op = PreOp::PushConst;
+        std::vector<i32> args;
+        u16 index = 0;  // parameter / collection-value index
+        Math::Vec4 constant{0.0f, 0.0f, 0.0f, 0.0f};
+        std::array<u8, 5> extra{};
+    };
 
     const Material::GraphMaterial& m_material;
     const Material::MaterialLibrary* m_library;
@@ -114,8 +146,13 @@ private:
     std::vector<std::string> m_includes;
     std::vector<Interpolator> m_interpolators;
     std::vector<ParameterInfo> m_parameters;
-    std::map<std::string, u32> m_parameterSlots;  // scalar/vector parameter -> block slot
-    ParameterBlockLayout m_layout;
+    ParameterBlockLayout m_layout;          // filled by Finish
+    std::vector<PreNode> m_pre;
+    std::vector<PreshaderParam> m_preParams;
+    std::vector<std::pair<std::string, std::string>> m_collectionValues;
+    std::vector<TextureSlot> m_textures;    // distinct bindings; slots assigned by Finish
+    std::map<i32, u32> m_uniformSlots;      // uniform chunk -> block slot
+    std::map<u32, u32> m_textureSlots;      // m_textures index -> block slot
 };
 
 }  // namespace Luma::MaterialCompiler

@@ -5,6 +5,7 @@
 
 #include "Luma/MaterialCompiler/CodeChunk.h"
 #include "Luma/MaterialCompiler/Parameters.h"
+#include "Luma/MaterialCompiler/Preshader.h"
 
 // The backend-neutral result of compiling a material graph. Later stages add
 // the parameter block, preshader program, texture table (Task 7) and the
@@ -47,6 +48,7 @@ struct CompiledMaterial {
     std::vector<Interpolator> interpolators;
     std::vector<ParameterInfo> parameters;  // in declaration order
     ParameterBlockLayout layout;
+    PreshaderProgram preshader;             // fills the uniform slots of the block
     std::vector<MaterialOutputValue> outputs;  // Material Output pin order
     std::vector<CompileError> errors;
     std::vector<CompileError> warnings;

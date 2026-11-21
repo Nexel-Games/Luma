@@ -141,6 +141,12 @@ std::string CompiledMaterial::Fingerprint() const {
         mix(o.code);
     }
     mix(staticSwitchKey);
+    mix(std::string_view(reinterpret_cast<const char*>(preshader.code.data()), preshader.code.size()));
+    for (const Math::Vec4& c : preshader.constants) {
+        mix(std::to_string(c.x) + "," + std::to_string(c.y) + "," + std::to_string(c.z) + "," + std::to_string(c.w));
+    }
+    for (const PreshaderParam& p : preshader.params) mix(p.name + (p.vector ? "v" : "s"));
+    for (const auto& [collection, name] : preshader.collectionValues) mix(collection + "|" + name);
     char hex[17];
     std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(h));
     return hex;
@@ -269,29 +275,107 @@ bool Translator::DeclareParameter(ParameterInfo info) {
     return true;
 }
 
+namespace {
+
+// Placeholders for slots assigned at the end: \x01U<chunk>\x01 for a uniform
+// value, \x01T<texture>\x01 for a texture binding.
+constexpr char kMark = '\x01';
+
+std::string Placeholder(char kind, usize index) {
+    return std::string(1, kMark) + kind + std::to_string(index) + std::string(1, kMark);
+}
+
+}  // namespace
+
+u16 Translator::PreParam(const std::string& name, bool vector, const Math::Vec4& def) {
+    for (usize i = 0; i < m_preParams.size(); ++i) {
+        if (m_preParams[i].name == name) return static_cast<u16>(i);
+    }
+    m_preParams.push_back({name, vector, def});
+    return static_cast<u16>(m_preParams.size() - 1);
+}
+
+i32 Translator::UniformFromPre(i32 node, ValueType type) {
+    Chunk chunk;
+    chunk.type = type;
+    chunk.freq = Frequency::Uniform;
+    chunk.pre = node;
+    chunk.stage = m_stage;
+    chunk.code = Placeholder('U', m_chunks.size());
+    m_chunks.push_back(std::move(chunk));
+    return static_cast<i32>(m_chunks.size() - 1);
+}
+
+bool Translator::Preshadable(i32 chunk) const {
+    if (chunk < 0) return false;
+    const Chunk& c = ChunkAt(chunk);
+    return c.constant.has_value() || (c.freq == Frequency::Uniform && c.pre >= 0);
+}
+
+i32 Translator::PreNodeOf(i32 chunk) {
+    const Chunk& c = ChunkAt(chunk);
+    if (c.pre >= 0) return c.pre;
+    if (!c.constant) return -1;
+    PreNode node;
+    node.op = PreOp::PushConst;
+    // Scalars are kept broadcast in every lane.
+    node.constant = Width(c.type) == 1 ? Math::Vec4{c.constant->x, c.constant->x, c.constant->x, c.constant->x}
+                                       : *c.constant;
+    m_pre.push_back(node);
+    return static_cast<i32>(m_pre.size() - 1);
+}
+
+i32 Translator::Preshade(PreOp op, std::initializer_list<i32> operands, ValueType result, std::array<u8, 5> extra) {
+    PreNode node;
+    node.op = op;
+    node.extra = extra;
+    for (i32 c : operands) {
+        if (!Preshadable(c)) return -1;
+        node.args.push_back(PreNodeOf(c));
+    }
+    m_pre.push_back(std::move(node));
+    return UniformFromPre(static_cast<i32>(m_pre.size() - 1), result);
+}
+
+i32 Translator::CollectionValue(const std::string& collection, const std::string& parameter, ValueType type) {
+    u16 index = 0;
+    const auto key = std::make_pair(collection, parameter);
+    const auto it = std::find(m_collectionValues.begin(), m_collectionValues.end(), key);
+    if (it == m_collectionValues.end()) {
+        m_collectionValues.push_back(key);
+        index = static_cast<u16>(m_collectionValues.size() - 1);
+    } else {
+        index = static_cast<u16>(it - m_collectionValues.begin());
+    }
+    PreNode node;
+    node.op = PreOp::PushCollection;
+    node.index = index;
+    m_pre.push_back(node);
+    return UniformFromPre(static_cast<i32>(m_pre.size() - 1), type);
+}
+
 i32 Translator::ScalarParameter(ParameterInfo info) {
     info.kind = ParameterInfo::Kind::Scalar;
-    const i32 vec = VectorParameter(std::move(info));
-    if (vec < 0) return -1;
-    return Reference(ChunkAt(vec).code + ".x", ValueType::Float1, Frequency::Uniform);
+    const std::string name = info.name;
+    const Math::Vec4 def = info.defaultValue;
+    if (!DeclareParameter(std::move(info))) return -1;
+    PreNode node;
+    node.op = PreOp::PushScalarParam;
+    node.index = PreParam(name, false, def);
+    m_pre.push_back(node);
+    return UniformFromPre(static_cast<i32>(m_pre.size() - 1), ValueType::Float1);
 }
 
 i32 Translator::VectorParameter(ParameterInfo info) {
-    for (const ParameterInfo& p : m_parameters) {
-        if (p.name != info.name) continue;
-        if (p.kind != info.kind) {
-            Error(info.node, -1,
-                  "Parameter '" + info.name + "' is already a " + KindName(p.kind) + " parameter (node #" +
-                      std::to_string(p.node) + ")");
-            return -1;
-        }
-        return Reference("MP(" + std::to_string(m_parameterSlots.at(info.name)) + ")", ValueType::Float4,
-                         Frequency::Uniform);
-    }
-    const u32 slot = m_layout.vec4Count++;
-    m_parameterSlots[info.name] = slot;
-    m_parameters.push_back(std::move(info));
-    return Reference("MP(" + std::to_string(slot) + ")", ValueType::Float4, Frequency::Uniform);
+    info.kind = ParameterInfo::Kind::Vector;
+    const std::string name = info.name;
+    const Math::Vec4 def = info.defaultValue;
+    if (!DeclareParameter(std::move(info))) return -1;
+    PreNode node;
+    node.op = PreOp::PushVectorParam;
+    node.index = PreParam(name, true, def);
+    m_pre.push_back(node);
+    return UniformFromPre(static_cast<i32>(m_pre.size() - 1), ValueType::Float4);
 }
 
 i32 Translator::Texture(TextureSlot slot, const ParameterInfo* param) {
@@ -311,20 +395,91 @@ i32 Translator::Texture(TextureSlot slot, const ParameterInfo* param) {
         }
         slot.parameter = param->name;
     }
-    // One slot per distinct (texture, parameter, sampler, decode) binding.
-    for (const TextureSlot& s : m_layout.textures) {
+    // One binding per distinct (texture, parameter, sampler, decode).
+    const ValueType type = slot.cube ? ValueType::TextureCube : ValueType::Texture2D;
+    for (usize i = 0; i < m_textures.size(); ++i) {
+        const TextureSlot& s = m_textures[i];
         if (s.defaultTexture == slot.defaultTexture && s.parameter == slot.parameter && s.cube == slot.cube &&
             s.sampler == slot.sampler && s.samplerType == slot.samplerType && s.srgb == slot.srgb) {
-            return Reference(std::to_string(s.slot), slot.cube ? ValueType::TextureCube : ValueType::Texture2D,
-                             Frequency::Uniform);
+            return Reference(Placeholder('T', i), type, Frequency::Uniform);
         }
     }
-    slot.slot = m_layout.vec4Count++;
-    const u32 index = slot.slot;
-    const bool cube = slot.cube;
-    m_layout.textures.push_back(std::move(slot));
-    return Reference(std::to_string(index), cube ? ValueType::TextureCube : ValueType::Texture2D,
-                     Frequency::Uniform);
+    m_textures.push_back(std::move(slot));
+    return Reference(Placeholder('T', m_textures.size() - 1), type, Frequency::Uniform);
+}
+
+void Translator::EmitPreshader(i32 index, PreshaderProgram& program) {
+    const PreNode& node = m_pre[static_cast<usize>(index)];
+    for (i32 arg : node.args) EmitPreshader(arg, program);
+    auto u16le = [&program](u16 v) {
+        program.code.push_back(static_cast<u8>(v & 0xFF));
+        program.code.push_back(static_cast<u8>(v >> 8));
+    };
+    program.code.push_back(static_cast<u8>(node.op));
+    switch (node.op) {
+        case PreOp::PushConst: {
+            auto it = std::find_if(program.constants.begin(), program.constants.end(), [&](const Math::Vec4& c) {
+                return c.x == node.constant.x && c.y == node.constant.y && c.z == node.constant.z &&
+                       c.w == node.constant.w;
+            });
+            if (it == program.constants.end()) {
+                program.constants.push_back(node.constant);
+                it = program.constants.end() - 1;
+            }
+            u16le(static_cast<u16>(it - program.constants.begin()));
+            break;
+        }
+        case PreOp::PushScalarParam:
+        case PreOp::PushVectorParam:
+        case PreOp::PushCollection: u16le(node.index); break;
+        case PreOp::Dot: program.code.push_back(node.extra[0]); break;
+        case PreOp::Swizzle:
+            for (u8 b : node.extra) program.code.push_back(b);
+            break;
+        case PreOp::Append:
+            program.code.push_back(node.extra[0]);
+            program.code.push_back(node.extra[1]);
+            break;
+        default: break;
+    }
+}
+
+std::string Translator::Resolve(const std::string& text, CompiledMaterial& out) {
+    std::string result;
+    result.reserve(text.size());
+    for (usize i = 0; i < text.size(); ++i) {
+        if (text[i] != kMark) {
+            result += text[i];
+            continue;
+        }
+        const usize end = text.find(kMark, i + 1);
+        const char kind = text[i + 1];
+        const usize index = static_cast<usize>(std::stoull(text.substr(i + 2, end - i - 2)));
+        i = end;
+        if (kind == 'T') {
+            auto [it, added] = m_textureSlots.try_emplace(static_cast<u32>(index), 0u);
+            if (added) {
+                TextureSlot slot = m_textures[index];
+                slot.slot = out.layout.vec4Count++;
+                it->second = slot.slot;
+                out.layout.textures.push_back(std::move(slot));
+            }
+            result += std::to_string(it->second);
+            continue;
+        }
+        const Chunk& c = m_chunks[index];
+        auto [it, added] = m_uniformSlots.try_emplace(static_cast<i32>(index), 0u);
+        if (added) {
+            it->second = out.layout.vec4Count++;
+            EmitPreshader(c.pre, out.preshader);
+            out.preshader.code.push_back(static_cast<u8>(PreOp::Store));
+            out.preshader.code.push_back(static_cast<u8>(it->second & 0xFF));
+            out.preshader.code.push_back(static_cast<u8>(it->second >> 8));
+        }
+        static const char* kLanes[] = {"", ".x", ".xy", ".xyz", ""};
+        result += "MP(" + std::to_string(it->second) + ")" + kLanes[std::min(Width(c.type), 4u)];
+    }
+    return result;
 }
 
 i32 Translator::Binary(std::string_view op, i32 a, i32 b, NodeId at) {
@@ -360,6 +515,12 @@ i32 Translator::Binary(std::string_view op, i32 a, i32 b, NodeId at) {
         if (finite) return Constant({out[0], out[1], out[2], out[3]}, type);
     }
     const Frequency freq = std::max(ca.freq, cb.freq);
+    if (freq == Frequency::Uniform) {
+        const PreOp pre = op.front() == '+' ? PreOp::Add : op.front() == '-' ? PreOp::Sub
+                        : op.front() == '*' ? PreOp::Mul : PreOp::Div;
+        const i32 r = Preshade(pre, {a, b}, type);
+        if (r >= 0) return r;
+    }
     return AddChunk(ca.code + " " + std::string(op) + " " + cb.code, type, freq, std::nullopt);
 }
 
@@ -385,6 +546,10 @@ i32 Translator::Cast(i32 chunk, ValueType to, NodeId at) {
     if (from == 0 || w == 0) {
         Error(at, -1, "Can't convert this value to a Float" + std::to_string(w));
         return -1;
+    }
+    if (c.freq == Frequency::Uniform && c.pre >= 0 && (from == 1 || from > w)) {
+        if (from > w) Warning(at, -1, "Truncated a Float" + std::to_string(from) + " to a Float" + std::to_string(w));
+        return UniformFromPre(c.pre, to);
     }
     if (from == 1) {
         if (c.constant) return Constant({c.constant->x, c.constant->x, c.constant->x, c.constant->x}, to);
@@ -514,13 +679,19 @@ CompiledMaterial Translator::Finish() {
             out.outputs.push_back({p.name, stage, p.type, ChunkAt(value).code});
         }
     }
-    out.functions = m_functions;
-    out.includes = m_includes;
-    out.vertexBody = m_body[static_cast<usize>(Stage::Vertex)];
-    out.pixelBody = m_body[static_cast<usize>(Stage::Pixel)];
+    // Slots in first-use order: vertex body, pixel body, interpolants,
+    // outputs, functions (deterministic for identical graphs).
+    out.vertexBody = Resolve(m_body[static_cast<usize>(Stage::Vertex)], out);
+    out.pixelBody = Resolve(m_body[static_cast<usize>(Stage::Pixel)], out);
     out.interpolators = m_interpolators;
+    for (Interpolator& i : out.interpolators) i.vertexCode = Resolve(i.vertexCode, out);
+    for (MaterialOutputValue& o : out.outputs) o.code = Resolve(o.code, out);
+    out.functions = Resolve(m_functions, out);
+    out.includes = m_includes;
     out.parameters = m_parameters;
-    out.layout = m_layout;
+    out.preshader.params = m_preParams;
+    out.preshader.collectionValues = m_collectionValues;
+    m_layout = out.layout;
     out.errors = std::move(m_errors);
     out.warnings = std::move(m_warnings);
     return out;

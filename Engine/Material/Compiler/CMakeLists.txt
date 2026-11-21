@@ -6,6 +6,7 @@
 add_library(LumaMaterialCompiler STATIC
     src/CodeChunk.cpp
     src/Translator.cpp
+    src/Preshader.cpp
     src/ExpressionCompilers.cpp
     src/Expressions/Common.cpp
     src/Expressions/ConstantsParameters.cpp

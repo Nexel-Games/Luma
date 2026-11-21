@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 
 namespace Luma::MaterialCompiler::Detail {
 
@@ -30,6 +31,9 @@ bool Linked(const Translator& t, const Node& n, u32 pin) {
 i32 InOr(Translator& t, const Node& n, u32 pin, i32 fallback) {
     return Linked(t, n, pin) ? In(t, n, pin) : fallback;
 }
+
+// The preshader op of a GLSL intrinsic pattern, if it has one.
+std::optional<PreOp> PreOpFor(std::string_view pattern);
 
 i32 DefaultUV(Translator& t) { return t.Reference("P.texcoords[0]", ValueType::Float2, Frequency::Varying); }
 
@@ -96,6 +100,19 @@ i32 MapN(Translator& t, NodeId at, std::array<i32, N> args, std::string_view pat
         }
         if (finite) return t.Constant({out[0], out[1], out[2], out[3]}, type);
     }
+    if (freq == Frequency::Uniform) {
+        if (const std::optional<PreOp> op = PreOpFor(pattern)) {
+            i32 r = -1;
+            if constexpr (N == 1) {
+                r = t.Preshade(*op, {args[0]}, type);
+            } else if constexpr (N == 2) {
+                r = t.Preshade(*op, {args[0], args[1]}, type);
+            } else {
+                r = t.Preshade(*op, {args[0], args[1], args[2]}, type);
+            }
+            if (r >= 0) return r;
+        }
+    }
     std::string code;
     if constexpr (N == 1) {
         code = Substitute(pattern, {&t.ChunkAt(args[0]).code});
@@ -108,6 +125,22 @@ i32 MapN(Translator& t, NodeId at, std::array<i32, N> args, std::string_view pat
 }
 
 }  // namespace
+
+std::optional<PreOp> PreOpFor(std::string_view pattern) {
+    static const std::pair<std::string_view, PreOp> kOps[] = {
+        {"abs($0)", PreOp::Abs},           {"clamp($0, 0.0, 1.0)", PreOp::Saturate},
+        {"sqrt($0)", PreOp::Sqrt},         {"floor($0)", PreOp::Floor},
+        {"ceil($0)", PreOp::Ceil},         {"fract($0)", PreOp::Frac},
+        {"sin($0)", PreOp::Sin},           {"cos($0)", PreOp::Cos},
+        {"min($0, $1)", PreOp::Min},       {"max($0, $1)", PreOp::Max},
+        {"pow($0, $1)", PreOp::Pow},       {"clamp($0, $1, $2)", PreOp::Clamp},
+        {"mix($0, $1, $2)", PreOp::Lerp},
+    };
+    for (const auto& [glsl, op] : kOps) {
+        if (glsl == pattern) return op;
+    }
+    return std::nullopt;
+}
 
 u32 Unify(Translator& t, NodeId at, std::initializer_list<i32*> chunks) {
     u32 w = 1;
@@ -160,6 +193,14 @@ i32 Swizzle(Translator& t, i32 value, std::string_view components) {
         return t.Constant({out[0], out[1], out[2], out[3]}, type);
     }
     if (w == 1) return t.Cast(value, type, 0);  // a Float1 replicates
+    if (t.Preshadable(value)) {
+        std::array<u8, 5> extra{static_cast<u8>(n), 0, 0, 0, 0};
+        for (u32 i = 0; i < n; ++i) {
+            extra[i + 1] = static_cast<u8>(std::string_view("xyzw").find(components[i]));
+        }
+        const i32 r = t.Preshade(PreOp::Swizzle, {value}, type, extra);
+        if (r >= 0) return r;
+    }
     return t.Reference(c.code + "." + std::string(components), type, c.freq);
 }
 
@@ -192,6 +233,19 @@ i32 Concat(Translator& t, NodeId at, std::initializer_list<i32> parts) {
     }
     const ValueType type = FloatType(width);
     if (allConstant) return t.Constant({lanes[0], lanes[1], lanes[2], lanes[3]}, type);
+    if (freq == Frequency::Uniform &&
+        std::all_of(parts.begin(), parts.end(), [&t](i32 p) { return t.Preshadable(p); })) {
+        // Fold the parts left to right with Append.
+        i32 acc = *parts.begin();
+        u32 accWidth = Width(t.ChunkAt(acc).type);
+        for (auto it = parts.begin() + 1; it != parts.end() && acc >= 0; ++it) {
+            const u32 w = Width(t.ChunkAt(*it).type);
+            acc = t.Preshade(PreOp::Append, {acc, *it}, FloatType(accWidth + w),
+                             {static_cast<u8>(accWidth), static_cast<u8>(w), 0, 0, 0});
+            accWidth += w;
+        }
+        if (acc >= 0) return acc;
+    }
     return t.Emit(std::string(GlslType(type)) + "(" + code + ")", type, freq);
 }
 

@@ -27,6 +27,10 @@ struct Chunk {
     Frequency freq = Frequency::Constant;
     std::optional<Math::Vec4> constant;  // set when freq == Constant (unused lanes 0)
     Stage stage = Stage::Pixel;
+    // Uniform chunks the preshader computes: their expression node (-1 =
+    // computed in GLSL from other uniforms). Their code is a placeholder the
+    // translator replaces by MP(slot) once slots are assigned.
+    i32 pre = -1;
 };
 
 // Components of a float type (1..4); 0 for non-float types.

@@ -17,7 +17,9 @@ constexpr f32 kTwoPi = 6.28318530717958647692f;
 template <char Op>
 i32 Arithmetic(Translator& t, const Node& n, const ExpressionDesc&, u32) {
     const char op[2] = {Op, '\0'};
-    return t.Binary(op, In(t, n, 0), In(t, n, 1), n.id);
+    // Inputs compile in pin order (function arguments have no evaluation order).
+    const i32 a = In(t, n, 0), b = In(t, n, 1);
+    return t.Binary(op, a, b, n.id);
 }
 
 // --- One input, same type out ---------------------------------------------------
@@ -33,7 +35,6 @@ i32 Unary(Translator& t, const Node& n, const ExpressionDesc&, u32) {
 
 constexpr UnaryDef kAbs{"abs($0)", [](f32 x) { return std::fabs(x); }};
 constexpr UnaryDef kSaturate{"clamp($0, 0.0, 1.0)", [](f32 x) { return std::clamp(x, 0.0f, 1.0f); }};
-constexpr UnaryDef kOneMinus{"1.0 - $0", [](f32 x) { return 1.0f - x; }};
 constexpr UnaryDef kSqrt{"sqrt($0)", [](f32 x) { return std::sqrt(x); }};
 constexpr UnaryDef kExp{"exp($0)", [](f32 x) { return std::exp(x); }};
 constexpr UnaryDef kLog2{"log2($0)", [](f32 x) { return std::log2(x); }};
@@ -46,6 +47,17 @@ constexpr UnaryDef kRound{"round($0)", [](f32 x) { return std::round(x); }};
 constexpr UnaryDef kFrac{"fract($0)", [](f32 x) { return x - std::floor(x); }};
 constexpr UnaryDef kSign{"sign($0)", [](f32 x) { return x > 0.0f ? 1.0f : (x < 0.0f ? -1.0f : 0.0f); }};
 
+// 1 - x, as a subtraction so uniform inputs stay on the preshader.
+i32 OneMinus(Translator& t, const Node& n, const ExpressionDesc&, u32) {
+    const i32 x = In(t, n, 0);
+    if (x < 0) return -1;
+    if (Width(t.ChunkAt(x).type) == 0) {
+        t.Error(n.id, -1, "Needs a float input");
+        return -1;
+    }
+    return t.Binary("-", t.Constant({1.0f, 0, 0, 0}, ValueType::Float1), x, n.id);
+}
+
 // --- Two inputs ----------------------------------------------------------------------
 struct BinaryDef {
     const char* pattern;
@@ -54,7 +66,8 @@ struct BinaryDef {
 
 template <const BinaryDef& Def>
 i32 BinaryFn(Translator& t, const Node& n, const ExpressionDesc&, u32) {
-    return Map2(t, n.id, In(t, n, 0), In(t, n, 1), Def.pattern, Def.fold);
+    const i32 a = In(t, n, 0), b = In(t, n, 1);
+    return Map2(t, n.id, a, b, Def.pattern, Def.fold);
 }
 
 constexpr BinaryDef kMin{"min($0, $1)", [](f32 a, f32 b) { return std::min(a, b); }};
@@ -74,7 +87,8 @@ struct TernaryDef {
 
 template <const TernaryDef& Def>
 i32 TernaryFn(Translator& t, const Node& n, const ExpressionDesc&, u32) {
-    return Map3(t, n.id, In(t, n, 0), In(t, n, 1), In(t, n, 2), Def.pattern, Def.fold);
+    const i32 a = In(t, n, 0), b = In(t, n, 1), c = In(t, n, 2);
+    return Map3(t, n.id, a, b, c, Def.pattern, Def.fold);
 }
 
 constexpr TernaryDef kClamp{"clamp($0, $1, $2)", [](f32 x, f32 lo, f32 hi) { return std::clamp(x, lo, std::max(lo, hi)); }};
@@ -100,6 +114,10 @@ i32 Dot(Translator& t, const Node& n, const ExpressionDesc&, u32) {
         f32 sum = 0.0f;
         for (u32 i = 0; i < w; ++i) sum += ConstLane(ca, i) * ConstLane(cb, i);
         return t.Constant({sum, 0, 0, 0}, ValueType::Float1);
+    }
+    if (std::max(ca.freq, cb.freq) == Frequency::Uniform) {
+        const i32 r = t.Preshade(PreOp::Dot, {a, b}, ValueType::Float1, {static_cast<u8>(w), 0, 0, 0, 0});
+        if (r >= 0) return r;
     }
     return t.Emit("dot(" + ca.code + ", " + cb.code + ")", ValueType::Float1, std::max(ca.freq, cb.freq));
 }
@@ -292,7 +310,7 @@ void RegisterMath(Table& table) {
     table["Max"] = &BinaryFn<kMax>;
     table["Clamp"] = &TernaryFn<kClamp>;
     table["Saturate"] = &Unary<kSaturate>;
-    table["OneMinus"] = &Unary<kOneMinus>;
+    table["OneMinus"] = &OneMinus;
     table["Lerp"] = &TernaryFn<kLerp>;
     table["Dot"] = &Dot;
     table["Cross"] = &Cross;
