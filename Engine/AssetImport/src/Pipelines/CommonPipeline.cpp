@@ -32,6 +32,26 @@ void DefineCommonPipeline(SettingsBlock& block) {
     subfolders.category = "Common";
     subfolders.type = FieldType::Bool;
     block.Define(std::move(subfolders), false);
+
+    // Names of those sub-folders, shown while "Create Sub-folders" is on.
+    const struct {
+        const char* key;
+        const char* label;
+        const char* value;
+    } folders[] = {{"folderMeshes", "Meshes Folder", "Meshes"},
+                   {"folderMaterials", "Materials Folder", "Materials"},
+                   {"folderTextures", "Textures Folder", "Textures"},
+                   {"folderSounds", "Sounds Folder", "Sounds"}};
+    for (const auto& folder : folders) {
+        SettingField field;
+        field.key = folder.key;
+        field.label = folder.label;
+        field.tooltip = "Name of the sub-folder (inside the destination) for these assets.";
+        field.category = "Common";
+        field.type = FieldType::String;
+        field.visibleIfKey = "subfolders";
+        block.Define(std::move(field), std::string(folder.value));
+    }
 }
 
 }  // namespace Luma::Import

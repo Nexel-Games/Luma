@@ -34,7 +34,7 @@ void AppendMaterialRequests(const ImportScene& scene, const SettingsBlock& commo
         request.type = AssetType::Material;
         request.sources = {id};
         const std::string name = PrefixedName(prefix, node.name);
-        request.destFile = PlannedFile(dest, subfolders, "Materials", name, ".lmat");
+        request.destFile = PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Material), name, ".lmat");
         if (mode == "Use Existing" && !std::filesystem::exists(request.destFile)) {
             warnings.push_back("Material '" + name + "' was not found; a new material will be created.");
         }

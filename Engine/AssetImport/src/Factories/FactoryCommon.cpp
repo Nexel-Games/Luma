@@ -115,13 +115,13 @@ std::filesystem::path PlannedAssetFile(const FactoryContext& context, const Asse
     const SettingsBlock& common = context.settings.Common();
     switch (node.kind) {
         case NodeKind::Mesh:
-            return PlannedFile(dest, subfolders, "Meshes",
+            return PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Mesh),
                                PrefixedName(common.GetString("prefixMesh"), node.name), ".lmesh");
         case NodeKind::Material:
-            return PlannedFile(dest, subfolders, "Materials",
+            return PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Material),
                                PrefixedName(common.GetString("prefixMaterial"), node.name), ".lmat");
         case NodeKind::Texture:
-            return PlannedFile(dest, subfolders, "Textures",
+            return PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Texture),
                                PrefixedName(common.GetString("prefixTexture"), node.name), TextureExtension(node));
         case NodeKind::Sound: {
             std::string ext = node.sourceFile.extension().string();
@@ -133,7 +133,7 @@ std::filesystem::path PlannedAssetFile(const FactoryContext& context, const Asse
             if (ext.empty()) {
                 ext = ".wav";
             }
-            return PlannedFile(dest, subfolders, "Sounds", PrefixedName(common.GetString("prefixSound"), node.name),
+            return PlannedFile(dest, subfolders, SubfolderFor(common, AssetType::Sound), PrefixedName(common.GetString("prefixSound"), node.name),
                                ext);
         }
         case NodeKind::File:

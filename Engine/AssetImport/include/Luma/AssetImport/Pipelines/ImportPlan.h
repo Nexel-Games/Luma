@@ -35,6 +35,16 @@ bool TextureIsStandalone(const ImportScene& scene, const ImportNode& texture);
 // edges are trimmed, and an empty result is "Asset".
 std::string SanitizeAssetName(std::string_view name);
 
+// A user-typed sub-folder name made safe as one folder level: trimmed; path
+// separators and characters Windows forbids become '_'; "." / ".." and
+// leading dots are dropped. Empty when nothing usable is left.
+std::string SubfolderName(std::string_view requested);
+
+// The sub-folder for one asset type from the Common settings ("folderMeshes",
+// "folderMaterials", "folderTextures", "folderSounds"); the default name
+// ("Meshes", …) when the user's name is empty or unusable.
+std::string SubfolderFor(const SettingsBlock& common, AssetType type);
+
 // prefix + sanitized stem, unless the stem already begins with the prefix.
 std::string PrefixedName(std::string_view prefix, std::string_view stem);
 
