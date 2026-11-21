@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 project(LumaEngine
     VERSION 0.1.0
     DESCRIPTION "Luma Engine - a production-grade Vulkan game engine"
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Build configurations
@@ -109,6 +109,9 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/UI/Slate/CMakeLists.txt)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Asset/CMakeLists.txt)
     add_subdirectory(Engine/Asset)
+endif()
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Audio/CMakeLists.txt)
+    add_subdirectory(Engine/Audio)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Material/CMakeLists.txt)
     add_subdirectory(Engine/Material)

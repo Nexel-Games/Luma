@@ -3,6 +3,7 @@
 # enumerate / filter / look up content files.
 
 luma_require_assimp()
+luma_require_tinyexr()
 
 # Add stb_image for texture loading
 FetchContent_Declare(
@@ -48,7 +49,7 @@ target_include_directories(LumaAsset
 
 target_link_libraries(LumaAsset
     PUBLIC Luma::Core Luma::Math Luma::Serialization
-    PRIVATE assimp)
+    PRIVATE assimp luma_tinyexr)
 
 # stb_image is header-only, just include the path
 target_include_directories(LumaAsset

@@ -1,6 +1,6 @@
 # T-0003 — Asset Import Pipeline & Import Window
 
-**Status:** Approved
+**Status:** In Progress
 **Assigned to:** engine agent
 **Created:** 2026-11-20 by lead (planned with the user)
 **Design (read first):** `docs/superpowers/specs/2026-11-20-asset-import-pipeline-design.md`
@@ -86,7 +86,7 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
 **Files:** `cmake/LumaDependencies.cmake`, `Engine/Asset/CMakeLists.txt`,
 `Engine/Audio/CMakeLists.txt` (new, skeleton only here), root `CMakeLists.txt`.
 
-- [ ] **Step 1:** Replace the Assimp `FetchContent_Declare` / `luma_require_assimp` with
+- [x] **Step 1:** Replace the Assimp `FetchContent_Declare` / `luma_require_assimp` with
   `ThirdParty/assimp`:
   ```cmake
   function(luma_require_assimp)
@@ -112,11 +112,11 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
   endfunction()
   ```
   Keep the MSVC `/EHsc` line. Delete the old assimp `FetchContent_Declare`.
-- [ ] **Step 2:** Add `luma_require_miniaudio()`: a static library `luma_miniaudio` built from
+- [x] **Step 2:** Add `luma_require_miniaudio()`: a static library `luma_miniaudio` built from
   `ThirdParty/miniaudio/miniaudio.c`, include dir `ThirdParty/miniaudio`, compile
   definitions `MA_NO_GENERATION` and `MA_NO_ENCODING` (we decode + play only),
   warnings off for that target only.
-- [ ] **Step 3:** Add `luma_require_tinyexr()`: a static library `luma_tinyexr` from a new
+- [x] **Step 3:** Add `luma_require_tinyexr()`: a static library `luma_tinyexr` from a new
   `ThirdParty/tinyexr_impl.cpp` containing
   ```cpp
   #define TINYEXR_USE_MINIZ 1
@@ -127,10 +127,10 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
   (add `ThirdParty/miniz.c` only if the build reports missing miniz symbols; the
   single-header `miniz.h` in ThirdParty may need `MINIZ_HEADER_FILE_ONLY` undefined —
   check the header and document what you did in *Result*).
-- [ ] **Step 4:** Reconfigure + full build. Expected: builds; `LumaTests.exe "[asset]"` passes
+- [x] **Step 4:** Reconfigure + full build. Expected: builds; `LumaTests.exe "[asset]"` passes
   (existing `MeshImporterTests` now run on Assimp 6). If an Assimp-6 behaviour change
   breaks an existing test, fix the code (not the test) and note it under Deviations.
-- [ ] **Step 5:** Commit `build: assimp/miniaudio/tinyexr from ThirdParty (T-0003)`.
+- [x] **Step 5:** Commit `build: assimp/miniaudio/tinyexr from ThirdParty (T-0003)`.
 
 ## Task 2 — FBX fixture
 
@@ -773,5 +773,11 @@ colour space / HDR-EXR material textures (lead).
 ## Questions
 
 ## Result
+
+### Deviations (Task 1)
+
+- Root `project()` also enables C. Assimp and miniaudio are C, and Ninja never received `CMAKE_C_COMPILE_OBJECT` when C was enabled only from a helper function.
+- `ThirdParty/miniz.h` includes `miniz_common.h`, `miniz_tdef.h`, `miniz_tinfl.h`, and `miniz_zip.h`, none of which are in the tree, and there is no `miniz.c` (no new downloads). `tinyexr_impl.cpp` sets `TINYEXR_USE_MINIZ` to 0 and uses stb zlib (`TINYEXR_USE_STB_ZLIB`) from `ThirdParty/stb`. stb is included after `tinyexr.h` so `stbi_zlib_compress` stays `extern "C"`.
+- `[asset]` after the Assimp 6 switch: `All tests passed (134 assertions in 37 test cases)`. No existing test needed a code change.
 
 ## Review
