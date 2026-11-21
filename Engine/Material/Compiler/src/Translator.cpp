@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "ExpressionCompilers.h"
+#include "PassAssembly.h"
 
 namespace Luma::MaterialCompiler {
 
@@ -141,6 +142,10 @@ std::string CompiledMaterial::Fingerprint() const {
         mix(o.code);
     }
     mix(staticSwitchKey);
+    for (const std::optional<PassSource>& p : passes) {
+        mix(p ? p->vertex : std::string("-"));
+        mix(p ? p->fragment : std::string("-"));
+    }
     mix(std::string_view(reinterpret_cast<const char*>(preshader.code.data()), preshader.code.size()));
     for (const Math::Vec4& c : preshader.constants) {
         mix(std::to_string(c.x) + "," + std::to_string(c.y) + "," + std::to_string(c.z) + "," + std::to_string(c.w));
@@ -742,6 +747,19 @@ CompiledMaterial Translator::Finish() {
     const Node* output = graph.Find(outputNode);
     const ExpressionDesc* desc = output ? ExpressionRegistry::Get().Find(output->type) : nullptr;
     if (desc) {
+        // The Normal compiles first: everything after it reads the shaded
+        // normal as Pixel Normal WS (Unreal's order).
+        i32 normal = -1;
+        for (u32 pin = 0; pin < desc->inputs.size(); ++pin) {
+            std::string why;
+            if (desc->inputs[pin].name != "Normal" || !PinUsed(m_material.settings, "Normal", why)) continue;
+            if (!graph.Source(PinRef{outputNode, pin})) continue;
+            const Stage saved = m_stage;
+            m_stage = Stage::Pixel;
+            normal = Cast(CompileInput(outputNode, pin, Stage::Pixel), desc->inputs[pin].type, outputNode);
+            if (normal >= 0) Statement("LumaSetPixelNormal(" + ChunkAt(normal).code + ");");
+            m_stage = saved;
+        }
         for (u32 pin = 0; pin < desc->inputs.size(); ++pin) {
             const MaterialGraph::PinDesc& p = desc->inputs[pin];
             const bool linked = graph.Source(PinRef{outputNode, pin}).has_value();
@@ -753,7 +771,14 @@ CompiledMaterial Translator::Finish() {
             // Custom UVs only replace the mesh UVs when something drives them.
             if (p.name.starts_with("CustomUV") && !linked) continue;
             const Stage stage = IsVertexPin(p.name) ? Stage::Vertex : Stage::Pixel;
-            const i32 value = Cast(CompileInput(outputNode, pin, stage), p.type, outputNode);
+            // The final cast belongs to the pin's stage (a vertex pin's
+            // conversion must not land in the pixel body).
+            const Stage saved = m_stage;
+            m_stage = stage;
+            const i32 value = p.name == "Normal" && normal >= 0
+                                  ? normal
+                                  : Cast(CompileInput(outputNode, pin, stage), p.type, outputNode);
+            m_stage = saved;
             if (value < 0) continue;
             out.outputs.push_back({p.name, stage, p.type, ChunkAt(value).code});
         }
@@ -773,6 +798,7 @@ CompiledMaterial Translator::Finish() {
     m_layout = out.layout;
     out.errors = std::move(m_errors);
     out.warnings = std::move(m_warnings);
+    if (out.Ok()) Detail::AssemblePasses(out, m_material.settings);
     return out;
 }
 

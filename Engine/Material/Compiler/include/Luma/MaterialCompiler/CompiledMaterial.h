@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -7,9 +9,9 @@
 #include "Luma/MaterialCompiler/Parameters.h"
 #include "Luma/MaterialCompiler/Preshader.h"
 
-// The backend-neutral result of compiling a material graph. Later stages add
-// the parameter block, preshader program, texture table (Task 7) and the
-// per-pass GLSL assembled from templates (Task 10).
+// The backend-neutral result of compiling a material graph: generated code
+// per stage, the parameter block (preshader + texture slots) and complete
+// GLSL sources for every pass the material draws in.
 
 namespace Luma::MaterialCompiler {
 
@@ -38,6 +40,13 @@ struct Interpolator {
     std::string vertexCode;  // GLSL expression valid after the vertex body
 };
 
+// Complete GLSL of one pass. Compile with the engine shader directory
+// (Engine/Rendering/Vulkan/shaders) as the include path.
+struct PassSource {
+    std::string vertex;
+    std::string fragment;
+};
+
 struct CompiledMaterial {
     // Generated helper functions (Custom nodes), before the stage bodies.
     std::string functions;
@@ -50,6 +59,8 @@ struct CompiledMaterial {
     ParameterBlockLayout layout;
     PreshaderProgram preshader;             // fills the uniform slots of the block
     std::vector<MaterialOutputValue> outputs;  // Material Output pin order
+    // Sources of the passes this material draws in (empty when !Ok()).
+    std::array<std::optional<PassSource>, static_cast<usize>(Pass::Count)> passes;
     std::vector<CompileError> errors;
     std::vector<CompileError> warnings;
     std::string staticSwitchKey;  // canonical "name=0|name=1" of the permutation

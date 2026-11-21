@@ -74,6 +74,8 @@ float LumaHeightSample(uint slot, vec2 uv, vec2 dx, vec2 dy, int channel) {
 // Parallax occlusion mapping: ray-marches the height field (1 = surface,
 // 0 = deepest) in tangent space. xy = displaced UVs, z = depth below the
 // surface in world units (for Pixel Depth Offset).
+#ifdef LUMA_STAGE_PIXEL  // screen-space derivatives: pixel stage only
+
 vec3 LumaParallaxOcclusion(uint slot, vec2 uv, float ratio, float minSteps, float maxSteps, int channel) {
     vec3 viewTS = LumaViewTangent();
     vec2 dx = dFdx(uv), dy = dFdy(uv);
@@ -113,6 +115,8 @@ vec3 LumaNormalFromHeight(uint slot, vec2 uv, float intensity) {
     vec2 g = vec2(dhx * dpy.y - dhy * dpx.y, dpx.x * dhy - dpy.x * dhx) / det * intensity;
     return normalize(vec3(-g.x, g.y, 1.0));
 }
+
+#endif  // LUMA_STAGE_PIXEL
 
 // --- Space transforms ------------------------------------------------------------
 
