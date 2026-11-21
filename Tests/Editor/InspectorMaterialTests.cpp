@@ -160,3 +160,36 @@ TEST_CASE("Use Selected rejects non-material assets", "[inspector][materials]") 
     CHECK_FALSE(UseSelectedAssetForSlot(f.Mesh(), 0, "/Game/Materials/M_Missing", *f.lib));
     CHECK(f.Mesh().materials[0] == "/Game/Materials/M_Wood");
 }
+
+TEST_CASE("Inspector sanitises out-of-range camera values", "[inspector]") {
+    SlotFixture f;
+    NullRenderer renderer;
+    Context ui;
+    Luma::Slate::Typography typo;
+    typo.uiRegular = "C:/Windows/Fonts/segoeui.ttf";
+    typo.uiMedium = typo.uiSemiBold = typo.uiBold = typo.mono = typo.uiRegular;
+    ui.Init(renderer, typo);
+    InspectorPanel inspector;
+    PanelContext ctx;
+    ctx.scene = &f.scene;
+    ctx.selected = &f.actor;
+    auto& cam = f.scene.Registry().emplace<CameraComponent>(f.actor);
+    cam.fovYDegrees = 0.0f;  // e.g. a hand-edited scene file
+    cam.nearZ = 0.0f;
+    cam.farZ = 0.0f;
+    ui.BeginFrame(1280, 720, 0.0166f);
+    inspector.Draw(ui, {0, 0, 400, 720}, ctx);
+    ui.EndFrame();
+    CHECK(cam.fovYDegrees >= 5.0f);
+    CHECK(cam.nearZ >= 0.001f);
+    CHECK(cam.farZ > cam.nearZ);
+}
+
+TEST_CASE("Inspector field ids differ per selected entity", "[inspector]") {
+    // A value typed for one actor must never land on another actor drawn
+    // with the same row: the row ids mix in the entity.
+    CHECK(InspectorPanel::RowId("insp.lint", static_cast<Entity>(1)) !=
+          InspectorPanel::RowId("insp.lint", static_cast<Entity>(2)));
+    CHECK(InspectorPanel::RowId("insp.lint", static_cast<Entity>(1)) ==
+          InspectorPanel::RowId("insp.lint", static_cast<Entity>(1)));
+}

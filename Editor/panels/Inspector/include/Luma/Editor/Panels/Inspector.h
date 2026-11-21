@@ -22,6 +22,10 @@ class InspectorPanel {
 public:
     void Draw(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx);
 
+    // Widget id of a property row for `entity`: the row key mixed with the
+    // entity, so focus / typed text never carries over to another actor.
+    static u64 RowId(std::string_view key, Entity entity);
+
     // Draws any open floating color picker panels. Call after the dock's clip
     // stack is unwound so the panels can overflow this column.
     void DrawFloatingPickers(Slate::Context& ui, PanelContext& ctx);

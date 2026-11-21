@@ -389,3 +389,30 @@ TEST_CASE("A checked box draws its tick glyph", "[slate][widget]") {
     const auto checked = vertices(true);
     CHECK(checked > unchecked);
 }
+
+TEST_CASE("A Tab-focused checkbox loses focus on a click elsewhere", "[slate][widget]") {
+    Context ctx;
+    NullRenderer r;
+    ctx.Init(r, TestTypography());
+    std::string text;
+    bool on = false;
+    auto draw = [&] {
+        ctx.EditableText(1, {10, 10, 200, 24}, text);
+        ctx.Checkbox(2, {10, 50, 16, 16}, "Cast Shadows", on);
+    };
+    Click(ctx, 100.0f, 20.0f, 0, draw);
+    ctx.OnKey(258, true);  // Tab onto the checkbox
+    ctx.OnKey(258, false);
+    ctx.BeginFrame(800, 600, 0.0166f);
+    draw();
+    ctx.EndFrame();
+    REQUIRE(ctx.IsFieldFocused(2));
+    Click(ctx, 500.0f, 500.0f, 0, draw);  // click empty space
+    CHECK_FALSE(ctx.IsFieldFocused(2));
+    ctx.OnKey(32, true);  // Space must not toggle it any more
+    ctx.OnKey(32, false);
+    ctx.BeginFrame(800, 600, 0.0166f);
+    draw();
+    ctx.EndFrame();
+    CHECK_FALSE(on);
+}

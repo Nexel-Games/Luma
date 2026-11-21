@@ -537,6 +537,7 @@ private:
     };
     std::vector<Focusable> m_focusOrder;  // this frame's focus chain
     u64 m_tabFocusId = 0;
+    bool m_focusSeen = false;  // the focused widget was drawn this frame
     // The spin box being pressed / scrubbed (one at a time).
     struct SpinDrag {
         u64 id = 0;

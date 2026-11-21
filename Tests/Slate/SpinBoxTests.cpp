@@ -354,3 +354,24 @@ TEST_CASE("A click whose press and release land in one frame enters text mode",
     h.Frame(draw);
     CHECK(v == 8.0f);
 }
+
+TEST_CASE("Focus is dropped without a commit when the focused spin box stops being drawn",
+          "[slate][spinbox]") {
+    Harness h;
+    f32 v = 1.0f;
+    auto draw = [&] { h.ctx.SpinBox(1, kBox, v); };
+    h.Click(kCx, kCy, draw);
+    h.Frame(draw);
+    Type(h.ctx, "50");
+    h.Frame(draw);
+    REQUIRE(h.ctx.textFieldFocused());
+    h.Frame([] {});  // e.g. the selection changed and the row is gone
+    h.Frame([] {});
+    CHECK_FALSE(h.ctx.textFieldFocused());
+    CHECK_FALSE(h.ctx.IsFieldFocused(1));
+    // Drawn again later: shows the bound value, not the abandoned text.
+    h.Frame(draw);
+    Key(h.ctx, kEnter);
+    h.Frame(draw);
+    CHECK(v == 1.0f);
+}

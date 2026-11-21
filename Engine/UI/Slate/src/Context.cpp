@@ -163,6 +163,17 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     m_requestedCursor = CursorShape::Arrow;
     m_pointerLock = false;
     m_focusOrder.clear();
+    // The focused widget wasn't drawn last frame (its row went away, e.g.
+    // the selection changed): drop focus and abandon any typed text rather
+    // than committing it somewhere else later.
+    if (m_focus != 0 && !m_focusSeen) {
+        m_spinEdits.erase(m_focus);
+        if (m_editOwner == m_focus) m_editOwner = 0;
+        if (m_focusLostId == m_focus) m_focusLostId = 0;
+        m_focus = 0;
+        m_focusIsText = false;
+    }
+    m_focusSeen = false;
     m_mouseDelta = {m_mouse.x - m_prevMouse.x, m_mouse.y - m_prevMouse.y};
     m_prevMouse = m_mouse;
     m_draw.Begin(displayWidth, displayHeight);
@@ -670,6 +681,7 @@ TextResult Context::EditableText(u64 id, const Rect& rect, std::string& text,
 }
 
 void Context::RegisterFocusable(u64 id, bool textEntry) {
+    if (id != 0 && id == m_focus) m_focusSeen = true;
     if (id == 0 || m_inputBlocked) return;
     if (!m_focusOrder.empty() && m_focusOrder.back().id == id) return;  // spin box + its text
     m_focusOrder.push_back({id, textEntry});
@@ -686,6 +698,7 @@ void Context::SetFocus(u64 id, bool textEntry) {
     }
     m_focus = id;
     m_focusIsText = id != 0 && textEntry;
+    m_focusSeen = true;  // one frame of grace to be drawn
     m_pendingCaret.reset();
 }
 
@@ -1024,6 +1037,7 @@ bool Context::Checkbox(u64 id, const Rect& box, std::string_view label,
         toggle = hovered;
         m_active = 0;
     }
+    if (m_mousePressed[0] && !hovered && m_focus == id) SetFocus(0, false);  // clicked elsewhere
     const bool focused = (m_focus == id);
     if (focused && keySpace()) toggle = true;
     if (toggle) {

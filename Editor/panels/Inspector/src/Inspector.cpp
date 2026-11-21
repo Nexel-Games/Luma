@@ -181,6 +181,11 @@ std::vector<Slate::MenuEntry> InspectorPanel::BuildComponentMenu(Scene* scene,
     return b.Build();
 }
 
+u64 InspectorPanel::RowId(std::string_view key, Entity entity) {
+    const u64 e = static_cast<u64>(entt::to_integral(entity)) + 1;
+    return Slate::Context::ID(key) ^ (e * 0x9E3779B97F4A7C15ull);
+}
+
 void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                           PanelContext& ctx) {
     Slate::Theme& t = ui.theme();
@@ -204,7 +209,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     f32 w = body.w - 24.0f;
 
     // Header: entity name + "Add" component picker (Unreal Details panel).
-    const u64 addId = Slate::Context::ID("insp.addcomp");
+    const u64 addId = RowId("insp.addcomp", *ctx.selected);
     const Rect addBtn{body.Right() - 84.0f, y, 72.0f, 24.0f};
     ui.Heading({x, y, addBtn.x - x - 8.0f, 24},
                reg.get<NameComponent>(*ctx.selected).name, t.text);
@@ -325,17 +330,17 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     if (reg.all_of<TransformComponent>(*ctx.selected)) {
         sectionHeader("Transform", ComponentKind::Transform);
         auto& tf = reg.get<TransformComponent>(*ctx.selected);
-        vec3Row("Position", Slate::Context::ID("insp.pos"), &tf.position.x);
-        vec3Row("Rotation", Slate::Context::ID("insp.rot"),
+        vec3Row("Position", RowId("insp.pos", *ctx.selected), &tf.position.x);
+        vec3Row("Rotation", RowId("insp.rot", *ctx.selected),
                 &tf.rotationEuler.x);
-        vec3Row("Scale", Slate::Context::ID("insp.scl"), &tf.scale.x);
+        vec3Row("Scale", RowId("insp.scl", *ctx.selected), &tf.scale.x);
         y += 8.0f;
     }
     if (reg.all_of<MeshRendererComponent>(*ctx.selected)) {
         sectionHeader("Mesh Renderer", ComponentKind::MeshRenderer);
         auto& mr = reg.get<MeshRendererComponent>(*ctx.selected);
         mr.primitive = static_cast<MeshPrimitive>(
-            comboRow("Shape", Slate::Context::ID("insp.shape"),
+            comboRow("Shape", RowId("insp.shape", *ctx.selected),
                      {"Cube", "Plane", "Sphere", "Cylinder"},
                      static_cast<int>(mr.primitive)));
         DrawMaterialSlots(ui, ctx, mr, x, y, w);
@@ -345,22 +350,27 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         sectionHeader("Camera", ComponentKind::Camera);
         auto& cam = reg.get<CameraComponent>(*ctx.selected);
         cam.projection = static_cast<ProjectionType>(
-            comboRow("Projection", Slate::Context::ID("insp.camproj"),
+            comboRow("Projection", RowId("insp.camproj", *ctx.selected),
                      {"Perspective", "Orthographic"},
                      static_cast<int>(cam.projection)));
         if (cam.projection == ProjectionType::Perspective) {
-            floatRow("Field of View", Slate::Context::ID("insp.camfov"),
+            floatRow("Field of View", RowId("insp.camfov", *ctx.selected),
                      cam.fovYDegrees, opts(0.2, 5.0, 170.0, "\u00B0", 1));
         } else {
-            floatRow("Ortho Height", Slate::Context::ID("insp.camortho"),
+            floatRow("Ortho Height", RowId("insp.camortho", *ctx.selected),
                      cam.orthoHeight, opts(0.05, 0.01, std::nullopt, " m"));
         }
-        floatRow("Near Clip", Slate::Context::ID("insp.camnear"), cam.nearZ,
+        floatRow("Near Clip", RowId("insp.camnear", *ctx.selected), cam.nearZ,
                  opts(0.005, 0.001, std::nullopt, " m"));
-        floatRow("Far Clip", Slate::Context::ID("insp.camfar"), cam.farZ,
+        floatRow("Far Clip", RowId("insp.camfar", *ctx.selected), cam.farZ,
                  opts(1.0, 0.01, std::nullopt, " m", 1));
+        // Sanitise values that may come from a hand-edited scene file (the
+        // spin-box limits only apply to edits made here).
+        cam.fovYDegrees = std::clamp(cam.fovYDegrees, 5.0f, 170.0f);
+        cam.orthoHeight = std::max(cam.orthoHeight, 0.01f);
+        cam.nearZ = std::max(cam.nearZ, 0.001f);
         cam.farZ = std::max(cam.farZ, cam.nearZ + 0.01f);
-        ui.Checkbox(Slate::Context::ID("insp.camprimary"), {x, y, 18, 18},
+        ui.Checkbox(RowId("insp.camprimary", *ctx.selected), {x, y, 18, 18},
                     "Primary Camera", cam.primary);
         y += 26.0f;
         y += 8.0f;
@@ -374,38 +384,38 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         // --- Atmosphere ---
         ui.LabelIn({x, y, w, 20}, "Atmosphere", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.skyon"), {x, y, 18, 18},
+        ui.Checkbox(RowId("insp.skyon", *ctx.selected), {x, y, 18, 18},
                     "Sky Enabled", env.skyEnabled);
         y += 26.0f;
-        vec3Row("Rayleigh Scatter", Slate::Context::ID("insp.rayscat"),
+        vec3Row("Rayleigh Scatter", RowId("insp.rayscat", *ctx.selected),
                 &env.rayleighScattering.x);
         floatRow("Rayleigh Height",
-                 Slate::Context::ID("insp.rayh"), env.rayleighScaleHeight,
+                 RowId("insp.rayh", *ctx.selected), env.rayleighScaleHeight,
                  opts(10.0, 0.0, std::nullopt, " m", 0));
-        floatRow("Mie Scatter", Slate::Context::ID("insp.miescat"),
+        floatRow("Mie Scatter", RowId("insp.miescat", *ctx.selected),
                  env.mieScattering, opts(0.0001, 0.0, std::nullopt, {}, 6));
-        floatRow("Mie Absorption", Slate::Context::ID("insp.mieabs"),
+        floatRow("Mie Absorption", RowId("insp.mieabs", *ctx.selected),
                  env.mieAbsorption, opts(0.0001, 0.0, std::nullopt, {}, 6));
-        floatRow("Mie Height", Slate::Context::ID("insp.mieh"),
+        floatRow("Mie Height", RowId("insp.mieh", *ctx.selected),
                  env.mieScaleHeight, opts(10.0, 0.0, std::nullopt, " m", 0));
         {
             Slate::SpinBoxOptions g = unit01();
             g.min = g.sliderMin = -0.99;
             g.max = g.sliderMax = 0.99;
-            floatRow("Mie Anisotropy", Slate::Context::ID("insp.mieg"), env.mieAnisotropy, g);
+            floatRow("Mie Anisotropy", RowId("insp.mieg", *ctx.selected), env.mieAnisotropy, g);
         }
-        floatRow("Ozone Scale", Slate::Context::ID("insp.ozone"),
+        floatRow("Ozone Scale", RowId("insp.ozone", *ctx.selected),
                  env.ozoneScale, opts(0.01, 0.0, std::nullopt));
 
         // --- Sky post-processing ---
         y += 4.0f;
         ui.LabelIn({x, y, w, 20}, "Sky Post", t.accent);
         y += 24.0f;
-        floatRow("Sky Intensity", Slate::Context::ID("insp.skyi"),
+        floatRow("Sky Intensity", RowId("insp.skyi", *ctx.selected),
                  env.skyIntensity, opts(0.01, 0.0, std::nullopt));
-        floatRow("Saturation", Slate::Context::ID("insp.sats"),
+        floatRow("Saturation", RowId("insp.sats", *ctx.selected),
                  env.saturation, opts(0.01, 0.0, 2.0));
-        floatRow("Exposure", Slate::Context::ID("insp.exp"), env.exposure,
+        floatRow("Exposure", RowId("insp.exp", *ctx.selected), env.exposure,
                  opts(0.01, std::nullopt, std::nullopt, " EV"));
 
         // --- Ground & ambient ---
@@ -413,7 +423,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         ui.LabelIn({x, y, w, 20}, "Ground & Ambient", t.accent);
         y += 24.0f;
         colorRow("Ground Color", m_groundColorPicker, env.groundColor);
-        floatRow("IBL Intensity", Slate::Context::ID("insp.ibl"),
+        floatRow("IBL Intensity", RowId("insp.ibl", *ctx.selected),
                  env.iblIntensity, opts(0.01, 0.0, std::nullopt));
         y += 8.0f;
     }
@@ -421,38 +431,38 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         sectionHeader("Light", ComponentKind::Light);
         auto& lc = reg.get<LightComponent>(*ctx.selected);
         lc.type = static_cast<LightType>(
-            comboRow("Type", Slate::Context::ID("insp.ltype"),
+            comboRow("Type", RowId("insp.ltype", *ctx.selected),
                      {"Directional", "Point", "Spot", "Tube"},
                      static_cast<int>(lc.type)));
         colorRow("Color", m_lightColorPicker, lc.color);
-        floatRow("Intensity", Slate::Context::ID("insp.lint"), lc.intensity,
+        floatRow("Intensity", RowId("insp.lint", *ctx.selected), lc.intensity,
                  opts(0.05, 0.0, std::nullopt));
         if (lc.type == LightType::Directional) {
             // --- Sun disk (directional) ---
             y += 4.0f;
             ui.LabelIn({x, y, w, 20}, "Sun Disk", t.accent);
             y += 24.0f;
-            floatRow("Disk Size", Slate::Context::ID("insp.ldisks"),
+            floatRow("Disk Size", RowId("insp.ldisks", *ctx.selected),
                      lc.sunDiskSizeDeg, opts(0.01, 0.0, 30.0, "\u00B0", 2));
-            floatRow("Disk Intensity", Slate::Context::ID("insp.ldiski"),
+            floatRow("Disk Intensity", RowId("insp.ldiski", *ctx.selected),
                      lc.sunDiskIntensity, opts(0.01, 0.0, std::nullopt));
         } else {
             // --- Attenuation (point/spot) ---
             y += 4.0f;
             ui.LabelIn({x, y, w, 20}, "Attenuation", t.accent);
             y += 24.0f;
-            floatRow("Radius", Slate::Context::ID("insp.lrad"),
+            floatRow("Radius", RowId("insp.lrad", *ctx.selected),
                      lc.attenuationRadius, opts(0.05, 0.0, std::nullopt, " m"));
-            floatRow("Falloff Power", Slate::Context::ID("insp.lpow"),
+            floatRow("Falloff Power", RowId("insp.lpow", *ctx.selected),
                      lc.attenuationPower, opts(0.01, 0.0, 16.0));
             if (lc.type == LightType::Tube) {
-                floatRow("Length", Slate::Context::ID("insp.llen"),
+                floatRow("Length", RowId("insp.llen", *ctx.selected),
                          lc.length, opts(0.02, 0.0, std::nullopt, " m"));
             }
             if (lc.type == LightType::Spot) {
-                floatRow("Inner Angle", Slate::Context::ID("insp.lin"),
+                floatRow("Inner Angle", RowId("insp.lin", *ctx.selected),
                          lc.innerAngleDeg, opts(0.2, 0.0, 89.0, "\u00B0", 1));
-                floatRow("Outer Angle", Slate::Context::ID("insp.lout"),
+                floatRow("Outer Angle", RowId("insp.lout", *ctx.selected),
                          lc.outerAngleDeg, opts(0.2, 0.0, 89.0, "\u00B0", 1));
             }
         }
@@ -461,23 +471,23 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         y += 4.0f;
         ui.LabelIn({x, y, w, 20}, "Shadows", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.lshadows"), {x, y, 18, 18},
+        ui.Checkbox(RowId("insp.lshadows", *ctx.selected), {x, y, 18, 18},
                     "Cast Shadows", lc.castShadows);
         y += 26.0f;
-        intRow("Map Size", Slate::Context::ID("insp.lmapsize"), lc.shadowMapSize,
+        intRow("Map Size", RowId("insp.lmapsize", *ctx.selected), lc.shadowMapSize,
                opts(4.0, 256.0, 8192.0, " px"));
-        floatRow("Bias", Slate::Context::ID("insp.lbias"), lc.shadowBias,
+        floatRow("Bias", RowId("insp.lbias", *ctx.selected), lc.shadowBias,
                  opts(0.0001, 0.0, 0.1, {}, 4));
-        floatRow("Normal Bias", Slate::Context::ID("insp.lnbias"),
+        floatRow("Normal Bias", RowId("insp.lnbias", *ctx.selected),
                  lc.normalBias, opts(0.001, 0.0, 1.0, {}, 4));
-        floatRow("Softness", Slate::Context::ID("insp.lsoft"),
+        floatRow("Softness", RowId("insp.lsoft", *ctx.selected),
                  lc.shadowSoftness, opts(0.01, 0.0, std::nullopt));
         if (lc.type == LightType::Directional) {
-            intRow("Cascades", Slate::Context::ID("insp.lcascades"), lc.cascadeCount,
+            intRow("Cascades", RowId("insp.lcascades", *ctx.selected), lc.cascadeCount,
                    opts(0.05, 1.0, 4.0));
-            floatRow("Shadow Distance", Slate::Context::ID("insp.ldist"),
+            floatRow("Shadow Distance", RowId("insp.ldist", *ctx.selected),
                      lc.shadowDistance, opts(0.5, 1.0, std::nullopt, " m", 1));
-            floatRow("Split Lambda", Slate::Context::ID("insp.llambda"),
+            floatRow("Split Lambda", RowId("insp.llambda", *ctx.selected),
                      lc.cascadeSplitLambda, unit01());
         }
         y += 8.0f;
@@ -485,68 +495,68 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     if (reg.all_of<PostProcessComponent>(*ctx.selected)) {
         sectionHeader("Post Process Volume", ComponentKind::PostProcess);
         auto& pp = reg.get<PostProcessComponent>(*ctx.selected);
-        ui.Checkbox(Slate::Context::ID("insp.ppenabled"), {x, y, 18, 18},
+        ui.Checkbox(RowId("insp.ppenabled", *ctx.selected), {x, y, 18, 18},
                     "Enabled", pp.enabled);
         y += 26.0f;
 
         // --- Bloom ---
         ui.LabelIn({x, y, w, 20}, "Bloom", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.bloom"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.bloom", *ctx.selected), {x + 16, y, 18, 18},
                     "Enabled", pp.bloomEnabled);
         y += 26.0f;
-        floatRow("Intensity", Slate::Context::ID("insp.pp.bint"), pp.bloomIntensity);
-        floatRow("Threshold", Slate::Context::ID("insp.pp.bthr"), pp.bloomThreshold);
+        floatRow("Intensity", RowId("insp.pp.bint", *ctx.selected), pp.bloomIntensity);
+        floatRow("Threshold", RowId("insp.pp.bthr", *ctx.selected), pp.bloomThreshold);
         y += 4.0f;
 
         // --- Tone Mapping ---
         ui.LabelIn({x, y, w, 20}, "Tone Mapping", t.accent);
         y += 24.0f;
         pp.toneMapper = static_cast<PostProcessComponent::ToneMapper>(
-            comboRow("Tone Mapper", Slate::Context::ID("insp.pp.tone"),
+            comboRow("Tone Mapper", RowId("insp.pp.tone", *ctx.selected),
                      {"ACES", "Reinhard", "AgX", "Linear"},
                      static_cast<int>(pp.toneMapper)));
-        floatRow("Exposure", Slate::Context::ID("insp.pp.exp"), pp.exposure);
-        ui.Checkbox(Slate::Context::ID("insp.pp.autoexp"), {x + 16, y, 18, 18},
+        floatRow("Exposure", RowId("insp.pp.exp", *ctx.selected), pp.exposure);
+        ui.Checkbox(RowId("insp.pp.autoexp", *ctx.selected), {x + 16, y, 18, 18},
                     "Auto Exposure", pp.autoExposure);
         y += 26.0f;
         if (pp.autoExposure) {
-            floatRow("Speed", Slate::Context::ID("insp.pp.aespd"), pp.autoExposureSpeed);
-            floatRow("Min Brightness", Slate::Context::ID("insp.pp.aemin"), pp.autoExposureMin);
-            floatRow("Max Brightness", Slate::Context::ID("insp.pp.aemax"), pp.autoExposureMax);
+            floatRow("Speed", RowId("insp.pp.aespd", *ctx.selected), pp.autoExposureSpeed);
+            floatRow("Min Brightness", RowId("insp.pp.aemin", *ctx.selected), pp.autoExposureMin);
+            floatRow("Max Brightness", RowId("insp.pp.aemax", *ctx.selected), pp.autoExposureMax);
         }
 
         // --- Ambient Occlusion ---
         ui.LabelIn({x, y, w, 20}, "Ambient Occlusion", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.ssao"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.ssao", *ctx.selected), {x + 16, y, 18, 18},
                     "SSAO", pp.ssaoEnabled);
         y += 26.0f;
         if (pp.ssaoEnabled) {
-            floatRow("Radius", Slate::Context::ID("insp.pp.srad"), pp.ssaoRadius);
-            floatRow("Intensity", Slate::Context::ID("insp.pp.sint"), pp.ssaoIntensity);
+            floatRow("Radius", RowId("insp.pp.srad", *ctx.selected), pp.ssaoRadius);
+            floatRow("Intensity", RowId("insp.pp.sint", *ctx.selected), pp.ssaoIntensity);
         }
         y += 4.0f;
 
         // --- Screen Space Reflections ---
         ui.LabelIn({x, y, w, 20}, "Reflections", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.ssr"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.ssr", *ctx.selected), {x + 16, y, 18, 18},
                     "SSR", pp.ssrEnabled);
         y += 26.0f;
         if (pp.ssrEnabled) {
-            floatRow("Intensity", Slate::Context::ID("insp.pp.sint2"), pp.ssrIntensity);
+            floatRow("Intensity", RowId("insp.pp.sint2", *ctx.selected), pp.ssrIntensity);
         }
         y += 4.0f;
 
         // --- Motion Blur ---
         ui.LabelIn({x, y, w, 20}, "Motion Blur", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.mb"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.mb", *ctx.selected), {x + 16, y, 18, 18},
                     "Enabled", pp.motionBlurEnabled);
         y += 26.0f;
         if (pp.motionBlurEnabled) {
-            floatRow("Amount", Slate::Context::ID("insp.pp.mbamt"), pp.motionBlurAmount);
+            floatRow("Amount", RowId("insp.pp.mbamt", *ctx.selected), pp.motionBlurAmount);
         }
         y += 4.0f;
 
@@ -554,48 +564,48 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         ui.LabelIn({x, y, w, 20}, "Depth of Field", t.accent);
         y += 24.0f;
         pp.dofMethod = static_cast<PostProcessComponent::DOFMethod>(
-            comboRow("Method", Slate::Context::ID("insp.pp.dof"),
+            comboRow("Method", RowId("insp.pp.dof", *ctx.selected),
                      {"Off", "Gaussian", "Circle Bokeh"},
                      static_cast<int>(pp.dofMethod)));
         if (pp.dofMethod != PostProcessComponent::DOFMethod::None) {
-            floatRow("Focal Distance", Slate::Context::ID("insp.pp.doffoc"), pp.dofFocalDistance);
-            floatRow("Scale", Slate::Context::ID("insp.pp.dofscale"), pp.dofScale);
+            floatRow("Focal Distance", RowId("insp.pp.doffoc", *ctx.selected), pp.dofFocalDistance);
+            floatRow("Scale", RowId("insp.pp.dofscale", *ctx.selected), pp.dofScale);
         }
         y += 4.0f;
 
         // --- Color Grading ---
         ui.LabelIn({x, y, w, 20}, "Color Grading", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.cg"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.cg", *ctx.selected), {x + 16, y, 18, 18},
                     "Enabled", pp.colorGradingEnabled);
         y += 26.0f;
         if (pp.colorGradingEnabled) {
-            floatRow("Saturation", Slate::Context::ID("insp.pp.cgsat"), pp.colorGradingSaturation);
-            floatRow("Contrast", Slate::Context::ID("insp.pp.cgcon"), pp.colorGradingContrast);
-            floatRow("Gamma", Slate::Context::ID("insp.pp.cggam"), pp.colorGradingGamma);
+            floatRow("Saturation", RowId("insp.pp.cgsat", *ctx.selected), pp.colorGradingSaturation);
+            floatRow("Contrast", RowId("insp.pp.cgcon", *ctx.selected), pp.colorGradingContrast);
+            floatRow("Gamma", RowId("insp.pp.cggam", *ctx.selected), pp.colorGradingGamma);
         }
         y += 4.0f;
 
         // --- Vignette ---
         ui.LabelIn({x, y, w, 20}, "Vignette", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.vig"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.vig", *ctx.selected), {x + 16, y, 18, 18},
                     "Enabled", pp.vignetteEnabled);
         y += 26.0f;
         if (pp.vignetteEnabled) {
-            floatRow("Intensity", Slate::Context::ID("insp.pp.vigint"), pp.vignetteIntensity);
-            floatRow("Radius", Slate::Context::ID("insp.pp.vigrad"), pp.vignetteRadius);
+            floatRow("Intensity", RowId("insp.pp.vigint", *ctx.selected), pp.vignetteIntensity);
+            floatRow("Radius", RowId("insp.pp.vigrad", *ctx.selected), pp.vignetteRadius);
         }
         y += 4.0f;
 
         // --- Film Grain ---
         ui.LabelIn({x, y, w, 20}, "Film Grain", t.accent);
         y += 24.0f;
-        ui.Checkbox(Slate::Context::ID("insp.pp.fg"), {x + 16, y, 18, 18},
+        ui.Checkbox(RowId("insp.pp.fg", *ctx.selected), {x + 16, y, 18, 18},
                     "Enabled", pp.filmGrainEnabled);
         y += 26.0f;
         if (pp.filmGrainEnabled) {
-            floatRow("Intensity", Slate::Context::ID("insp.pp.fgint"), pp.filmGrainIntensity);
+            floatRow("Intensity", RowId("insp.pp.fgint", *ctx.selected), pp.filmGrainIntensity);
         }
         y += 8.0f;
     }
@@ -605,7 +615,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     // starts right under it and the range matches the visible region (so the
     // thumb reaches the end exactly when the last row is visible).
     f32 contentH = (y - contentTop) + m_scroll;
-    m_scroll = ui.VerticalScroll(Slate::Context::ID("insp.scroll"),
+    m_scroll = ui.VerticalScroll(RowId("insp.scroll", *ctx.selected),
                                  contentRegion, contentH, m_scroll);
 }
 
@@ -616,7 +626,7 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
     const u32 sections = std::max(ctx.sectionCount ? ctx.sectionCount(e) : 1u, 1u);
     const u32 rows = std::max<u32>(sections, static_cast<u32>(mr.materials.size()));
     ui.LabelIn({x, y, w, 20}, "Materials", t.text);
-    ui.Tooltip(Slate::Context::ID("insp.mat.tip"), {x, y, w, 20},
+    ui.Tooltip(RowId("insp.mat.tip", *ctx.selected), {x, y, w, 20},
                "Materials\nOne material per mesh section. Empty slots use the Default "
                "Material. Drag a material from the Content Browser onto a slot.");
     y += 24.0f;
@@ -636,7 +646,8 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
         const std::string name = shown.substr(slash + 1);
         const Rect row{x, y, w, kThumb + 6.0f};
         if (!unused) m_slotRects.push_back(row);
-        const std::string key = "insp.mat." + std::to_string(slot);
+        const std::string key = "insp.mat." + std::to_string(entt::to_integral(e)) + "." +
+                                std::to_string(slot);
 
         // Label column, centred on the thumbnail.
         const Rect label{x, row.y + (kThumb - 18.0f) * 0.5f + 3.0f, kLabelW - 4.0f, 18.0f};
