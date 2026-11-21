@@ -12,6 +12,14 @@ Material graph & compiler (Material Editor project 1 —
 `Editor/MaterialBridge/**`, `Editor/panels/MaterialEditor/**`,
 `Editor/LumaEditor/MaterialPreview.*`, `Tests/Material/**`, `Tests/Rendering/**`.
 
+## New engine services (FYI)
+
+- `Engine/Jobs` — **Luma Job System** (`Luma::Jobs::JobSystem`): worker threads, priorities, dependencies,
+  `ParallelFor`, main-thread jobs. The editor owns one; panels get it via `PanelContext::jobs`.
+- `Engine/Tasks` — **Task Manager** (`Luma::Tasks::TaskManager`): user-visible progress/cancel/failure;
+  `PanelContext::tasks`. Shown by the editor's **Background Tasks** status-bar indicator.
+- Don't change your approved plan to use them unless a task says so; ask in *Questions* if useful.
+
 ## Tasks
 
 | Id | Title | Status | Area |
