@@ -25,7 +25,7 @@ target_link_libraries(LumaEditor
             Luma::PanelConsole Luma::PanelContentBrowser Luma::PanelImportDialog
             Luma::Audio
             Luma::PanelFileSystemTree Luma::PanelBackgroundTasks Luma::Jobs Luma::Tasks
-            Luma::PanelProjectSettings
+            Luma::PanelProjectSettings Luma::PanelPreferences
             Luma::Material Luma::AssetImport Luma::MaterialBridge Luma::PanelMaterialEditor
             Vulkan::Vulkan)  # main.cpp drives VulkanDeferredRenderer directly
 
