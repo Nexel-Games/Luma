@@ -155,7 +155,7 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
         ThumbnailManager::Get().SetRenderCallback({});
         return;
     }
-    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials, m_assetRegistry);
+    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials);
     // Material and mesh thumbnails render on the GPU through the preview
     // scene, so they match the viewport (square captures).
     ThumbnailManager::Get().SetRenderCallback(
@@ -167,8 +167,8 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
                 return virtualPath && m_preview->CaptureMaterial(*virtualPath, width, rgba);
             }
             if (type == AssetType::Mesh) {
-                const AssetData* data = m_assetRegistry.LookupByPath(path);
-                return data && m_preview->CaptureMesh(data->id, width, rgba);
+                const auto virtualPath = m_assetPaths.ToVirtual(path);
+                return virtualPath && m_preview->CaptureMesh(*virtualPath, width, rgba);
             }
             return false;
         });
@@ -557,10 +557,8 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
         m_materials->Reload(*virtualPath);
         RefreshMaterialThumbnails();
     } else if (ext == ".lmesh") {
-        if (const AssetData* data = m_assetRegistry.LookupByPath(file)) {
-            m_bridge.OnMeshFileChanged(data->id);
-            if (m_preview) m_preview->OnMeshFileChanged(data->id);
-        }
+        m_bridge.OnMeshFileChanged(*virtualPath);
+        if (m_preview) m_preview->OnMeshFileChanged(*virtualPath);
     } else {
         // Changed or removed texture: re-validate (missing -> constant, warned
         // once) and re-upload it in the viewport and the preview.
@@ -848,7 +846,7 @@ SceneView EditorScreen::BuildSceneView() {
     // through the renderer's SceneRenderer; the selection draws normally
     // (the selection outline marks it).
     if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
-        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials, m_assetRegistry);
+        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials);
     }
     m_bridge.BuildInstances(m_scene, m_selected, m_instances);
 
@@ -1558,7 +1556,7 @@ Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir)
             // unnormalized local direction keeps t in world ray units).
             Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
             if (mr->UsesMeshAsset()) {
-                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->meshAsset)) {
+                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->mesh)) {
                     lo = bounds->min;
                     hi = bounds->max;
                 }
