@@ -28,6 +28,6 @@ Material graph & compiler (Material Editor project 1 —
 | [T-0001](T-0001-slate-input-followups.md) | Slate input widgets: review follow-ups | Draft (being planned) | `Engine/UI/Slate` |
 | [T-0002](T-0002-editor-undo-redo.md) | Editor-wide Undo / Redo (transactions) | Draft (being planned) | Editor, Scene |
 | [T-0003](T-0003-asset-import.md) | Asset import pipeline & Import window (models, audio, images) | Completed — review fixes done by the lead; waiting for the user's test | `Engine/Asset`, `Engine/Audio`, import UI |
-| [T-0004](T-0004-static-mesh-assignment.md) | Static mesh assignment: drag into the level, Inspector Static Mesh row, mesh material slots, rename fix-up | Approved | Scene, Inspector, Viewport, Content Browser |
+| [T-0004](T-0004-static-mesh-assignment.md) | Static mesh assignment: drag into the level, Inspector Static Mesh row, mesh material slots, rename fix-up | Completed — done by the lead; waiting for the user's test | Scene, Inspector, Viewport, Content Browser |
 
-Start with T-0000 (gate). T-0003 is done; T-0004 is next. T-0001 and T-0002 become `Approved` when their plans are final.
+Start with T-0000 (gate). T-0003 and T-0004 are done (lead). T-0001 and T-0002 become `Approved` when their plans are final.

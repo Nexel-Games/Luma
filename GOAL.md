@@ -302,7 +302,8 @@ Unreal-style PBR materials as assets (spec/plan:
 ### 2.5 Meshes  ·  🟡 PARTIAL
 `Engine/Rendering/Mesh` — built-in primitives (cube/sphere/plane…) + PBR draw.
 - [x] Primitive mesh generation + GPU buffers + draw path
-- [ ] Imported static meshes (from glTF/OBJ/FBX via asset pipeline 5.6)
+- [x] Imported static meshes (from glTF/OBJ/FBX via asset pipeline 5.6), placed and assigned
+      in the editor (T-0004)
 - [ ] Skeletal mesh support (skinning) — architecture for Animation (3.7)
 - [ ] Instancing + LOD hooks; mesh streaming architecture
 - **DoD:** an imported mesh asset renders identically to a primitive; instanced draw
@@ -597,11 +598,18 @@ Editor references a console; core Log exists.
 - [x] Missing referenced textures are warnings (material created without them)
 - [ ] Skeletal meshes / animation, LODs, collision, BCn compression, HDR/EXR as material
       textures (lead), fonts/shaders import, hot reload
-- [ ] Assign an imported static mesh to an actor (Inspector mesh slot / drag into viewport)
+- [x] **Static meshes in the level (T-0004):** drag a mesh from the Content Browser into the
+      viewport (placement preview resting on the surface under the cursor, grid snapping);
+      Inspector **Static Mesh** row (searchable picker, Use Selected / Browse / Reset, drop
+      target); material slots follow the mesh (slot names, the mesh's own materials as
+      defaults); actors save their mesh by virtual path; renames move `.meta` and retarget
+      the open scene
+- [ ] Redirectors for scenes that are not open when an asset is renamed; Static Mesh
+      Editor; "Replace Selected Actors with"; multi-asset drops (multi-select)
 - **DoD:** dropping a glTF into the project imports it, registers a GUID, and it renders
   from the Content Browser; re-importing updates it live.
 - **Log:** _import pipeline, window, reimport, thumbnails and sound preview done (T-0003);
-  mesh assignment in the editor and the items above pending._
+  static mesh placement/assignment done (T-0004); the items above pending._
 
 ### 5.7 Transform Tools & Gizmos  ·  🟡 PARTIAL
 `Editor/Gizmo` — translate gizmo only.
