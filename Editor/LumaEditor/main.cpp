@@ -26,6 +26,8 @@
 #include "Luma/Asset/MaterialThumbnailRenderer.h"
 
 #include "EditorScreen.h"
+#include "Luma/Jobs/JobSystem.h"
+#include "Luma/Tasks/TaskManager.h"
 #include "SplashScreen.h"
 
 #include <vulkan/vulkan.h>
@@ -260,6 +262,9 @@ int main(int argc, char** argv) {
     }
 
     bool running = true;
+    // Engine services: declared before the editor so they outlive it.
+    Jobs::JobSystem jobs;
+    Tasks::TaskManager tasks;
     std::unique_ptr<EditorScreen> editor;
     window->SetEventCallback(
         [&](Event& e) { FeedEvent(ui, e, running, editor.get()); });
@@ -359,6 +364,7 @@ int main(int argc, char** argv) {
         editor = std::make_unique<EditorScreen>(projectFile);
         editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
+        editor->SetBackgroundServices(&jobs, &tasks);
         if (!previewMaterial.empty() &&
             !editor->CapturePreview(previewMaterial, previewPng, 256)) {
             LUMA_LOG_ERROR("Editor", "--preview-capture failed for '{}'", previewMaterial);
@@ -404,6 +410,10 @@ int main(int argc, char** argv) {
             window->SetShouldClose(false);  // closing waits for the prompt
         }
         Timestep dt = clock.Tick();
+        // Main-thread job completions (GPU uploads, pipeline creation...) and
+        // task bookkeeping, before this frame's UI reads them.
+        jobs.RunMainThreadJobs(2.0);
+        tasks.Update(static_cast<f64>(dt));
 
         // Render the 3D scene into the editor viewport (using last frame's rect),
         // before opening the swapchain frame.

@@ -758,6 +758,8 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
         m_selected = PickEntity(origin, dir);
     };
     ctx.materials = m_materials.get();
+    ctx.jobs = m_jobs;
+    ctx.tasks = m_tasks;
     ctx.sectionCount = [this](Entity e) -> u32 {
         const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
         return mesh ? m_bridge.SectionCount(*mesh) : 1u;
@@ -1301,7 +1303,13 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
     }
     for (const auto& editor : m_materialEditors) editor->BeginFrame();
-    m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f});
+    constexpr f32 kStatusBarH = 24.0f;
+    m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f - kStatusBarH});
+    // Status bar: background-task indicator on the right (Unreal-style).
+    const Rect statusBar{0, height - kStatusBarH, width, kStatusBarH};
+    ui.Panel(statusBar, t.surface1);
+    ui.Panel({0, statusBar.y, width, 1.0f}, t.separator);
+    if (m_tasks) m_backgroundTasks.DrawStatusIndicator(ui, statusBar, *m_tasks);
     // Tabs closed during the dock draw are freed now (the dock dropped them).
     for (const std::string& path : m_editorsToDelete) {
         std::erase_if(m_materialEditors,
@@ -1330,6 +1338,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         m_inspectorPanel.DrawFloatingPickers(ui, ctx);
         for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
     }
+    if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
     DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
 }

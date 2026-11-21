@@ -14,6 +14,7 @@
 #include "Luma/Asset/AssetFileWatcher.h"
 #include "Luma/Asset/LumaMesh.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
+#include "Luma/Editor/Panels/BackgroundTasks.h"
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
@@ -111,6 +112,11 @@ public:
     // Wires the renderer: thumbnails, and the material preview scene on the
     // backend's secondary deferred renderer (GPU material/mesh thumbnails).
     void SetRenderer(Luma::Renderer* renderer);
+    // Engine services owned by the app (must outlive the editor).
+    void SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManager* tasks) {
+        m_jobs = jobs;
+        m_tasks = tasks;
+    }
     Luma::Renderer* Renderer() const noexcept { return m_renderer; }
     
     // Build scene view for deferred renderer. `width`/`height` are the
@@ -294,6 +300,9 @@ private:
     Editor::Panels::InspectorPanel m_inspectorPanel;
     Editor::Panels::ConsolePanel m_consolePanel;
     Editor::Panels::ContentBrowserPanel m_contentBrowser;
+    Editor::Panels::BackgroundTasksPanel m_backgroundTasks;
+    Jobs::JobSystem* m_jobs = nullptr;
+    Tasks::TaskManager* m_tasks = nullptr;
 
     // Renderer for thumbnail generation
     Luma::Renderer* m_renderer = nullptr;

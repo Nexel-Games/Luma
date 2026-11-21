@@ -12,6 +12,12 @@
 namespace Luma::Material {
 class MaterialLibrary;
 }
+namespace Luma::Jobs {
+class JobSystem;
+}
+namespace Luma::Tasks {
+class TaskManager;
+}
 
 namespace Luma {
 // Forward declarations keep PanelContext.h lightweight; only the panels that
@@ -99,6 +105,10 @@ struct PanelContext {
     // ---- Materials ----------------------------------------------------------
     // The editor's material assets (edits are live in every viewport).
     Material::MaterialLibrary* materials = nullptr;
+    // Engine services: background work (Job System) and its user-visible
+    // progress (Task Manager). Owned by the app; may be null in tests.
+    Jobs::JobSystem* jobs = nullptr;
+    Tasks::TaskManager* tasks = nullptr;
     // Number of material sections of an actor's mesh (1 for primitives).
     std::function<u32(Entity)> sectionCount;
     // Renders a material on a preview shape (0 sphere, 1 cube, 2 plane,
