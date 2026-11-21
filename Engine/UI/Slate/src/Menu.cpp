@@ -518,7 +518,10 @@ void MenuHost::Draw(Context& ctx) {
         Close();  // outside click dismisses (and is consumed)
         return;
     }
-    if (ctx.mousePressed(0) && hitLevel >= 0) m_pressInside = true;
+    // The press that opened the menu does not count: a long list can be
+    // placed over its anchor, under the cursor, and the release of that same
+    // click must not pick the row it lands on.
+    if (ctx.mousePressed(0) && hitLevel >= 0 && !m_justOpened) m_pressInside = true;
 
     const bool moved = ctx.mouseDelta().x != 0.0f || ctx.mouseDelta().y != 0.0f;
     const MenuEntry* hoveredEntry = nullptr;
