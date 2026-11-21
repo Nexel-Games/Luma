@@ -64,6 +64,7 @@ add_executable(LumaTests
     Editor/MaterialSceneBridgeTests.cpp
     Editor/MaterialEditorTests.cpp
     Editor/InspectorMaterialTests.cpp
+    Editor/StaticMeshSlotTests.cpp
     Editor/TransformGizmoTests.cpp
     Editor/BackgroundTasksTests.cpp
     VFS/PathTests.cpp

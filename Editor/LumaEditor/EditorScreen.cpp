@@ -482,7 +482,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
 TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
     if (!m_renderer) return 0;
     auto file = m_assetPaths.ToFile(assetPath, {"png", "jpg", "jpeg", "tga", "bmp", "psd", "gif",
-                                                "lmat", "lmatinst"});
+                                                "lmat", "lmatinst", "lmesh"});
     if (!file) return 0;
     const AssetData* data = m_assetRegistry.LookupByPath(*file);
     return data ? static_cast<TextureHandle>(
@@ -781,6 +781,23 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.assetThumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
     ctx.listTextures = [this] { return ListAssets(false); };
     ctx.listMaterials = [this] { return ListAssets(true); };
+    ctx.listMeshes = [this] {
+        std::vector<std::string> out;
+        for (const AssetData* a : m_assetRegistry.Filter(AssetType::Mesh, std::nullopt, {})) {
+            if (auto vp = m_assetPaths.ToVirtual(a->packagePath)) out.push_back(*vp);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    ctx.meshSections = [this](Entity e) {
+        std::vector<Editor::Panels::MeshSlotInfo> out;
+        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        if (!mesh || !mesh->UsesMeshAsset()) return out;
+        if (const auto* sections = m_bridge.Sections(mesh->mesh)) {
+            for (const Editor::MeshSectionInfo& s : *sections) out.push_back({s.slotName, s.defaultMaterial});
+        }
+        return out;
+    };
     ctx.onOpenAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
     ctx.virtualPathOf = [this](const std::filesystem::path& file) {
         return m_assetPaths.ToVirtual(file).value_or(std::string{});
@@ -800,8 +817,8 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);
-        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "png", "jpg", "jpeg", "tga",
-                                                          "bmp", "psd", "gif"})) {
+        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "lmesh", "png", "jpg", "jpeg",
+                                                          "tga", "bmp", "psd", "gif"})) {
             m_contentBrowser.BrowseTo(*file);
         }
     };

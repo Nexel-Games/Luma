@@ -49,6 +49,12 @@ enum class CreateActorKind {
     PostProcessVolume,
 };
 
+// One material slot of a static mesh, as the Inspector shows it.
+struct MeshSlotInfo {
+    std::string name;             // "Paint", "Element 0"
+    std::string defaultMaterial;  // the mesh's own material (virtual path) or ""
+};
+
 struct PanelContext {
     // Renderer for uploading dynamic textures (e.g. asset thumbnails).
     Renderer* renderer = nullptr;
@@ -120,6 +126,11 @@ struct PanelContext {
     Tasks::TaskManager* tasks = nullptr;
     // Number of material sections of an actor's mesh (1 for primitives).
     std::function<u32(Entity)> sectionCount;
+    // Material slots of an actor's static mesh (name + the mesh's own
+    // material per section); empty for primitives or a mesh not loaded yet.
+    std::function<std::vector<MeshSlotInfo>(Entity)> meshSections;
+    // Virtual paths of every static mesh (.lmesh) asset.
+    std::function<std::vector<std::string>()> listMeshes;
     // Renders a material on a preview shape (0 sphere, 1 cube, 2 plane,
     // 3 cylinder) orbiting by yaw/pitch at width x height; `sky` shows the sky
     // backdrop (else a dark studio). Returns the UI texture (0 = unavailable).

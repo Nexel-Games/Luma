@@ -1,6 +1,7 @@
 #include "Luma/Editor/Panels/Inspector.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <string>
 #include <type_traits>
@@ -8,6 +9,7 @@
 
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
+#include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Slate/Icons.h"
 #include "Luma/Scene/Components.h"
@@ -190,6 +192,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                           PanelContext& ctx) {
     Slate::Theme& t = ui.theme();
     m_slotRects.clear();
+    m_meshRowRect = {};
 
     if (!ctx.scene->IsValid(*ctx.selected)) {
         ui.LabelIn({body.x, body.y + 8, body.w, 22}, "  No selection",
@@ -339,10 +342,14 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     if (reg.all_of<MeshRendererComponent>(*ctx.selected)) {
         sectionHeader("Mesh Renderer", ComponentKind::MeshRenderer);
         auto& mr = reg.get<MeshRendererComponent>(*ctx.selected);
-        mr.primitive = static_cast<MeshPrimitive>(
-            comboRow("Shape", RowId("insp.shape", *ctx.selected),
-                     {"Cube", "Plane", "Sphere", "Cylinder"},
-                     static_cast<int>(mr.primitive)));
+        DrawStaticMeshRow(ui, ctx, mr, x, y, w);
+        // The primitive is only drawn while no static mesh is assigned.
+        if (!mr.UsesMeshAsset()) {
+            mr.primitive = static_cast<MeshPrimitive>(
+                comboRow("Shape", RowId("insp.shape", *ctx.selected),
+                         {"Cube", "Plane", "Sphere", "Cylinder"},
+                         static_cast<int>(mr.primitive)));
+        }
         DrawMaterialSlots(ui, ctx, mr, x, y, w);
         y += 8.0f;
     }
@@ -619,29 +626,171 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                                  contentRegion, contentH, m_scroll);
 }
 
+void InspectorPanel::DrawStaticMeshRow(Slate::Context& ui, PanelContext& ctx,
+                                       MeshRendererComponent& mr, f32 x, f32& y, f32 w) {
+    Slate::Theme& t = ui.theme();
+    const Entity e = *ctx.selected;
+    const std::string key = "insp.mesh." + std::to_string(entt::to_integral(e));
+    // Same row as a material slot:
+    //   Static Mesh [thumb]  [ SM_Rock                     v ]
+    //                        (<-) (browse) (reset)   Static Mesh
+    const f32 kLabelW = std::min(ui.font().Measure("Static Mesh").x + 10.0f, w * 0.35f);
+    constexpr f32 kThumb = 48.0f;
+    constexpr f32 kButton = 22.0f;
+    constexpr f32 kGap = 2.0f;
+    const Rect row{x, y, w, kThumb + 6.0f};
+    m_meshRowRect = row;
+    const bool hasMesh = mr.UsesMeshAsset();
+    const std::string name = hasMesh ? AssetNameOf(mr.mesh) : std::string("None");
+
+    ui.LabelIn({x, row.y + (kThumb - 18.0f) * 0.5f + 3.0f, kLabelW - 4.0f, 18.0f}, "Static Mesh",
+               t.textDim);
+
+    const Rect thumb{x + kLabelW, row.y + 3.0f, kThumb, kThumb};
+    const bool thumbHover = thumb.Contains(ui.mouse());
+    ui.PanelRoundedBordered(thumb, t.surface2, thumbHover ? t.focusRing : t.outline, t.radius.sm,
+                            thumbHover ? t.border.thick : t.border.hairline);
+    if (hasMesh && ctx.assetThumbnail) {
+        if (TextureHandle tex = ctx.assetThumbnail(mr.mesh)) ui.Image(tex, thumb.Inset(2.0f, 2.0f));
+    } else if (!hasMesh) {
+        Slate::DrawIcon(ui, thumb.Inset(12.0f, 12.0f), Slate::Icon::Cube, t.textDisabled);
+    }
+    if (thumbHover && hasMesh && ui.mouseDoubleClicked(0) && ctx.onBrowseToAsset) {
+        ctx.onBrowseToAsset(mr.mesh);
+    }
+    ui.Tooltip(Slate::Context::ID(key + ".thumb"), thumb,
+               hasMesh ? mr.mesh : std::string("No static mesh: the Shape primitive is drawn."));
+
+    // Picker: searchable list of every static mesh asset, plus None.
+    const f32 cx = thumb.Right() + 6.0f;
+    const Rect pick{cx, row.y + 3.0f, std::max(row.Right() - cx - 2.0f, 60.0f), kButton};
+    const u64 pickId = Slate::Context::ID(key + ".pick");
+    const bool pickHover = pick.Contains(ui.mouse());
+    const bool pickOpen = ui.IsMenuOpen(pickId);
+    ui.PanelRoundedBordered(pick, pickHover || pickOpen ? t.surface4 : t.surface3,
+                            pickOpen ? t.focusRing : t.outline, t.radius.sm, t.border.hairline);
+    ui.LabelIn({pick.x + 8.0f, pick.y, pick.w - 28.0f, pick.h}, name, hasMesh ? t.text : t.textDim);
+    Slate::DrawIcon(ui, {pick.Right() - 20.0f, pick.y + 4.0f, 14.0f, 14.0f}, Slate::Icon::ChevronDown,
+                    t.textDim);
+    // Menu actions run later: capture the scene + entity, never the component.
+    Scene* scene = ctx.scene;
+    auto assign = [scene, e](const std::string& path) {
+        if (!scene || !scene->IsValid(e)) return;
+        if (auto* m = scene->Registry().try_get<MeshRendererComponent>(e)) AssignStaticMesh(*m, path);
+    };
+    if (pickHover && ui.mousePressed(0) && !pickOpen) {
+        Slate::MenuBuilder b;
+        b.BeginSection("Static Meshes");
+        b.AddEntry("None", Slate::Icon::Close, [assign] { assign({}); },
+                   {.tooltip = "Draw the Shape primitive instead."});
+        if (ctx.listMeshes) {
+            std::vector<std::string> meshes = ctx.listMeshes();
+            std::sort(meshes.begin(), meshes.end(), [](const std::string& a, const std::string& b2) {
+                const std::string na = AssetNameOf(a), nb = AssetNameOf(b2);
+                return std::lexicographical_compare(
+                    na.begin(), na.end(), nb.begin(), nb.end(),
+                    [](char l, char r) { return std::tolower(static_cast<unsigned char>(l)) <
+                                                std::tolower(static_cast<unsigned char>(r)); });
+            });
+            for (const std::string& candidate : meshes) {
+                b.AddEntry(AssetNameOf(candidate), Slate::Icon::Cube,
+                           [assign, candidate] { assign(candidate); }, {.tooltip = candidate});
+            }
+        }
+        b.EndSection();
+        Slate::MenuOptions options;
+        options.searchable = true;
+        options.searchHint = "Search static meshes";
+        ui.OpenMenuBelow(pickId, pick, b.Build(), options);
+    }
+    ui.Tooltip(pickId ^ 0x7177ull, pick, hasMesh ? mr.mesh + "\nStatic Mesh" : "None");
+
+    // Use Selected | Browse to Asset | Reset to Default.
+    Rect btn{cx, pick.Bottom() + 4.0f, kButton, kButton};
+    const f32 kindX = cx + 3.0f * (kButton + kGap) + 6.0f;
+    if (ui.font().Measure("Static Mesh").x <= pick.Right() - kindX) {
+        ui.LabelIn({kindX, btn.y, pick.Right() - kindX, kButton}, hasMesh ? "Static Mesh" : "Primitive",
+                   t.textDisabled);
+    }
+    if (ui.IconTextButton(Slate::Context::ID(key + ".use"), btn, Slate::Icon::ArrowLeft, {}, t.textDim) &&
+        ctx.selectedAsset) {
+        const std::string selected = ctx.selectedAsset();
+        auto isMesh = [&ctx](const std::string& path) {
+            if (!ctx.listMeshes) return false;
+            const std::vector<std::string> meshes = ctx.listMeshes();
+            return std::find(meshes.begin(), meshes.end(), path) != meshes.end();
+        };
+        if (UseSelectedAssetForMesh(mr, selected, isMesh)) {
+            LUMA_USER_INFO("Meshes", "Assigned '{}'", selected);
+        } else {
+            LUMA_USER_WARN("Meshes", "Select a Static Mesh in the Content Browser first");
+        }
+    }
+    ui.Tooltip(Slate::Context::ID(key + ".use.tip"), btn,
+               "Use Selected Asset\nAssign the static mesh selected in the Content Browser.");
+    btn.x += kButton + kGap;
+    if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::FolderOpen, {},
+                          hasMesh ? t.textDim : t.textDisabled) &&
+        hasMesh && ctx.onBrowseToAsset) {
+        ctx.onBrowseToAsset(mr.mesh);
+    }
+    ui.Tooltip(Slate::Context::ID(key + ".browse.tip"), btn,
+               "Browse to Asset\nShow the static mesh in the Content Browser.");
+    btn.x += kButton + kGap;
+    if (ui.IconTextButton(Slate::Context::ID(key + ".reset"), btn, Slate::Icon::Reset, {},
+                          hasMesh ? t.textDim : t.textDisabled) &&
+        hasMesh) {
+        AssignStaticMesh(mr, {});
+    }
+    ui.Tooltip(Slate::Context::ID(key + ".reset.tip"), btn,
+               "Reset to Default\nRemove the static mesh and draw the Shape primitive.");
+
+    // Drop target: a static mesh dragged from the Content Browser.
+    if (const Slate::DragPayload* drop = ui.AcceptDrop(row, "asset/mesh")) {
+        AssignStaticMesh(mr, drop->data);
+        LUMA_USER_INFO("Meshes", "Assigned '{}'", drop->data);
+    }
+    y += row.h + 6.0f;
+}
+
 void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
                                        MeshRendererComponent& mr, f32 x, f32& y, f32 w) {
     Slate::Theme& t = ui.theme();
     const Entity e = *ctx.selected;
-    const u32 sections = std::max(ctx.sectionCount ? ctx.sectionCount(e) : 1u, 1u);
+    // A static mesh names its slots and supplies each slot's default material.
+    const std::vector<MeshSlotInfo> meshSlots =
+        mr.UsesMeshAsset() && ctx.meshSections ? ctx.meshSections(e) : std::vector<MeshSlotInfo>{};
+    const u32 sections = meshSlots.empty()
+                             ? std::max(ctx.sectionCount ? ctx.sectionCount(e) : 1u, 1u)
+                             : static_cast<u32>(meshSlots.size());
     const u32 rows = std::max<u32>(sections, static_cast<u32>(mr.materials.size()));
     ui.LabelIn({x, y, w, 20}, "Materials", t.text);
     ui.Tooltip(RowId("insp.mat.tip", *ctx.selected), {x, y, w, 20},
-               "Materials\nOne material per mesh section. Empty slots use the Default "
-               "Material. Drag a material from the Content Browser onto a slot.");
+               mr.UsesMeshAsset()
+                   ? "Materials\nOne material per mesh section. Empty slots use the mesh's own "
+                     "material. Drag a material from the Content Browser onto a slot."
+                   : "Materials\nOne material per mesh section. Empty slots use the Default "
+                     "Material. Drag a material from the Content Browser onto a slot.");
     y += 24.0f;
     // Unreal-style slot: label column | thumbnail | asset combo + actions.
     //   Element 0   [thumb]  [ M_Bricks                  v ]
     //                        (<-) (search) (reset)   Material Instance
-    const f32 kLabelW = ui.font().Measure("Element 00").x + 10.0f;
+    f32 labelW = ui.font().Measure("Element 00").x;
+    for (const MeshSlotInfo& s : meshSlots) labelW = std::max(labelW, ui.font().Measure(s.name).x);
+    const f32 kLabelW = std::min(labelW + 10.0f, w * 0.35f);
     constexpr f32 kThumb = 48.0f;
     constexpr f32 kButton = 22.0f;
     constexpr f32 kGap = 2.0f;
     for (u32 slot = 0; slot < rows; ++slot) {
         const bool unused = slot >= sections;
         const std::string path = slot < mr.materials.size() ? mr.materials[slot] : std::string{};
-        const bool isDefault = path.empty();
-        const std::string shown = isDefault ? std::string(Material::kDefaultMaterialPath) : path;
+        const bool isDefault = path.empty();  // not overridden
+        const std::string meshDefault =
+            slot < meshSlots.size() ? meshSlots[slot].defaultMaterial : std::string{};
+        const bool fromMesh = isDefault && !meshDefault.empty();
+        const std::string shown = !isDefault  ? path
+                                  : fromMesh ? meshDefault
+                                             : std::string(Material::kDefaultMaterialPath);
         const usize slash = shown.find_last_of('/');
         const std::string name = shown.substr(slash + 1);
         const Rect row{x, y, w, kThumb + 6.0f};
@@ -651,8 +800,15 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
 
         // Label column, centred on the thumbnail.
         const Rect label{x, row.y + (kThumb - 18.0f) * 0.5f + 3.0f, kLabelW - 4.0f, 18.0f};
-        ui.LabelIn(label, (unused ? "Unused " : "Element ") + std::to_string(slot),
-                   unused ? t.textDisabled : t.textDim);
+        const std::string slotLabel =
+            unused                     ? "Unused " + std::to_string(slot)
+            : slot < meshSlots.size() ? meshSlots[slot].name
+                                      : "Element " + std::to_string(slot);
+        ui.LabelIn(label, slotLabel, unused ? t.textDisabled : t.textDim);
+        if (!unused && slot < meshSlots.size()) {
+            ui.Tooltip(Slate::Context::ID(key + ".label"), label,
+                       meshSlots[slot].name + "\nElement " + std::to_string(slot));
+        }
         if (unused) {
             ui.Tooltip(Slate::Context::ID(key + ".unused"), label,
                        "Unused slot\nThe mesh has fewer sections; the slot is kept for meshes "
@@ -685,7 +841,7 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
                                 pickOpen ? t.focusRing : t.outline, t.radius.sm,
                                 t.border.hairline);
         ui.LabelIn({pick.x + 8.0f, pick.y, pick.w - 28.0f, pick.h},
-                   isDefault ? std::string("DefaultMaterial") : name,
+                   fromMesh ? name : isDefault ? std::string("DefaultMaterial") : name,
                    isDefault ? t.textDim : t.text);
         Slate::DrawIcon(ui, {pick.Right() - 20.0f, pick.y + 4.0f, 14.0f, 14.0f},
                         Slate::Icon::ChevronDown, t.textDim);
@@ -705,8 +861,10 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
                                    "and assign it here."});
             b.EndSection();
             b.BeginSection("Materials");
-            b.AddEntry("DefaultMaterial", {}, [&mr, slot] { AssignMaterialSlot(mr, slot, {}); },
-                       {.tooltip = std::string(Material::kDefaultMaterialPath)});
+            b.AddEntry(fromMesh || !meshDefault.empty() ? "Mesh Material" : "DefaultMaterial", {},
+                       [&mr, slot] { AssignMaterialSlot(mr, slot, {}); },
+                       {.tooltip = meshDefault.empty() ? std::string(Material::kDefaultMaterialPath)
+                                                       : "The mesh's own material: " + meshDefault});
             if (ctx.listMaterials) {
                 for (const std::string& candidate : ctx.listMaterials()) {
                     if (candidate == Material::kDefaultMaterialPath) continue;
@@ -731,8 +889,10 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
         // what kind of asset the slot holds.
         Rect btn{cx, pick.Bottom() + 4.0f, kButton, kButton};
         const bool instance = !isDefault && ctx.materials && ctx.materials->IsInstance(shown);
-        const char* kind = isDefault ? "Default Material" : instance ? "Material Instance"
-                                                                     : "Material";
+        const char* kind = fromMesh    ? "Mesh Material"
+                           : isDefault ? "Default Material"
+                           : instance  ? "Material Instance"
+                                       : "Material";
         const f32 kindX = cx + 3.0f * (kButton + kGap) + 6.0f;
         if (ui.font().Measure(kind).x <= pick.Right() - kindX) {  // only when it fits
             ui.LabelIn({kindX, btn.y, pick.Right() - kindX, kButton}, kind, t.textDisabled);
@@ -766,7 +926,8 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
             AssignMaterialSlot(mr, slot, {});
         }
         ui.Tooltip(Slate::Context::ID(key + ".reset.tip"), btn,
-                   "Reset to Default\nUse the Default Material for this slot.");
+                   meshDefault.empty() ? "Reset to Default\nUse the Default Material for this slot."
+                                       : "Reset to Default\nUse the mesh's own material for this slot.");
 
         // Drop target: a material dragged from the Content Browser.
         if (!unused) {
