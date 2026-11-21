@@ -94,7 +94,10 @@ if(_luma_vk_layer_dir)
         LUMA_VULKAN_LAYER_PATH="${_luma_vk_layer_dir}")
 endif()
 
+# Engine content (sky HDR, default textures) in this checkout.
+file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}/Content" _luma_content_dir)
 target_compile_definitions(LumaRenderVulkan PRIVATE
-    LUMA_SHADER_DIR="${_luma_shader_out}")
+    LUMA_SHADER_DIR="${_luma_shader_out}"
+    LUMA_CONTENT_DIR="${_luma_content_dir}")
 
 set_target_properties(LumaRenderVulkan PROPERTIES FOLDER "Engine")

@@ -1,4 +1,6 @@
+#include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -209,19 +211,35 @@ int main(int argc, char** argv) {
     //   uiSemiBold-> section headings, tab titles, button labels
     //   uiBold    -> titles, splash, large display
     //   mono      -> console output, logs, code
-    // If Red Hat Display can't be located, fall back to Segoe UI on Windows.
-    auto fontPathOr = [](const std::string& primary, const char* fallback) {
-        return primary.empty() ? std::string(fallback) : primary;
+    // Red Hat Display ships in Content/Editor/Fonts; if it can't be found
+    // (or a file is missing) fall back to the system UI font.
+    auto firstExisting = [](std::initializer_list<std::string> candidates) {
+        for (const std::string& c : candidates) {
+            std::error_code ec;
+            if (!c.empty() && std::filesystem::exists(c, ec)) return c;
+        }
+        return std::string{};
     };
-
-    // Use Red Hat Display variable font for all weights
-    std::string redHatFont = "D:/Luma Engine/Red_Hat_Display/RedHatDisplay-VariableFont_wght.ttf";
-    std::string bodyFont = fontPathOr(redHatFont, "C:/Windows/Fonts/segoeui.ttf");
-    std::string mediumFont = fontPathOr(redHatFont, bodyFont.c_str());
-    std::string uiFont = fontPathOr(redHatFont, bodyFont.c_str());
-    std::string titleFont = fontPathOr(redHatFont, "C:/Windows/Fonts/segoeui.ttf");
-    std::string monoFont =
-        "C:/Windows/Fonts/consola.ttf";  // always present on Windows
+    std::string systemFonts = "C:/Windows/Fonts/";
+    if (const char* windir = std::getenv("WINDIR")) {
+        systemFonts = std::filesystem::path(windir).append("Fonts").generic_string() + "/";
+    }
+    const std::string redHatFont =
+        FindEditorAsset("Fonts/RedHatDisplay/RedHatDisplay-VariableFont_wght.ttf");
+    const std::string bodyFont = firstExisting({redHatFont, systemFonts + "segoeui.ttf"});
+    const std::string mediumFont = bodyFont;
+    const std::string uiFont = bodyFont;
+    const std::string titleFont = bodyFont;
+    const std::string monoFont = firstExisting({systemFonts + "consola.ttf", bodyFont});
+    if (bodyFont.empty()) {
+        LUMA_LOG_ERROR("Editor", "No UI font found (looked for Content/Editor/Fonts/RedHatDisplay "
+                                 "and {}segoeui.ttf)", systemFonts);
+        Log::Flush();
+        return 1;
+    }
+    if (redHatFont.empty()) {
+        LUMA_LOG_WARN("Editor", "Red Hat Display not found in Content/Editor/Fonts; using {}", bodyFont);
+    }
 
     Slate::Context ui;  // owns the loaded fonts + theme tokens
     // Build the typography scale on the theme. Sizes are tuned for a 96 DPI
@@ -242,7 +260,11 @@ int main(int argc, char** argv) {
     ui.SetClipboardHandlers([&window] { return window->GetClipboardText(); },
                             [&window](const std::string& text) { window->SetClipboardText(text); });
     if (!ui.Init(*renderer, type, window->ContentScale())) {
-        LUMA_LOG_ERROR("Editor", "failed to load UI font");
+        // Without a font every label is empty and layout breaks: stop here
+        // with a clear message rather than running a broken UI.
+        LUMA_LOG_ERROR("Editor", "failed to load the UI fonts ({}, {})", bodyFont, monoFont);
+        Log::Flush();
+        return 1;
     }
     // Window icon from the engine icon asset.
     {
