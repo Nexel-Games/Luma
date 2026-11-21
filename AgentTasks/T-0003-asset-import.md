@@ -1,6 +1,6 @@
 # T-0003 — Asset Import Pipeline & Import Window
 
-**Status:** In Progress
+**Status:** Changes Requested
 **Assigned to:** engine agent
 **Created:** 2026-11-20 by lead (planned with the user)
 **Design (read first):** `docs/superpowers/specs/2026-11-20-asset-import-pipeline-design.md`
@@ -860,3 +860,104 @@ Whole suite after the legacy importers were removed: `All tests passed (23441 as
 Manual check on a scratch copy of `Tests/Fixtures/MaterialShowcase` (temp, not TestProject and not the fixture). The Import button opened a picker whose filter read "All Supported". Choosing `robot.glb` opened "Import Content" for destination `/Game`, with robot.glb, Meshes (2) Body and Arm, Materials (2) Paint and Metal, and Textures (2) T_Paint_D and T_Paint_N. Import closed the window and the console printed `Imported 6 assets into /Game (0 skipped, 0 failed)`. The scratch `Assets` folder then held `SM_Body.lmesh`, `SM_Arm.lmesh`, `M_Paint.lmat`, `M_Metal.lmat`, `T_Paint_D.png`, `T_Paint_N.png`, each with a `.meta`. The content browser pane was only wide enough to show one column of folders (Materials, then Scenes), so the new mesh, image, and material thumbnails were not on screen. Explorer drag of `robot.fbx`, `robot.obj`, `tone_stereo.mp3`, and `img.*`, assigning `SM_Body` in the Inspector, the sound play button, and reimport at scale 2 were not exercised. `Saved/Logs/Editor.log` for that run had 0 `VUID` and 0 `validation error`.
 
 ## Review
+
+**2026-11-21, lead: Changes Requested.** The build is clean (`a27de4b`), all 445 tests pass, and the
+import cases all pass. The translator, pipeline and factory work is solid: robot.glb/fbx/obj, the Cornell Box OBJ and a
+76 MB FBX car (102 meshes, 19 assets) all import with the right scale and orientation. The
+items below must be fixed before this can be Accepted. Fix them on `agent/T-0003-asset-import`,
+tick each one, add what you did under *Result → Review fixes*, then set the status to
+`Completed` again.
+
+### R1 — CRITICAL: the editor freezes (source hashed every frame)
+
+`ContentBrowserPanel::DrawGridPane` calls `ctx.sourceChanged(a->packagePath)` for **every
+visible tile with a `.meta`, every frame**. `Import::SourceChanged` (ImportSession.cpp)
+re-reads the `.meta` and then **hashes the whole source file** whenever `sourceHash` is set,
+which is always. Two assets imported from the 76 MB car FBX mean about 160 MB hashed per frame.
+The editor shows "Not Responding", one core sits at 100% and the log stops.
+
+Repro: import `10-Car.fbx` (any large FBX works), close the editor, and reopen the project. It hangs
+with two or more of its assets in the open folder. Proof: the same project opens normally once
+`sourceHash` is blanked in those two `.meta` files, which forces the mtime path.
+
+Required fix:
+- [ ] Nothing in a draw path may do file I/O. Keep a per-asset cache of the source state in the
+  Content Browser or in a small `SourceWatch` service in the import module. Fill it when the
+  registry scans or refreshes and when an import finishes, never per frame.
+- [ ] Order the checks cheap to expensive: does the file exist, then size + mtime against the `.meta`
+  (store `sourceSize` too), and hash **only** when the mtime changed. Run that hash on the
+  Job System (`PanelContext::jobs`) and give it a Task Manager entry when the file is larger than
+  ~16 MB. The badge appears when the job finishes.
+- [ ] Add a test that checks `SourceChanged` on an unchanged source does not read the file's
+  contents. For example, count bytes read through an injectable hasher, or assert that the mtime
+  path is taken.
+- [ ] Manual check: reopen a project holding the car assets. It must open at normal frame rate.
+
+### R2 — `.meta` files show up as Content Browser tiles
+
+The scanner skips `*.meta`/`*.tmp`, but `AssetRegistry::RefreshPath` (used after an import
+and by the browser's refresh) does not. Each `.meta` gets its own "Unknown" tile, and the browser
+also asks for a thumbnail for each one (`WARN ThumbnailManager: Unknown asset type ... (ext: .meta)`
+in the log). 
+- [ ] Route every registry entry point through `AssetScanner::ShouldIgnore`.
+- [ ] Add a registry test: refresh a folder that holds `a.png` + `a.png.meta` and expect 1 entry.
+
+### R3 — Module boundary: the import code lives inside `Luma::Material`
+
+`Engine/Material/CMakeLists.txt` compiles `Engine/Asset/src/Import/Factories/*`,
+`TranslatorRegistry.cpp` and `ImportSession.cpp`, and links `Luma::Audio`. The material
+module must not own asset import (project rule: every feature is its own module).
+- [ ] Create a **`Luma::AssetImport`** target (`Engine/AssetImport/` with its own `include/` and
+  `src/`, moving the `Engine/Asset/**/Import/**` code). It links `Luma::Asset`, `Luma::Material`
+  and `Luma::Audio`. `Luma::Material` goes back to exactly what it was on `dev`.
+- [ ] The editor, the Import dialog and the tests link `Luma::AssetImport`. Revert the
+  `Engine/Material/CMakeLists.txt` change completely: that file is in the lead's no-touch area.
+
+### R4 — A missing texture counts as a failed import
+
+Importing the car printed "Imported 19 assets… 3 failed". The 3 were textures the FBX
+references but which are not on disk. That is a warning, not a failure.
+- [ ] A texture node whose file is missing shows its error in the dialog, as now, but produces
+  **no** request. Its material is created without that texture, and the summary says
+  `K warnings` with one `LUMA_USER_WARN` per missing file. "failed" is only for a write or
+  decode that actually failed.
+- [ ] Add a pipeline test: a model with one missing texture gives 0 failures and 1 warning.
+
+### R5 — Main-thread stalls
+
+- [ ] `ImportSession::Translate` runs on the main thread before the dialog opens. Reading the car
+  FBX freezes the UI for several seconds. Run translation as a job with a Task Manager entry
+  ("Reading 10-Car.fbx", cancellable), and open the dialog when it finishes.
+- [ ] Thumbnails are generated synchronously when a tile first draws. Each mesh or material
+  preview takes ~1.3 s, so a folder of new assets freezes the editor. Generate at most one per
+  frame (or on the Job System where the renderer allows it), show the type icon until the
+  thumbnail is ready, and add a Task Manager entry when more than a few are queued.
+
+### R6 — Import window UI
+
+- [ ] In the left tree the "Materials (n)" group for robot.glb has no expand arrow and no
+  children. Meshes and Textures expand correctly.
+- [ ] The "Create Sub-folders" label overlaps its checkbox. `LabelIn` adds a 12 px left pad
+  (`space.lg`), so allow for that or use the row helper the other settings use.
+
+### R7 — Also seen (please investigate and report)
+
+- On the agent build, the G-buffer was resized again and again while the editor was open, with the
+  viewport shrinking ~27 px per frame (`Resizing G-buffer from … to …` lines). Check whether the
+  toolbar/progress-chrome or dialog layout changes the viewport rect each frame. Fix it if it is yours,
+  or write what you found under *Questions*.
+
+### R8 — Workflow items still open
+
+- [ ] Task 13 Step 6: the manual checks 2–5 were not run (Explorer drag-drop, Inspector assignment,
+  sound play button, reimport at scale 2). Run them after R1–R6 and write what you saw. Widen the
+  Content Browser pane so the thumbnails are visible, and say so.
+- [ ] Task 14 (GOAL.md docs) is not done.
+- [ ] T-0000: its *Result* section is still empty. Fill it in.
+- [ ] When everything above is ticked: merge `dev` into your branch, build, run the full suite, set
+  `Completed`, and push the branch. Also merge the branch into `dev` as the workflow says. Never
+  `main`.
+
+Accepted as-is: `STB_IMAGE_STATIC` in Slate `Image.cpp`; root `project(... C CXX)`;
+`LUMA_BUILD_TOOLS`; dropping the extra front-axis minus in `SourceToLuma` (the plan was wrong);
+the EXR `pixelAspectRatio` workaround.
