@@ -23,3 +23,5 @@ target_link_libraries(LumaMaterial
     PUBLIC Luma::Core Luma::Math Luma::Asset Luma::Serialization Luma::MaterialGraph)
 
 set_target_properties(LumaMaterial PROPERTIES FOLDER "Engine")
+
+add_subdirectory(Compiler)
