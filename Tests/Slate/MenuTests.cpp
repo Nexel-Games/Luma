@@ -387,3 +387,27 @@ TEST_CASE("The click that opens a menu never selects an item in it", "[slate][me
     f.Frame([] {});
     CHECK(picked >= 0);
 }
+
+TEST_CASE("Thumbnail icons are fetched while the menu is drawn", "[slate][menu]") {
+    // Asset pickers show thumbnails that may still be generating: the entry
+    // asks for its texture every frame, so it appears once it is ready.
+    Fixture f;
+    int calls = 0;
+    Luma::TextureHandle ready = 0;
+    MenuBuilder b;
+    b.AddEntry("SM_Rock", Luma::Slate::MenuIcon::Thumbnail([&] { ++calls; return ready; },
+                                                           Luma::Slate::Icon::StaticMesh),
+               [] {});
+    MenuOptions options;
+    options.iconSize = 32.0f;
+    f.ui.OpenMenuBelow(Context::ID("picker"), Rect{100, 100, 200, 22}, b.Build(), options);
+    f.Frame();
+    f.Frame();
+    CHECK(calls >= 2);
+    const auto before = f.ui.drawList().vertexCount();
+    ready = 7;  // the thumbnail finished
+    f.Frame();
+    CHECK(calls >= 3);
+    (void)before;
+    CHECK(f.ui.AnyMenuOpen());
+}

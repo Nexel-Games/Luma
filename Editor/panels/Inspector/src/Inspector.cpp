@@ -688,8 +688,12 @@ void InspectorPanel::DrawStaticMeshRow(Slate::Context& ui, PanelContext& ctx,
                     [](char l, char r) { return std::tolower(static_cast<unsigned char>(l)) <
                                                 std::tolower(static_cast<unsigned char>(r)); });
             });
+            auto thumbnail = ctx.assetThumbnail;
             for (const std::string& candidate : meshes) {
-                b.AddEntry(AssetNameOf(candidate), Slate::Icon::StaticMesh,
+                b.AddEntry(AssetNameOf(candidate),
+                           Slate::MenuIcon::Thumbnail(
+                               [thumbnail, candidate] { return thumbnail ? thumbnail(candidate) : TextureHandle{0}; },
+                               Slate::Icon::StaticMesh),
                            [assign, candidate] { assign(candidate); }, {.tooltip = candidate});
             }
         }
@@ -697,6 +701,7 @@ void InspectorPanel::DrawStaticMeshRow(Slate::Context& ui, PanelContext& ctx,
         Slate::MenuOptions options;
         options.searchable = true;
         options.searchHint = "Search static meshes";
+        options.iconSize = 32.0f;
         ui.OpenMenuBelow(pickId, pick, b.Build(), options);
     }
     ui.Tooltip(pickId ^ 0x7177ull, pick, hasMesh ? mr.mesh + "\nStatic Mesh" : "None");
@@ -862,10 +867,16 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
                        {.tooltip = meshDefault.empty() ? std::string(Material::kDefaultMaterialPath)
                                                        : "The mesh's own material: " + meshDefault});
             if (ctx.listMaterials) {
+                auto thumbnail = ctx.assetThumbnail;
                 for (const std::string& candidate : ctx.listMaterials()) {
                     if (candidate == Material::kDefaultMaterialPath) continue;
                     const usize s2 = candidate.find_last_of('/');
-                    b.AddEntry(candidate.substr(s2 + 1), {},
+                    b.AddEntry(candidate.substr(s2 + 1),
+                               Slate::MenuIcon::Thumbnail(
+                                   [thumbnail, candidate] {
+                                       return thumbnail ? thumbnail(candidate) : TextureHandle{0};
+                                   },
+                                   Slate::Icon::Sphere),
                                [&mr, slot, candidate] { AssignMaterialSlot(mr, slot, candidate); },
                                {.tooltip = candidate});
                 }
@@ -874,6 +885,7 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
             Slate::MenuOptions options;
             options.searchable = true;
             options.searchHint = "Search materials";
+            options.iconSize = 32.0f;
             ui.OpenMenuBelow(pickId, pick, b.Build(), options);
         }
         ui.Tooltip(pickId ^ 0x7177ull, pick,
