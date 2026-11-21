@@ -84,6 +84,12 @@ target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 
+add_executable(LumaPreferencesTests Editor/PreferencesTests.cpp)
+target_compile_definitions(LumaPreferencesTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(LumaPreferencesTests PRIVATE Luma::PanelPreferences Catch2::Catch2WithMain)
+set_target_properties(LumaPreferencesTests PROPERTIES FOLDER "Tests")
+add_test(NAME LumaPreferencesTests COMMAND LumaPreferencesTests)
+
 # One ctest entry that runs the whole Catch2 binary (reports per-assertion on
 # failure). Fine-grained catch_discover_tests can be adopted later.
 add_test(NAME LumaTests COMMAND LumaTests)

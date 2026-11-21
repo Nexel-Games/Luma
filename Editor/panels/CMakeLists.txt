@@ -4,6 +4,7 @@
 
 add_subdirectory(WorldOutliner)
 add_subdirectory(Viewport)
+add_subdirectory(Preferences)
 add_subdirectory(Inspector)
 add_subdirectory(Console)
 add_subdirectory(ContentBrowser)

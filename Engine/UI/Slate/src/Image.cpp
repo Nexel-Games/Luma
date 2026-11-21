@@ -31,9 +31,10 @@ bool LoadImagePixels(const std::string& path, u32& outWidth, u32& outHeight,
     return true;
 }
 
-Image LoadImage(Renderer& renderer, const std::string& path) {
+Image LoadImage(Renderer& renderer, const std::string& path, std::vector<u8>* decodedPixels) {
     Image image;
-    std::vector<u8> pixels;
+    std::vector<u8> scratch;
+    auto& pixels = decodedPixels ? *decodedPixels : scratch;
     if (!LoadImagePixels(path, image.width, image.height, pixels)) {
         return image;
     }

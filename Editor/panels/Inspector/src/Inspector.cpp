@@ -702,6 +702,7 @@ void InspectorPanel::DrawStaticMeshRow(Slate::Context& ui, PanelContext& ctx,
         options.searchable = true;
         options.searchHint = "Search static meshes";
         options.iconSize = 32.0f;
+        options.maxHeight = ui.displayHeight() * 0.45f;
         ui.OpenMenuBelow(pickId, pick, b.Build(), options);
     }
     ui.Tooltip(pickId ^ 0x7177ull, pick, hasMesh ? mr.mesh + "\nStatic Mesh" : "None");
@@ -886,6 +887,7 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
             options.searchable = true;
             options.searchHint = "Search materials";
             options.iconSize = 32.0f;
+            options.maxHeight = ui.displayHeight() * 0.45f;
             ui.OpenMenuBelow(pickId, pick, b.Build(), options);
         }
         ui.Tooltip(pickId ^ 0x7177ull, pick,

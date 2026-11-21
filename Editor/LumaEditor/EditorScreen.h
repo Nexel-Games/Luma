@@ -20,6 +20,7 @@
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/MaterialEditor.h"
 #include "Luma/Editor/Panels/Viewport.h"
+#include "Luma/Editor/Panels/Preferences.h"
 #include "Luma/Editor/Panels/MeshPlacement.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "MaterialPreview.h"
@@ -67,7 +68,7 @@ public:
     void CaptureProjectPreview();
     void FinalizeProjectPreview();
 
-    Slate::Rect ViewportRect() const { return m_viewportPanel.Rect(); }
+    Slate::Rect ViewportRect() const { return m_preferencesOpen ? Slate::Rect{} : m_viewportPanel.Rect(); }
     void SetViewportTexture(TextureHandle texture) {
         m_viewportPanel.SetTexture(texture);
     }
@@ -77,7 +78,6 @@ public:
         m_iconPause = pause;
         m_iconStop = stop;
     }
-    void SetLogoIcon(TextureHandle logo) { m_iconLogo = logo; }
 
     // Unreal icon-pack textures (Content/Editor/Icons/ue) used by the panel
     // tabs, the main toolbar, the Output Log badges and the viewport toolbar.
@@ -330,12 +330,13 @@ private:
     TextureHandle m_iconPlay = 0;
     TextureHandle m_iconPause = 0;
     TextureHandle m_iconStop = 0;
-    TextureHandle m_iconLogo = 0;
     IconSet m_icons;
 
     // ---- Panels (one per docked pane) ---------------------------------------
     Editor::Panels::WorldOutlinerPanel m_outlinerPanel;
     Editor::Panels::ViewportPanel m_viewportPanel;
+    Editor::Panels::PreferencesPanel m_preferences;
+    bool m_preferencesOpen = false;
     Editor::Panels::InspectorPanel m_inspectorPanel;
     Editor::Panels::ConsolePanel m_consolePanel;
     Editor::Panels::ContentBrowserPanel m_contentBrowser;

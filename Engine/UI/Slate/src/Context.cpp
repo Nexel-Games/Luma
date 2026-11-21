@@ -475,21 +475,12 @@ void Context::Triangle(Vec2 a, Vec2 b, Vec2 c, Color color) {
 }
 
 void Context::LogoMark(Vec2 center, f32 radius) {
-    // A four-facet gem: top/right/bottom/left points around the center, with
-    // alternating accent shades to read as a lit prism.
-    f32 r = radius;
-    Vec2 top{center.x, center.y - r};
-    Vec2 right{center.x + r * 0.72f, center.y};
-    Vec2 bottom{center.x, center.y + r};
-    Vec2 left{center.x - r * 0.72f, center.y};
-    Color a = Color::RGB(64, 156, 240);
-    Color b = Color::RGB(42, 118, 200);
-    Color c = Color::RGB(90, 180, 255);
-    Color d = Color::RGB(30, 96, 170);
-    m_draw.AddTriangle(top, right, center, a);
-    m_draw.AddTriangle(right, bottom, center, b);
-    m_draw.AddTriangle(bottom, left, center, d);
-    m_draw.AddTriangle(left, top, center, c);
+    if (!m_brandIcon.Valid() || radius <= 0) return;
+    const f32 aspect = m_brandIcon.ContentAspect();
+    const f32 w = 2 * radius * std::min(aspect, 1.0f);
+    const f32 h = w / aspect;
+    ImageUV(m_brandIcon.texture, {center.x - w / 2, center.y - h / 2, w, h},
+            m_brandIcon.contentUV);
 }
 
 void Context::Image(TextureHandle texture, const Rect& rect, Color tint) {
