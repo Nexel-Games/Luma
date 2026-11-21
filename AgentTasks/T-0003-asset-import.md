@@ -390,14 +390,14 @@ stb: `stbi_load` (png/jpg/tga/bmp/psd composite), `stbi_loadf` (hdr). EXR: tinye
 `LoadEXR(&rgba, &w, &h, path, &err)` (frees with `free`). Texture node colour-space
 hint: `IsTextureSRGB()` from `TextureColorSpace.h` (HDR/EXR → linear).
 
-- [ ] **Step 1: Failing tests** (`[import][image]`): for each fixture image: size 32×16,
+- [x] **Step 1: Failing tests** (`[import][image]`): for each fixture image: size 32×16,
   pixel (3, 2) == (24, 32, 128) (JPEG within ±6 per channel), alpha (3,2) == 24 for
   `img_rgba.png`/`img.tga`, 255 for the others; `img.hdr`/`img.exr` 4×2 float pixel
   (0,0) == (2.0, 0.5, 0.25) ±1e-3 (HDR within ±2% — RGBE quantisation); translator
   gives one Texture node named after the file stem; corrupt file (write 10 random
   bytes to a temp `.png`) → `Translate` returns false with a message.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): image translator (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): image translator (T-0003)`.
 
 ## Task 6 — Audio module + audio translator (WAV, MP3)
 
@@ -793,5 +793,11 @@ colour space / HDR-EXR material textures (lead).
 Luma's `LookAt` / `Perspective` match the convention: a point at +Y projects above the screen centre (Vulkan NDC y < 0) and a camera on +Z sees +X on the right. `[import][model]` then failed to compile (`ModelTranslator.h` missing) and, after the translator landed, passed (142 assertions in 6 cases). Whole suite: `All tests passed (22941 assertions in 425 test cases)`.
 
 `SourceToLuma` does not apply the plan's extra minus on the front axis. `robot.fbx` already stores `FrontAxisSign = -1` for "into the screen", and that second minus mirrored Z against the glTF. Without it, default Y-up/metres is identity, source (0,0,1) on the Z-up axes maps to Luma (0,1,0), `unitScaleCm = 1` scales by 0.01, and Body's FBX bounds match the glTF within 1e-3. Assimp's own FBX root conversion is turned off (`AI_CONFIG_IMPORT_FBX_IGNORE_UP_DIRECTION`) so the unit/axis step is ours. UV of Body vertex 0 is (0, 1) for glTF, GLB, FBX, and OBJ after `aiProcess_FlipUVs`. Assimp adds an unreferenced default material; only materials a mesh uses are emitted.
+
+### Task 5
+
+`[import][image]` failed to compile (`ImageDecode.h` missing), then passed (127 assertions in 2 cases). Whole suite: `All tests passed (23068 assertions in 427 test cases)`. PNG, JPEG, TGA, BMP, and PSD match pixel (3, 2); JPEG is within ±6. HDR is within 2% and EXR within 1e-3 of (2, 0.5, 0.25). The translator adds one Texture node named from the file stem. HDR/EXR are linear; other names follow `IsTextureSRGB`. A 10-byte `.png` makes `Translate` return false.
+
+ffmpeg's `img.exr` omits `pixelAspectRatio` (OpenEXR default 1). tinyexr rejects that, so the decoder inserts the attribute and shifts the scanline offset table. `tinyexr_impl.cpp` no longer compiles `stb_image_write`; `stbi_zlib_compress` is the copy already linked from the renderer, which avoided a duplicate-symbol link of `LumaTests`.
 
 ## Review

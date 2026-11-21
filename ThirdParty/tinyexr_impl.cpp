@@ -7,11 +7,12 @@
 //
 // tinyexr declares stbi_zlib_* as extern "C", so the stb implementation is
 // included after tinyexr.h (STB_*_STATIC would contradict that linkage).
+// stb_image_write is intentionally not compiled here. TINYEXR_USE_STB_ZLIB
+// calls stbi_zlib_compress, and several targets (the Vulkan renderer, the
+// editor) already export that symbol. A second copy fails the link.
 #define TINYEXR_USE_MINIZ 0
 #define TINYEXR_USE_STB_ZLIB 1
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
