@@ -74,16 +74,21 @@ MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" cmd.exe /c "Scripts\\_env.bat cmake -
 
 ## 5. Task workflow
 
+**Every task is planned before you get it.** The lead and the user design each task
+together (intent, approaches, design, then a step-by-step implementation plan) and
+verify it, exactly like the engine's own feature plans in `docs/superpowers/`. The
+finished plan is written into the task file. **Your job is to carry out that plan
+exactly** — you do not redesign, re-scope or write your own plan.
+
 Every task is a file `T-XXXX-short-name.md` in this folder with a **Status** line.
 
 | Status | Meaning | Who sets it |
 |---|---|---|
+| `Draft` | Being planned by the lead and the user. **Don't start.** | lead |
 | `Proposed` | An idea an agent suggested. **Not approved — don't start.** | engine agent |
-| `Approved` | Ready to start. | lead |
-| `Plan Review` | You wrote your plan in the task file; waiting for the lead. | engine agent |
-| `Plan Approved` | Lead approved the plan; implement it. | lead |
+| `Approved` | Plan verified and final. Ready to build. | lead |
 | `In Progress` | You are implementing. | engine agent |
-| `Blocked` | You need an answer; the question is in the task's *Questions* section. | engine agent |
+| `Blocked` | The plan is wrong or unclear somewhere; your question is in *Questions*. | engine agent |
 | `Completed` | Done, tests green, pushed to `dev`; waiting for the lead to test. | engine agent |
 | `Changes Requested` | Lead tested and listed fixes in *Review*. Back to work. | lead |
 | `Accepted` | Lead tested and merged toward `main`. Finished. | lead |
@@ -92,24 +97,27 @@ Every task is a file `T-XXXX-short-name.md` in this folder with a **Status** lin
 `BOARD.md` and any task whose status changed) **before doing anything else.**
 
 Steps for a task:
-1. Pick the lowest-numbered task with status `Approved` (or `Plan Approved` /
-   `Changes Requested` assigned to you). Never start `Proposed` tasks.
-2. If the task says **Plan required: yes**: write your plan in its *Plan* section
-   (files, approach, tests), set `Plan Review`, commit and push to `dev`, then wait
-   for `Plan Approved`. You may start another approved task meanwhile.
-3. Set `In Progress` (commit + push so the lead sees it), create your branch.
-4. Implement test-first. Keep commits small with clear messages.
-5. Fill in the task's *Result* section: what changed, files, tests added, how to try it,
-   anything left open. Set `Completed`.
-6. Rebase on the latest `dev`, run the **whole** test suite, push: merge your branch
-   into `dev` and push `dev` (also push your `agent/...` branch).
-7. Wait for review. `Changes Requested` → fix, set `Completed` again, push.
+1. Pick the lowest-numbered task with status `Approved` (or `Changes Requested`).
+   Never start `Draft` or `Proposed` tasks.
+2. Read the whole task file, its *Plan*, and every document it references.
+3. Set `In Progress` (commit + push to `dev` so the lead sees it), create your branch
+   `agent/T-XXXX-short-name` from `dev`.
+4. Execute the plan **step by step, in order**. Each step that writes a test: run it
+   and watch it fail before implementing; each `Expected:` line: compare with the
+   real output. Commit as the plan says.
+5. If a step can't work as written, or contradicts the code you find: **stop**, write
+   the problem and your proposed fix in *Questions*, set `Blocked`, push, and wait.
+   Small mechanical adjustments (a renamed variable, an include) are fine — list every
+   one under *Deviations* in *Result*.
+6. Fill in *Result*: what changed, files, tests added, test summary line, how to try
+   it, deviations, anything left open. Set `Completed`.
+7. Rebase on the latest `dev`, run the **whole** test suite, merge your branch into
+   `dev`, push `dev` (and your `agent/...` branch).
+8. Wait for review. `Changes Requested` → fix exactly what *Review* lists, set
+   `Completed` again, push.
 
-Questions: write them in the task's *Questions* section, set `Blocked`, push. Don't
-guess on anything that changes what gets built.
-
-New ideas: add a task file with status `Proposed` and a row on the board — the lead
-decides.
+New ideas: add a task file with status `Proposed` and a row on the board. The lead
+and the user decide whether it gets planned.
 
 Commit messages: conventional style (`feat(slate): …`, `fix(editor): …`,
 `docs: …`), and mention the task id, e.g. `feat(editor): undo transactions (T-0002)`.

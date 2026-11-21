@@ -1,7 +1,8 @@
 # Task Board
 
-Check this board every time you pull `dev`. Work only on `Approved`,
-`Plan Approved` or `Changes Requested` tasks. Rules: [README.md](README.md).
+Check this board every time you pull `dev`. Work only on `Approved` or
+`Changes Requested` tasks; `Draft` tasks are still being planned by the lead and the
+user. Rules: [README.md](README.md).
 
 ## Lead is working on (don't touch these areas)
 
@@ -13,11 +14,10 @@ Material graph & compiler (Material Editor project 1 —
 
 ## Tasks
 
-| Id | Title | Status | Plan required | Area |
-|---|---|---|---|---|
-| [T-0000](T-0000-onboarding.md) | Onboarding: learn the project, prove your setup | Approved | no | report only |
-| [T-0001](T-0001-slate-input-followups.md) | Slate input widgets: review follow-ups | Approved | no | `Engine/UI/Slate` |
-| [T-0002](T-0002-editor-undo-redo.md) | Editor-wide Undo / Redo (transactions) | Approved | **yes** | Editor, Scene |
+| Id | Title | Status | Area |
+|---|---|---|---|
+| [T-0000](T-0000-onboarding.md) | Onboarding: learn the project, prove your setup | Approved | report only |
+| [T-0001](T-0001-slate-input-followups.md) | Slate input widgets: review follow-ups | Draft (being planned) | `Engine/UI/Slate` |
+| [T-0002](T-0002-editor-undo-redo.md) | Editor-wide Undo / Redo (transactions) | Draft (being planned) | Editor, Scene |
 
-Order: T-0000 first (gate). Then T-0001; write the T-0002 plan while T-0001 is in
-review.
+Start with T-0000. T-0001 and T-0002 become `Approved` when their plans are final.

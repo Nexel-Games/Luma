@@ -1,8 +1,7 @@
 # T-0002 — Editor-wide Undo / Redo (transaction system)
 
-**Status:** Approved
+**Status:** Draft
 **Assigned to:** engine agent
-**Plan required:** **yes** — write the *Plan* section and set `Plan Review` before coding
 **Created:** 2026-11-20 by lead
 **Area / files:** new module `Editor/Transactions/` (or `Engine/...` if you argue it
 belongs there), `Editor/LumaEditor/EditorScreen.*`, `Editor/panels/Inspector/**`,
@@ -83,6 +82,8 @@ so it must be a reusable, documented module, not Inspector-specific code.
   menu ~line 1560, `DuplicateEntity` / `DeleteEntity`), `Editor/panels/PanelContext.h`.
 
 ## Plan
+
+_(lead + user: being planned — do not start)_
 
 _(engine agent: files/modules, API, snapshot strategy, entity-id strategy, how each
 edit path is hooked, how the Material Editor will reuse it, test list)_

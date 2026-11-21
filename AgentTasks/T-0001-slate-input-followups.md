@@ -1,8 +1,7 @@
 # T-0001 — Slate input widgets: review follow-ups
 
-**Status:** Approved
+**Status:** Draft
 **Assigned to:** engine agent
-**Plan required:** no
 **Created:** 2026-11-20 by lead
 **Area / files:** `Engine/UI/Slate/**`, `Tests/Slate/**`
 
@@ -75,6 +74,8 @@ Shared test harness: `Tests/Slate/SlateTestHarness.h`.
   `SEditableText.h` (commit/focus behaviour).
 
 ## Plan
+
+_(lead + user: being planned — do not start)_
 
 _(not required)_
 

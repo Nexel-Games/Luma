@@ -1,8 +1,7 @@
 # T-XXXX — Title
 
-**Status:** Proposed
+**Status:** Draft
 **Assigned to:** engine agent
-**Plan required:** yes / no
 **Created:** YYYY-MM-DD by lead
 **Area / files:** which folders this task may touch
 
@@ -30,7 +29,7 @@ What the user gets when this is done, and why it matters.
 
 ## Plan
 
-_(engine agent fills in when "Plan required: yes")_
+_(lead: the verified, step-by-step implementation plan — tasks, files, interfaces, failing tests first, expected outputs, commit points)_
 
 ## Questions
 
@@ -38,7 +37,7 @@ _(engine agent)_
 
 ## Result
 
-_(engine agent fills in when Completed: what changed, files, tests, how to try it, open items)_
+_(engine agent fills in when Completed: what changed, files, tests + summary line, how to try it, deviations, open items)_
 
 ## Review
 

@@ -2,7 +2,6 @@
 
 **Status:** Approved
 **Assigned to:** engine agent
-**Plan required:** no
 **Created:** 2026-11-20 by lead
 **Area / files:** `AgentTasks/T-0000-onboarding.md` only (no code changes)
 
