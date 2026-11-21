@@ -14,6 +14,6 @@ target_include_directories(LumaPanelContentBrowserForTest
 target_link_libraries(LumaPanelContentBrowserForTest
     PUBLIC Luma::Core Luma::Asset Luma::Scene Luma::Slate
            Luma::PanelFileSystemTree
-    PRIVATE Luma::Audio)
+    PRIVATE Luma::Audio Luma::AssetImport)
 
 set_target_properties(LumaPanelContentBrowserForTest PROPERTIES FOLDER "Tests/Editor")

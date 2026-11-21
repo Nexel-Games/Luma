@@ -6,7 +6,7 @@
 #include <sstream>
 #include <string>
 
-#include "Luma/Asset/Import/ImportSession.h"
+#include "Luma/AssetImport/ImportSession.h"
 #include "Luma/Editor/Panels/ImportDialog.h"
 #include "Luma/Slate/Types.h"
 #include "../Slate/SlateTestHarness.h"

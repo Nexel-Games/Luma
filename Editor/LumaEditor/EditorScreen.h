@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -35,6 +36,7 @@
 
 namespace Luma::Import {
 class ImportSession;
+class SourceWatch;
 }
 namespace Luma::Audio {
 class AudioPreview;
@@ -117,6 +119,13 @@ public:
     void OpenImport(const std::vector<std::filesystem::path>& files, const std::filesystem::path& folder,
                     bool reimport);
     void ReimportAsset(const std::filesystem::path& asset);
+    // Reading a source file (Assimp, image/audio decode) can take seconds, so
+    // it runs on the Job System; the Import window opens when it finishes.
+    void BeginTranslate(std::string title, std::filesystem::path folder, bool reimport,
+                        std::function<std::unique_ptr<Import::ImportSession>(std::string* err)> work);
+    void PollTranslate();
+    void FinishOpenImport(std::unique_ptr<Import::ImportSession> session, const std::filesystem::path& folder,
+                          bool reimport);
     void PollImport();
     void OnImportDialog(Editor::Panels::ImportDialog::Action action);
 
@@ -124,10 +133,7 @@ public:
     // backend's secondary deferred renderer (GPU material/mesh thumbnails).
     void SetRenderer(Luma::Renderer* renderer);
     // Engine services owned by the app (must outlive the editor).
-    void SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManager* tasks) {
-        m_jobs = jobs;
-        m_tasks = tasks;
-    }
+    void SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManager* tasks);
     Luma::Renderer* Renderer() const noexcept { return m_renderer; }
     
     // Build scene view for deferred renderer. `width`/`height` are the
@@ -286,6 +292,10 @@ private:
     AssetPathResolver m_assetPaths;
     std::unique_ptr<Material::MaterialLibrary> m_materials;
     std::unique_ptr<Import::ImportSession> m_importSession;
+    struct PendingTranslate;
+    std::shared_ptr<PendingTranslate> m_translate;  // source being read for the Import window
+    // Cached "source changed?" per imported asset; checked on the Job System.
+    std::unique_ptr<Import::SourceWatch> m_sourceWatch;
     Editor::Panels::ImportDialog m_importDialog;
     std::filesystem::path m_importDest;
     std::string m_importVirtual;

@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "Luma/Asset/Import/ImportSession.h"
+#include "Luma/AssetImport/ImportSession.h"
 #include "Luma/Core/Types.h"
 #include "Luma/Slate/Context.h"
 

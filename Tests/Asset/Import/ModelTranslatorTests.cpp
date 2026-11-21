@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <fstream>
 
-#include "Luma/Asset/Import/Translators/AxisConversion.h"
-#include "Luma/Asset/Import/Translators/ModelTranslator.h"
+#include "Luma/AssetImport/Translators/AxisConversion.h"
+#include "Luma/AssetImport/Translators/ModelTranslator.h"
 #include "Luma/Asset/LumaMesh.h"
 #include "Luma/Math/Math.h"
 

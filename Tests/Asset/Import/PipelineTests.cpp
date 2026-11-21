@@ -4,9 +4,9 @@
 #include <filesystem>
 #include <fstream>
 
-#include "Luma/Asset/Import/Pipelines/ImportPlan.h"
-#include "Luma/Asset/Import/Translators/ImageTranslator.h"
-#include "Luma/Asset/Import/Translators/ModelTranslator.h"
+#include "Luma/AssetImport/Pipelines/ImportPlan.h"
+#include "Luma/AssetImport/Translators/ImageTranslator.h"
+#include "Luma/AssetImport/Translators/ModelTranslator.h"
 
 using Catch::Approx;
 using namespace Luma;

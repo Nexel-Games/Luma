@@ -3,7 +3,7 @@
 
 #include <filesystem>
 
-#include "Luma/Asset/Import/Translators/AudioTranslator.h"
+#include "Luma/AssetImport/Translators/AudioTranslator.h"
 
 using Catch::Approx;
 using namespace Luma::Import;

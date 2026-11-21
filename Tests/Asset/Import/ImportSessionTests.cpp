@@ -10,8 +10,8 @@
 #include <thread>
 
 #include "Luma/Asset/AssetPath.h"
-#include "Luma/Asset/Import/ImportSession.h"
-#include "Luma/Asset/Import/TranslatorRegistry.h"
+#include "Luma/AssetImport/ImportSession.h"
+#include "Luma/AssetImport/TranslatorRegistry.h"
 #include "Luma/Material/MaterialLibrary.h"
 
 using Catch::Approx;
@@ -165,4 +165,34 @@ TEST_CASE("Cancelling a multi-file import stops early", "[import][session]") {
     }
     REQUIRE(reported);
     REQUIRE_FALSE(HasTempFile(project.assets));
+}
+
+TEST_CASE("A missing texture is a warning, not a failed import", "[import][session]") {
+    Project project("luma-session-missing-tex");
+    const std::filesystem::path source = project.root / "Source";
+    std::filesystem::create_directories(source);
+    // The glTF and its buffer, but not the two PNGs it references.
+    std::filesystem::copy_file(Fixture("robot.gltf"), source / "robot.gltf");
+    std::filesystem::copy_file(Fixture("robot.bin"), source / "robot.bin");
+
+    ImportSession session;
+    std::string error;
+    REQUIRE(session.Translate({source / "robot.gltf"}, &error));
+    const ImportPlan plan = session.Plan(project.assets);
+    REQUIRE(plan.warnings.size() == 2);
+    for (const AssetRequest& request : plan.requests) REQUIRE(request.type != AssetType::Texture);
+
+    FactoryContext context{session.Scene(), session.Settings(), &project.materials, project.paths,
+                           [] { return false; }};
+    session.Start(plan, context);
+    REQUIRE(WaitUntilStopped(session));
+    const std::optional<ImportSummary> summary = session.TakeResult();
+    REQUIRE(summary);
+    REQUIRE(summary->failed == 0);
+    REQUIRE(summary->warnings.size() == 2);
+    REQUIRE(std::filesystem::exists(project.assets / "M_Paint.lmat"));
+    const Material::Material* paint = project.materials.GetMaterial("/Game/M_Paint");
+    REQUIRE(paint);
+    REQUIRE(paint->Input(Material::MaterialParameter::BaseColor).texture.empty());
+    REQUIRE(paint->Input(Material::MaterialParameter::Normal).texture.empty());
 }

@@ -3,9 +3,9 @@
 #include <filesystem>
 #include <fstream>
 
-#include "Luma/Asset/Import/ImportMetadata.h"
-#include "Luma/Asset/Import/ImportScene.h"
-#include "Luma/Asset/Import/ImportSettings.h"
+#include "Luma/AssetImport/ImportMetadata.h"
+#include "Luma/AssetImport/ImportScene.h"
+#include "Luma/AssetImport/ImportSettings.h"
 
 using namespace Luma;
 using namespace Luma::Import;

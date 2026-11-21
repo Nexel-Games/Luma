@@ -1,4 +1,5 @@
 #include "Luma/Asset/AssetRegistry.h"
+#include "Luma/Asset/AssetScanner.h"
 
 #include <algorithm>
 #include <cctype>
@@ -92,6 +93,12 @@ void AssetRegistry::Scan() {
             auto status = entry.symlink_status(ec2);
             (void)ec2;
             bool isDir = std::filesystem::is_directory(status);
+            // Same rules as AssetScanner: .meta/.tmp sidecars, editor temp
+            // files and dot folders (skipped with everything under them).
+            if (AssetScanner::ShouldIgnore(abs.lexically_relative(Normalize(root)))) {
+                if (isDir) it.disable_recursion_pending();
+                continue;
+            }
             std::string ext = LowercaseExtension(abs);
 
             AssetData data;
@@ -249,6 +256,10 @@ void AssetRegistry::RefreshPath(const std::filesystem::path& path) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!IsUnderAnyRoot(path)) return;
     auto abs = Normalize(path);
+    for (const auto& root : m_roots) {
+        auto rel = abs.lexically_relative(Normalize(root));
+        if (!rel.empty() && *rel.begin() != ".." && AssetScanner::ShouldIgnore(rel)) return;
+    }
     std::error_code ec;
     if (!std::filesystem::exists(abs, ec)) {
         // Path went away — drop any entry under it.

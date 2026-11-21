@@ -1,5 +1,6 @@
 #include "EditorScreen.h"
 
+#include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -12,8 +13,11 @@
 #include <shellapi.h>
 #endif
 
-#include "Luma/Asset/Import/ImportSession.h"
-#include "Luma/Asset/Import/TranslatorRegistry.h"
+#include "Luma/AssetImport/ImportSession.h"
+#include "Luma/AssetImport/TranslatorRegistry.h"
+#include "Luma/AssetImport/SourceWatch.h"
+#include "Luma/Jobs/JobSystem.h"
+#include "Luma/Tasks/TaskManager.h"
 #include "Luma/Asset/LumaMeshFormat.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
@@ -744,7 +748,9 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
         ImportAssetsInto(folder);
     };
     ctx.onReimport = [this](const std::filesystem::path& asset) { ReimportAsset(asset); };
-    ctx.sourceChanged = [](const std::filesystem::path& asset) { return Import::SourceChanged(asset); };
+    ctx.sourceChanged = [this](const std::filesystem::path& asset) {
+        return m_sourceWatch != nullptr && m_sourceWatch->IsChanged(asset);
+    };
     ctx.importProgress = m_importActive ? &m_importProgress : nullptr;
     ctx.onCancelImport = [this] {
         if (m_importSession) m_importSession->Cancel();
@@ -1195,45 +1201,111 @@ void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
     OpenImport(supported, target, false);
 }
 
-void EditorScreen::OpenImport(const std::vector<std::filesystem::path>& files,
-                              const std::filesystem::path& folder, bool reimport) {
-    if (!m_project || files.empty()) return;
+struct EditorScreen::PendingTranslate {
+    std::unique_ptr<Import::ImportSession> session;
+    std::string error;
+    std::filesystem::path folder;
+    bool reimport = false;
+    std::atomic<bool> done{false};
+    Tasks::TaskToken token;
+};
+
+void EditorScreen::SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManager* tasks) {
+    m_jobs = jobs;
+    m_tasks = tasks;
+    m_sourceWatch = std::make_unique<Import::SourceWatch>(jobs, tasks);
+}
+
+void EditorScreen::BeginTranslate(std::string title, std::filesystem::path folder, bool reimport,
+                                  std::function<std::unique_ptr<Import::ImportSession>(std::string*)> work) {
+    if (m_translate) {
+        LUMA_USER_WARN("Import", "Still reading the previous files; try again when it finishes");
+        return;
+    }
     if (m_importSession && m_importSession->Running()) {
         LUMA_USER_WARN("Import", "An import is already running");
         return;
     }
-    auto session = std::make_unique<Import::ImportSession>();
-    std::string error;
-    if (!session->Translate(files, &error)) {
-        LUMA_USER_ERROR("Import", "{}", error.empty() ? "Could not read the selected files" : error);
+    auto pending = std::make_shared<PendingTranslate>();
+    pending->folder = std::move(folder);
+    pending->reimport = reimport;
+    if (m_jobs == nullptr) {
+        pending->session = work(&pending->error);
+        pending->done = true;
+        m_translate = std::move(pending);
+        PollTranslate();
         return;
     }
+    if (m_tasks != nullptr) {
+        Tasks::TaskDesc desc;
+        desc.title = std::move(title);
+        desc.category = "Import";
+        pending->token = m_tasks->Begin(std::move(desc));
+    }
+    Jobs::JobDesc desc;
+    desc.name = "Import: read source";
+    desc.priority = Jobs::Priority::High;
+    m_jobs->Schedule(std::move(desc), [pending, work = std::move(work)] {
+        try {
+            pending->session = work(&pending->error);
+        } catch (const std::exception& e) {
+            pending->session.reset();
+            pending->error = e.what();
+        }
+        pending->done = true;
+    });
+    m_translate = std::move(pending);
+}
+
+void EditorScreen::PollTranslate() {
+    if (!m_translate || !m_translate->done) return;
+    std::shared_ptr<PendingTranslate> pending = std::move(m_translate);
+    if (!pending->session) {
+        const std::string message = pending->error.empty() ? "Could not read the selected files" : pending->error;
+        if (pending->token.IsValid()) pending->token.Fail(message);
+        LUMA_USER_ERROR("Import", "{}", message);
+        return;
+    }
+    if (pending->token.IsValid()) pending->token.Complete();
+    if (!m_project) return;  // project closed while reading
+    FinishOpenImport(std::move(pending->session), pending->folder, pending->reimport);
+}
+
+void EditorScreen::OpenImport(const std::vector<std::filesystem::path>& files,
+                              const std::filesystem::path& folder, bool reimport) {
+    if (!m_project || files.empty()) return;
+    std::string title = files.size() == 1 ? "Reading " + files.front().filename().string()
+                                          : "Reading " + std::to_string(files.size()) + " files";
+    BeginTranslate(std::move(title), folder, reimport, [files](std::string* err) {
+        auto session = std::make_unique<Import::ImportSession>();
+        if (!session->Translate(files, err)) return std::unique_ptr<Import::ImportSession>{};
+        return session;
+    });
+}
+
+void EditorScreen::FinishOpenImport(std::unique_ptr<Import::ImportSession> session,
+                                    const std::filesystem::path& folder, bool reimport) {
     m_importDest = folder.empty() ? m_project->AssetsDir() : folder;
     std::error_code io;
     std::filesystem::create_directories(m_importDest, io);
     if (auto virtualPath = m_assetPaths.ToVirtual(m_importDest)) m_importVirtual = *virtualPath;
     else m_importVirtual = "/Game";
+    // A reimport keeps the settings recorded in the .meta (presets would
+    // overwrite them) and replaces the existing assets.
+    const SerialValue restored = reimport ? session->Settings().ToJson() : SerialValue{};
     m_importSession = std::move(session);
     m_importDialog.Open(m_importSession.get(), m_importDest, m_importVirtual, reimport);
     m_importDialog.LoadPresets(m_project->ConfigDir());
+    if (reimport) {
+        m_importSession->Settings().FromJson(restored);
+        m_importSession->Settings().Common().Set("conflict", std::string("Overwrite"));
+    }
 }
 
 void EditorScreen::ReimportAsset(const std::filesystem::path& asset) {
-    std::string error;
-    auto session = Import::ImportSession::ForReimport(asset, &error);
-    if (!session) {
-        LUMA_USER_ERROR("Import", "{}", error.empty() ? "Could not reimport that asset" : error);
-        return;
-    }
-    const SerialValue restored = session->Settings().ToJson();
-    m_importDest = asset.parent_path();
-    if (auto virtualPath = m_assetPaths.ToVirtual(m_importDest)) m_importVirtual = *virtualPath;
-    else m_importVirtual = "/Game";
-    m_importSession = std::move(session);
-    m_importDialog.Open(m_importSession.get(), m_importDest, m_importVirtual, true);
-    if (m_project) m_importDialog.LoadPresets(m_project->ConfigDir());
-    m_importSession->Settings().FromJson(restored);
-    m_importSession->Settings().Common().Set("conflict", std::string("Overwrite"));
+    if (!m_project) return;
+    BeginTranslate("Reading source of " + asset.filename().string(), asset.parent_path(), true,
+                   [asset](std::string* err) { return Import::ImportSession::ForReimport(asset, err); });
 }
 
 void EditorScreen::OnImportDialog(Editor::Panels::ImportDialog::Action action) {
@@ -1265,6 +1337,7 @@ void EditorScreen::PollImport() {
         return;
     }
     m_assetRegistry.Scan();
+    if (m_sourceWatch) m_sourceWatch->InvalidateAll();
     for (const std::filesystem::path& file : result->files) {
         const AssetData* data = m_assetRegistry.LookupByPath(file);
         const AssetId id = data != nullptr ? data->id : MakeAssetIdFromKey(file.string());
@@ -1272,14 +1345,17 @@ void EditorScreen::PollImport() {
         m_contentBrowser.InvalidateThumbnail(id);
     }
     const u32 imported = result->created + result->overwritten;
-    LUMA_USER_INFO("Import", "Imported {} assets into {} ({} skipped, {} failed)", imported, m_importVirtual,
-                   result->skipped, result->failed);
+    LUMA_USER_INFO("Import", "Imported {} assets into {} ({} skipped, {} failed, {} warnings)", imported,
+                   m_importVirtual, result->skipped, result->failed, result->warnings.size());
+    for (const std::string& message : result->warnings) LUMA_USER_WARN("Import", "{}", message);
     for (const std::string& message : result->messages) LUMA_USER_ERROR("Import", "{}", message);
     m_importSession.reset();
 }
 
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
+    PollTranslate();
     PollImport();
+    if (m_sourceWatch) m_sourceWatch->Update();
     Slate::Theme& t = ui.theme();
     if (!m_dockBuilt) BuildDock();
     ui.Panel({0, 0, width, height}, t.windowBg);

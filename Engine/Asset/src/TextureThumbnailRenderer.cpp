@@ -1,6 +1,6 @@
 #include "Luma/Asset/TextureThumbnailRenderer.h"
 
-#include "Luma/Asset/Import/ImageDecode.h"
+#include "Luma/Asset/ImageDecode.h"
 #include "Luma/Core/Log.h"
 
 #include <algorithm>

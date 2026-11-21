@@ -6,8 +6,8 @@
 #include <fstream>
 #include <vector>
 
-#include "Luma/Asset/Import/ImageDecode.h"
-#include "Luma/Asset/Import/Translators/ImageTranslator.h"
+#include "Luma/Asset/ImageDecode.h"
+#include "Luma/AssetImport/Translators/ImageTranslator.h"
 
 using Catch::Approx;
 using namespace Luma;

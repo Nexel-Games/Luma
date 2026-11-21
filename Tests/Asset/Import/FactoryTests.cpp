@@ -7,11 +7,11 @@
 #include <vector>
 
 #include "Luma/Asset/AssetPath.h"
-#include "Luma/Asset/Import/Factories/FactoryCommon.h"
-#include "Luma/Asset/Import/ImageDecode.h"
-#include "Luma/Asset/Import/ImportMetadata.h"
-#include "Luma/Asset/Import/Translators/ImageTranslator.h"
-#include "Luma/Asset/Import/Translators/ModelTranslator.h"
+#include "Luma/AssetImport/Factories/FactoryCommon.h"
+#include "Luma/Asset/ImageDecode.h"
+#include "Luma/AssetImport/ImportMetadata.h"
+#include "Luma/AssetImport/Translators/ImageTranslator.h"
+#include "Luma/AssetImport/Translators/ModelTranslator.h"
 #include "Luma/Asset/LumaMesh.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Material/MaterialTypes.h"

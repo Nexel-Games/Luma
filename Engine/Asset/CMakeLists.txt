@@ -2,7 +2,6 @@
 # Used by the Content Browser panel and any other system that needs to
 # enumerate / filter / look up content files.
 
-luma_require_assimp()
 luma_require_tinyexr()
 
 # Add stb_image for texture loading
@@ -32,20 +31,7 @@ add_library(LumaAsset STATIC
     src/SoundThumbnailRenderer.cpp
     src/MeshThumbnailRenderer.cpp
     src/MaterialThumbnailRenderer.cpp
-    src/Import/ImportScene.cpp
-    src/Import/ImportSettings.cpp
-    src/Import/ImportMetadata.cpp
-    src/Import/ImageDecode.cpp
-    src/Import/Translators/AxisConversion.cpp
-    src/Import/Translators/ModelTranslator.cpp
-    src/Import/Translators/ImageTranslator.cpp
-    src/Import/Translators/AudioTranslator.cpp
-    src/Import/Pipelines/ImportPlan.cpp
-    src/Import/Pipelines/CommonPipeline.cpp
-    src/Import/Pipelines/MeshPipeline.cpp
-    src/Import/Pipelines/MaterialPipeline.cpp
-    src/Import/Pipelines/TexturePipeline.cpp
-    src/Import/Pipelines/AudioPipeline.cpp
+    src/ImageDecode.cpp
 )
 
 target_compile_options(LumaAsset PRIVATE /wd4100 /wd4189)
@@ -57,7 +43,7 @@ target_include_directories(LumaAsset
 
 target_link_libraries(LumaAsset
     PUBLIC Luma::Core Luma::Math Luma::Serialization
-    PRIVATE assimp luma_tinyexr Luma::Audio)
+    PRIVATE luma_tinyexr Luma::Audio)
 
 # stb_image is header-only, just include the path
 target_include_directories(LumaAsset

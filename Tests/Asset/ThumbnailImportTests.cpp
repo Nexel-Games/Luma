@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <vector>
 
-#include "Luma/Asset/Import/ImageDecode.h"
+#include "Luma/Asset/ImageDecode.h"
 #include "Luma/Asset/SoundThumbnailRenderer.h"
 #include "Luma/Asset/TextureThumbnailRenderer.h"
 

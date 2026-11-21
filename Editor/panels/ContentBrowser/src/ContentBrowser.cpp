@@ -9,7 +9,7 @@
 #include <optional>
 #include <sstream>
 
-#include "Luma/Asset/Import/ImportMetadata.h"
+#include "Luma/AssetImport/ImportMetadata.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
@@ -643,9 +643,8 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             }
         }
 
-        if (!isFolder && ctx.sourceChanged &&
-            std::filesystem::exists(Import::MetadataPathFor(a->packagePath)) &&
-            ctx.sourceChanged(a->packagePath)) {
+        // sourceChanged is a cached lookup (no disk access in the draw path).
+        if (!isFolder && ctx.sourceChanged && ctx.sourceChanged(a->packagePath)) {
             ui.drawList().AddCircleFilled({thumb.Right() - 6.0f, thumb.y + 6.0f}, 4.0f, t.warning);
         }
 
