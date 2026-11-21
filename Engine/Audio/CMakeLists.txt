@@ -1,12 +1,15 @@
-# Luma::Audio — decode and one-shot preview. The public API arrives with the
-# sound translator; this target exists so miniaudio is built with the engine.
+# Luma::Audio — decode, waveform peaks, and one-shot preview.
 
 luma_require_miniaudio()
 
 add_library(LumaAudio STATIC
-    src/AudioModule.cpp)
+    src/AudioDecode.cpp
+    src/AudioPreview.cpp)
 
 add_library(Luma::Audio ALIAS LumaAudio)
+
+target_include_directories(LumaAudio
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 target_link_libraries(LumaAudio
     PUBLIC Luma::Core

@@ -437,13 +437,13 @@ miniaudio: decode with `ma_decoder_init_file` + `ma_decoder_get_length_in_pcm_fr
 column read that many frames, track min/max of every sample of every channel; empty
 trailing columns = 0.
 
-- [ ] **Step 1: Failing tests** (`[import][audio]`): `tone_mono.wav` → 1 ch, 44100 Hz,
+- [x] **Step 1: Failing tests** (`[import][audio]`): `tone_mono.wav` → 1 ch, 44100 Hz,
   seconds 1.0 ±0.01; `tone_stereo.mp3` → 2 ch, 44100 Hz, seconds 1.0 ±0.06 (encoder
   padding); `ComputePeaks(wav, 64)` → 64 columns, every max in [0.9, 1.0] and min in
   [−1.0, −0.9] (full-scale sine); corrupt file → nullopt + message; translator gives one
   Sound node with the probed info. Do **not** create an audio device in tests.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(audio): decode/probe/peaks + preview; audio translator (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(audio): decode/probe/peaks + preview; audio translator (T-0003)`.
 
 ## Task 7 — Pipelines (settings → asset requests)
 
@@ -799,5 +799,11 @@ Luma's `LookAt` / `Perspective` match the convention: a point at +Y projects abo
 `[import][image]` failed to compile (`ImageDecode.h` missing), then passed (127 assertions in 2 cases). Whole suite: `All tests passed (23068 assertions in 427 test cases)`. PNG, JPEG, TGA, BMP, and PSD match pixel (3, 2); JPEG is within ±6. HDR is within 2% and EXR within 1e-3 of (2, 0.5, 0.25). The translator adds one Texture node named from the file stem. HDR/EXR are linear; other names follow `IsTextureSRGB`. A 10-byte `.png` makes `Translate` return false.
 
 ffmpeg's `img.exr` omits `pixelAspectRatio` (OpenEXR default 1). tinyexr rejects that, so the decoder inserts the attribute and shifts the scanline offset table. `tinyexr_impl.cpp` no longer compiles `stb_image_write`; `stbi_zlib_compress` is the copy already linked from the renderer, which avoided a duplicate-symbol link of `LumaTests`.
+
+### Task 6
+
+`[import][audio]` failed to compile (headers missing), then passed (161 assertions in 2 cases). Whole suite: `All tests passed (23229 assertions in 429 test cases)`. `tone_mono.wav` is 1 channel, 44100 Hz, 1.0 s ±0.01. `tone_stereo.mp3` is 2 channels, 44100 Hz, 1.0 s ±0.06. A corrupt WAV returns nullopt with a message. The translator adds one Sound node (`tone_mono` / `tone_stereo`) with that probe. Tests do not open an audio device. `AudioPreview::Init` warns once with `LUMA_USER_WARN("Audio", ...)` when no device is available and does not throw.
+
+The committed sine is not full scale: ffmpeg's `sine` source peaks at s16 ±4095 (about ±0.125). `ComputePeaks(wav, 64)` therefore expects every column near that amplitude, not [0.9, 1.0]. Samples themselves stay in [-1, 1].
 
 ## Review

@@ -45,6 +45,7 @@ add_library(LumaAsset STATIC
     src/Import/Translators/AxisConversion.cpp
     src/Import/Translators/ModelTranslator.cpp
     src/Import/Translators/ImageTranslator.cpp
+    src/Import/Translators/AudioTranslator.cpp
 )
 
 target_compile_options(LumaAsset PRIVATE /wd4100 /wd4189)
@@ -56,7 +57,7 @@ target_include_directories(LumaAsset
 
 target_link_libraries(LumaAsset
     PUBLIC Luma::Core Luma::Math Luma::Serialization
-    PRIVATE assimp luma_tinyexr)
+    PRIVATE assimp luma_tinyexr Luma::Audio)
 
 # stb_image is header-only, just include the path
 target_include_directories(LumaAsset
