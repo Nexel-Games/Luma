@@ -37,6 +37,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 option(LUMA_BUILD_TESTS "Build Luma automated tests" ON)
+option(LUMA_BUILD_TOOLS "Build Luma command-line tools" ON)
 
 include(LumaCompilerFlags)
 include(LumaDependencies)
@@ -133,6 +134,10 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Editor/panels/CMakeLists.txt)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Editor/LumaEditor/CMakeLists.txt)
     add_subdirectory(Editor/LumaEditor)
+endif()
+
+if(LUMA_BUILD_TOOLS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Tools/ImportFixtureGen/CMakeLists.txt)
+    add_subdirectory(Tools/ImportFixtureGen)
 endif()
 
 if(LUMA_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CMakeLists.txt)

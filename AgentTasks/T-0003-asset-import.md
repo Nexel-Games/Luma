@@ -138,19 +138,19 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
 root `CMakeLists.txt` (add `Tools/ImportFixtureGen` behind option
 `LUMA_BUILD_TOOLS`, default ON), `Tests/Fixtures/Import/robot.fbx`.
 
-- [ ] **Step 1:** Write the tool: load `robot.gltf` with `Assimp::Importer`, then before export
+- [x] **Step 1:** Write the tool: load `robot.gltf` with `Assimp::Importer`, then before export
   set FBX unit metadata so the file is **centimetres, Z-up**:
   scale every root node by 100 and rotate +90° about X (Y-up → Z-up), and set
   `scene->mMetaData` keys `UnitScaleFactor` = 1.0 (cm), `UpAxis` = 2,
   `UpAxisSign` = 1, `FrontAxis` = 1, `FrontAxisSign` = -1, `CoordAxis` = 0,
   `CoordAxisSign` = 1. Export with `Assimp::Exporter::Export(scene, "fbx", out)`.
   Usage: `ImportFixtureGen <in.gltf> <out.fbx>`.
-- [ ] **Step 2:** Build, run it to produce `Tests/Fixtures/Import/robot.fbx`, then verify by
+- [x] **Step 2:** Build, run it to produce `Tests/Fixtures/Import/robot.fbx`, then verify by
   loading it back with Assimp and printing node names, mesh count (2), material
   names (Paint, Metal) and the metadata keys. If the exporter does not write the
   metadata, record that in *Result* — Task 4's unit/axis tests are designed to work
   from metadata passed to a pure function, so they still cover the conversion.
-- [ ] **Step 3:** Commit the tool and `robot.fbx`: `test: FBX import fixture (T-0003)`.
+- [x] **Step 3:** Commit the tool and `robot.fbx`: `test: FBX import fixture (T-0003)`.
 
 ## Task 3 — Import scene, settings schema, metadata
 
@@ -779,5 +779,9 @@ colour space / HDR-EXR material textures (lead).
 - Root `project()` also enables C. Assimp and miniaudio are C, and Ninja never received `CMAKE_C_COMPILE_OBJECT` when C was enabled only from a helper function.
 - `ThirdParty/miniz.h` includes `miniz_common.h`, `miniz_tdef.h`, `miniz_tinfl.h`, and `miniz_zip.h`, none of which are in the tree, and there is no `miniz.c` (no new downloads). `tinyexr_impl.cpp` sets `TINYEXR_USE_MINIZ` to 0 and uses stb zlib (`TINYEXR_USE_STB_ZLIB`) from `ThirdParty/stb`. stb is included after `tinyexr.h` so `stbi_zlib_compress` stays `extern "C"`.
 - `[asset]` after the Assimp 6 switch: `All tests passed (134 assertions in 37 test cases)`. No existing test needed a code change.
+
+### Task 2
+
+`ImportFixtureGen` loaded `robot.gltf` and wrote `Tests/Fixtures/Import/robot.fbx`. Reloading that FBX with Assimp reported meshes=2, materials Paint and Metal, nodes RootNode / Body / Arm. The exporter did write the global settings: UpAxis=2, UpAxisSign=1, FrontAxis=1, FrontAxisSign=-1, CoordAxis=0, CoordAxisSign=1, UnitScaleFactor=1 (float, centimetres).
 
 ## Review
