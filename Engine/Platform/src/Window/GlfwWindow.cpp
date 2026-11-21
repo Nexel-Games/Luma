@@ -180,6 +180,14 @@ void GlfwWindow::InstallCallbacks() {
         auto* data = DataFrom(w);
         if (!data || !data->callback) return;
         if (action == GLFW_PRESS) {
+            // Windows synthesizes WM_MOUSEMOVE at low priority, so a press can
+            // arrive before the move that brought the cursor there (fast or
+            // synthetic clicks). Report the current position first so the
+            // press is hit-tested where it actually happened.
+            double cx = 0.0, cy = 0.0;
+            glfwGetCursorPos(w, &cx, &cy);
+            MouseMovedEvent move(static_cast<f32>(cx), static_cast<f32>(cy));
+            data->callback(move);
             MouseButtonPressedEvent e(button);
             data->callback(e);
         } else if (action == GLFW_RELEASE) {

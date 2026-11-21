@@ -1165,8 +1165,9 @@ NumericResult Context::SpinBoxImpl(u64 id, const Rect& rect, f64& value,
             if (m_spin.dragging) {
                 result.dragEnded = true;
                 RequestPointerRestore(m_spin.pressPos);
-            } else if (!m_mousePressed[0]) {
-                // A click: start typing with everything selected.
+            } else {
+                // A click (press and release may land in the same frame):
+                // start typing with everything selected.
                 SetFocus(id, true);
                 const std::string t = editText();
                 m_spinEdits[id] = SpinEdit{t, t};

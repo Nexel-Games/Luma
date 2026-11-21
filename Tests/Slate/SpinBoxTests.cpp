@@ -336,3 +336,21 @@ TEST_CASE("Tab walks a vector field's cells X to Y to Z", "[slate][spinbox]") {
     CHECK(v[1] == 5.0f);  // committed when Tab moved focus on
     CHECK(v[2] == 6.0f);
 }
+
+TEST_CASE("A click whose press and release land in one frame enters text mode",
+          "[slate][spinbox]") {
+    Harness h;
+    f32 v = 3.0f;
+    auto draw = [&] { h.ctx.SpinBox(1, kBox, v); };
+    h.ctx.OnMouseMove(kCx, kCy);
+    h.ctx.OnMouseButton(0, true);
+    h.ctx.OnMouseButton(0, false);
+    h.Frame(draw);
+    CHECK(h.ctx.IsFieldFocused(1));
+    h.Frame(draw);
+    Type(h.ctx, "2*4");
+    h.Frame(draw);
+    Key(h.ctx, kEnter);
+    h.Frame(draw);
+    CHECK(v == 8.0f);
+}
