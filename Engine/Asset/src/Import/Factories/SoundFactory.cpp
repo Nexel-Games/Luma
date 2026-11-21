@@ -34,7 +34,7 @@ FactoryResult CreateSoundAsset(const AssetRequest& request, const FactoryContext
         return Failed(error.empty() ? "Could not write the sound" : error);
     }
 
-    SerialValue settings = context.settings.Audio().ToJson();
+    SerialValue settings = context.settings.ToJson();
     if (const auto info = Luma::Audio::ProbeSound(node.sourceFile, &error)) {
         settings["channels"] = static_cast<i64>(info->channels);
         settings["sampleRate"] = static_cast<i64>(info->sampleRate);

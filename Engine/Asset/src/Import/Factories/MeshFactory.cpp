@@ -97,7 +97,7 @@ FactoryResult CreateMeshAsset(const AssetRequest& request, const FactoryContext&
         return Failed(error);
     }
     return FinishAsset(context, request, request.destFile, &primary, "Luma.Import.Model",
-                       context.settings.Meshes().ToJson());
+                       context.settings.ToJson());
 }
 
 }  // namespace Luma::Import

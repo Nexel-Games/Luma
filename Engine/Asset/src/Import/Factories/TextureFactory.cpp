@@ -175,7 +175,7 @@ FactoryResult CreateTextureAsset(const AssetRequest& request, const FactoryConte
         }
     }
 
-    SerialValue settings = context.settings.Textures().ToJson();
+    SerialValue settings = context.settings.ToJson();
     settings["colorSpace"] = context.settings.Textures().GetString("colorSpace");
     return FinishAsset(context, request, dest, &node, "Luma.Import.Image", std::move(settings));
 }

@@ -13,7 +13,9 @@ add_library(LumaMaterial STATIC
     ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/MeshFactory.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/MaterialFactory.cpp
     ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/TextureFactory.cpp
-    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/SoundFactory.cpp)
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/SoundFactory.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/TranslatorRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/ImportSession.cpp)
 
 target_include_directories(LumaMaterial PRIVATE ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
 

@@ -601,14 +601,14 @@ thread when `TakeResult()` completes the session (factories for meshes/textures/
 run on the worker; materials are queued and created in `TakeResult` before returning).
 Document this in the header.
 
-- [ ] **Step 1: Failing tests** (`[import][session]`): translate 3 files (glb + wav +
+- [x] **Step 1: Failing tests** (`[import][session]`): translate 3 files (glb + wav +
   png) → scene has 3 File nodes; Start + wait (poll with timeout 10 s) → summary counts;
   Progress reaches 1; Cancel during a run of 50 copies of the PNG → stops early, no
   `.tmp` files, summary reports cancellation; `ForReimport(SM_Body.lmesh)` restores the
   stored settings (e.g. uniformScale 2 set before the first import); `SourceChanged`
   false right after import, true after appending a byte to the source copy.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): import session (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): import session (T-0003)`.
 
 ## Task 10 — Registry and asset-type updates
 
@@ -819,5 +819,13 @@ The committed sine is not full scale: ffmpeg's `sine` source peaks at s16 ±4095
 `robot.glb` writes `SM_Body.lmesh` (24 vertices, section material `/Game/M_Paint`), `SM_Arm.lmesh`, `M_Paint.lmat` (BaseColor `/Game/T_Paint_D`, Normal `/Game/T_Paint_N`, roughness 0.6), `M_Metal.lmat`, and the two paint PNGs, each with a `.meta`. Overwrite reuses the GUID. Skip leaves the existing bytes. Cancel before the first write leaves no asset and no `.tmp`. `img.psd` becomes a 32×16 PNG. `maxSize` 256 leaves the 64×64 paint texture as a copy and box-filters a generated 1024×1024 BMP down to 256×256 PNG.
 
 The factory sources compile into `Luma::Material`. That library already links `Luma::Asset`, and the reverse link would cycle. `MaterialLibrary::SetMaterial` + `Save` still run; the `.lmat` is also written to `<dest>.tmp` and replaced first. `.meta` is written last the same way. `PipelineStack` gained const accessors so a const settings block can be read from `FactoryContext`. A downscale or PSD re-encode is a PNG, so a BMP that exceeds `maxSize` is saved as `.png`.
+
+### Task 9
+
+`[import][session]` failed to compile (`ImportSession.h` missing), then passed (28 assertions in 3 cases). Whole suite: `All tests passed (23375 assertions in 440 test cases)`.
+
+Translating a glb, a wav, and a png yields 3 File nodes. The worker writes meshes, textures, and sounds; `TakeResult` creates the materials on the calling thread because `MaterialLibrary` is not thread-safe. Progress is 1 when the worker finishes, and the summary's created count matches the plan. Cancelling a 50-png run stops before every file is written, leaves no `.tmp`, and the summary says the import was cancelled. `ForReimport(SM_Body.lmesh)` restores `uniformScale` 2 from the `.meta`. `SourceChanged` is false immediately after import and true after a byte is appended to the source copy.
+
+Each asset's `.meta` now stores the whole pipeline stack (plus sound probe fields and a top-level `colorSpace`) so reimport can restore every block. The session and registry compile into `Luma::Material` for the same link-cycle reason as the factories.
 
 ## Review

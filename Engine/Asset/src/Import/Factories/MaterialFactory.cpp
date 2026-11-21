@@ -102,7 +102,7 @@ FactoryResult CreateMaterialAsset(const AssetRequest& request, const FactoryCont
         return Failed(error.empty() ? "Could not save the material" : error);
     }
     return FinishAsset(context, request, request.destFile, &node, "Luma.Import.Material",
-                       context.settings.Materials().ToJson());
+                       context.settings.ToJson());
 }
 
 }  // namespace Luma::Import

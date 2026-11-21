@@ -47,6 +47,7 @@ add_executable(LumaTests
     Asset/Import/AudioTranslatorTests.cpp
     Asset/Import/PipelineTests.cpp
     Asset/Import/FactoryTests.cpp
+    Asset/Import/ImportSessionTests.cpp
     Audio/AudioDecodeTests.cpp
     Scene/MaterialMigrationTests.cpp
     Material/MaterialModelTests.cpp
