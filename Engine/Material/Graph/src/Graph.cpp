@@ -67,10 +67,11 @@ NodeId Graph::AddNode(std::string type, Math::Vec2 position) {
 }
 
 bool Graph::AddNodeWithId(NodeId id, std::string type, Math::Vec2 position) {
-    if (id == 0 || Find(id)) return false;
+    if (id == 0) return false;
     if (type == kOutputType) {
-        // Deserialization replaces the constructor's output node.
-        if (Node* out = Find(m_output); out && m_output != id) {
+        // Deserialization re-identifies the constructor's output node (one per graph).
+        if (Node* out = Find(m_output)) {
+            if (id != m_output && Find(id)) return false;
             const NodeId old = m_output;
             out->id = id;
             out->position = position;
@@ -82,6 +83,7 @@ bool Graph::AddNodeWithId(NodeId id, std::string type, Math::Vec2 position) {
             return true;
         }
     }
+    if (Find(id)) return false;
     Node n;
     n.id = id;
     n.type = std::move(type);

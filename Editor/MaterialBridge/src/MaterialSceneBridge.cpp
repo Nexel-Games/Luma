@@ -136,8 +136,14 @@ void MaterialSceneBridge::SyncMaterial(const std::string& path, SceneRenderer& r
     if (entry.uploaded && entry.version == resolved.version) return;
 
     MaterialGpuDesc desc;
-    desc.blend = static_cast<GpuBlendMode>(resolved.settings.blendMode);
-    desc.shading = static_cast<GpuShadingModel>(resolved.settings.shadingModel);
+    // The fixed-recipe renderer path knows Opaque/Masked and DefaultLit/Unlit
+    // only; Phase-1 (v3) assets can't express the others (they arrive with the
+    // compiled-material renderer), so map anything newer to its base mode.
+    desc.blend = resolved.settings.blendMode == Material::BlendMode::Masked ? GpuBlendMode::Masked
+                                                                            : GpuBlendMode::Opaque;
+    desc.shading = resolved.settings.shadingModel == Material::ShadingModel::Unlit
+                       ? GpuShadingModel::Unlit
+                       : GpuShadingModel::DefaultLit;
     desc.twoSided = resolved.settings.twoSided;
     desc.opacityMaskClip = resolved.settings.opacityMaskClip;
     entry.textures.clear();
