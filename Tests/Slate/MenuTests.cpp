@@ -354,3 +354,36 @@ TEST_CASE("Tooltips appear after the hover delay and hide on click",
     }
     CHECK(f.ui.drawList().vertexCount() > quiet);
 }
+
+TEST_CASE("The click that opens a menu never selects an item in it", "[slate][menu]") {
+    // A slot picker opens on mouse press. A long list fits neither below nor
+    // above its anchor, so it is placed over the anchor -- under the cursor.
+    // The release of that same click must not pick the row under it.
+    Fixture f;
+    int picked = -1;
+    const Rect anchor{300, 340, 200, 22};
+    auto widgets = [&] {
+        if (f.ui.mousePressed(0) && anchor.Contains(f.ui.mouse()) && !f.ui.AnyMenuOpen()) {
+            MenuBuilder b;
+            for (int i = 0; i < 80; ++i) {
+                b.AddEntry("Material " + std::to_string(i), {}, [&picked, i] { picked = i; });
+            }
+            f.ui.OpenMenuBelow(Context::ID("picker"), anchor, b.Build());
+        }
+    };
+    f.ui.OnMouseMove(350, 351);
+    f.ui.OnMouseButton(0, true);
+    f.Frame(widgets);
+    REQUIRE(f.ui.AnyMenuOpen());
+    f.ui.OnMouseButton(0, false);
+    f.Frame(widgets);
+    CHECK(picked == -1);
+    CHECK(f.ui.AnyMenuOpen());
+
+    // A real click on a row still picks it.
+    f.ui.OnMouseButton(0, true);
+    f.Frame([] {});
+    f.ui.OnMouseButton(0, false);
+    f.Frame([] {});
+    CHECK(picked >= 0);
+}
