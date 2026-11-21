@@ -300,7 +300,8 @@ private:
     std::filesystem::path m_importDest;
     std::string m_importVirtual;
     bool m_importActive = false;
-    f32 m_importProgress = 0.0f;
+    Tasks::TaskToken m_importTask;  // Background Tasks entry while an import runs
+    u64 m_importTotal = 0;
     Audio::AudioPreview* m_audioPreview = nullptr;
     Editor::MaterialSceneBridge m_bridge;
     VFS::FileWatcher m_assetWatcher;

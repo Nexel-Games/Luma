@@ -751,10 +751,6 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.sourceChanged = [this](const std::filesystem::path& asset) {
         return m_sourceWatch != nullptr && m_sourceWatch->IsChanged(asset);
     };
-    ctx.importProgress = m_importActive ? &m_importProgress : nullptr;
-    ctx.onCancelImport = [this] {
-        if (m_importSession) m_importSession->Cancel();
-    };
     ctx.audioPreview = m_audioPreview;
     ctx.onCreateScene = [this](const std::filesystem::path& folder) {
         CreateSceneAsset(folder);
@@ -1320,18 +1316,42 @@ void EditorScreen::OnImportDialog(Editor::Panels::ImportDialog::Action action) {
     const Import::ImportPlan plan = m_importSession->Plan(m_importDest);
     m_importSession->Start(plan, context);
     m_importActive = true;
-    m_importProgress = 0.0f;
+    // Progress and Cancel live in the Background Tasks indicator / panel,
+    // like every other long-running editor job.
+    if (m_tasks != nullptr) {
+        Tasks::TaskDesc desc;
+        desc.title = "Importing into " + m_importVirtual;
+        desc.unit = "assets";
+        desc.total = plan.requests.size();
+        desc.cancellable = true;
+        desc.category = "Import";
+        m_importTotal = plan.requests.size();
+        m_importTask = m_tasks->Begin(std::move(desc));
+    }
 }
 
 void EditorScreen::PollImport() {
     if (!m_importSession || !m_importActive) return;
     if (m_importSession->Running()) {
-        m_importProgress = m_importSession->Progress();
+        if (m_importTask.IsValid()) {
+            if (m_importTask.CancelRequested()) m_importSession->Cancel();
+            // "37 / 120 assets" in the indicator, same as other counted tasks.
+            const f64 total = static_cast<f64>(m_importTask.IsValid() ? m_importTotal : 0);
+            m_importTask.SetDone(static_cast<u64>(std::lround(total * m_importSession->Progress())));
+        }
         return;
     }
     const auto result = m_importSession->TakeResult();
     m_importActive = false;
-    m_importProgress = 0.0f;
+    if (m_importTask.IsValid()) {
+        // Complete() reports Cancelled when Cancel was pressed in the panel.
+        if (result && result->failed > 0 && !m_importTask.CancelRequested()) {
+            m_importTask.Fail(std::to_string(result->failed) + " assets failed (see the Console)");
+        } else {
+            m_importTask.Complete();
+        }
+        m_importTask = Tasks::TaskToken{};
+    }
     if (!result) {
         m_importSession.reset();
         return;

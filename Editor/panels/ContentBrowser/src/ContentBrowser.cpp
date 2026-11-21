@@ -289,8 +289,7 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
     constexpr f32 kSepW = 1.0f;
     constexpr f32 kBarMaxW = 200.0f;
     constexpr f32 kBarGap = 4.0f;
-    const f32 importChrome = ctx.importProgress != nullptr ? 248.0f : 0.0f;
-    f32 barRight = rect.Right() - 8.0f - importChrome;
+    f32 barRight = rect.Right() - 8.0f;
     f32 toggleX = barRight - kToggleW;
     // Keep the search bar a fixed, Unreal-style width (not the full
     // toolbar); right-align it against the filter toggle.
@@ -337,16 +336,6 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
                     {toggleR.x + (kToggleW - 12.0f) * 0.5f,
                      toggleR.y + (kBarH - 12.0f) * 0.5f, 12.0f, 12.0f},
                     chev, toggleHover ? t.text : t.textDim);
-
-    if (ctx.importProgress != nullptr) {
-        const Rect prog{rect.Right() - 8.0f - 72.0f - 8.0f - 160.0f, rect.y + 6.0f, 160.0f, kBarH};
-        ui.ProgressBar(prog, *ctx.importProgress);
-        if (ui.Button(Slate::Context::ID("cb.import.cancel"),
-                      {rect.Right() - 8.0f - 72.0f, rect.y + 6.0f, 72.0f, kBarH}, "Cancel") &&
-            ctx.onCancelImport) {
-            ctx.onCancelImport();
-        }
-    }
 
     // Breadcrumb: lives in the gap between Refresh and the search bar,
     // same row, wrapped in a rounded "field" box that matches the search

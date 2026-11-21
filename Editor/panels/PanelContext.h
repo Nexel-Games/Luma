@@ -89,9 +89,6 @@ struct PanelContext {
     std::function<void(const std::filesystem::path& asset)> onReimport;
     // True when the asset's recorded source no longer matches its .meta.
     std::function<bool(const std::filesystem::path& asset)> sourceChanged;
-    // Non-null while an import worker is running. The browser draws a bar.
-    const f32* importProgress = nullptr;
-    std::function<void()> onCancelImport;
     // One-shot sound preview. Null when no device is available.
     Audio::AudioPreview* audioPreview = nullptr;
 
