@@ -114,6 +114,9 @@ struct MenuOptions {
     // Icon box size; 0 = Theme::menu.iconSize. Asset pickers use ~32 for
     // thumbnails (entry rows grow to fit).
     f32 iconSize = 0.0f;
+    // Tallest the list may be (px); 0 = as tall as the window allows. Longer
+    // lists scroll.
+    f32 maxHeight = 0.0f;
 };
 
 // One search result: the matching action and the path of the submenus /
