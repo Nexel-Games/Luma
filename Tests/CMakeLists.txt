@@ -15,6 +15,7 @@ add_executable(LumaTests
     Core/MemoryTests.cpp
     Jobs/JobSystemTests.cpp
     Material/GraphTests.cpp
+    Material/ExpressionRegistryTests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
     Serialization/SerialValueTests.cpp

@@ -68,7 +68,7 @@ TEST_CASE("Connecting unknown nodes or a node to itself fails", "[graph]") {
     err.clear();
     CHECK_FALSE(g.Connect({a, 0}, {a, 1}, &err));
     CHECK_FALSE(err.empty());
-    CHECK_FALSE(g.Connect({a, 0}, {g.OutputNode(), 0}, nullptr) == false);  // valid link works
+    CHECK(g.Connect({a, 0}, {g.OutputNode(), 0}, nullptr));  // a valid link works without an error out
 }
 
 TEST_CASE("FindCycle reports the nodes on a cycle", "[graph]") {

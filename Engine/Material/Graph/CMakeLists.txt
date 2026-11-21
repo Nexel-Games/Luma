@@ -3,7 +3,12 @@
 # compiler, no renderer.
 
 add_library(LumaMaterialGraph STATIC
-    src/Graph.cpp)
+    src/Graph.cpp
+    src/ExpressionRegistry.cpp
+    src/Expressions/ConstantsParameters.cpp
+    src/Expressions/Math.cpp
+    src/Expressions/TextureCoordinates.cpp
+    src/Expressions/UtilityFunctionsOutput.cpp)
 
 add_library(Luma::MaterialGraph ALIAS LumaMaterialGraph)
 
