@@ -25,7 +25,7 @@ Math::Vec4 PropV(const ExpressionDesc& d, const Node& n, std::string_view key) {
 i32 In(Translator& t, const Node& n, u32 pin) { return t.CompileInput(n.id, pin, t.CurrentStage()); }
 
 bool Linked(const Translator& t, const Node& n, u32 pin) {
-    return t.MaterialAsset().graph.Source(PinRef{n.id, pin}).has_value();
+    return t.CurrentGraph().Source(PinRef{n.id, pin}).has_value();
 }
 
 i32 InOr(Translator& t, const Node& n, u32 pin, i32 fallback) {

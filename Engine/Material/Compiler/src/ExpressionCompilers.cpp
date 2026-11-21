@@ -12,6 +12,8 @@ const Table& BuildTable() {
         RegisterMath(t);
         RegisterTextureCoordinates(t);
         RegisterUtility(t);
+        RegisterFunctions(t);
+        RegisterCollections(t);
         return t;
     }();
     return table;

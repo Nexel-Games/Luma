@@ -116,6 +116,12 @@ i32 Derivative(Translator& t, const Node& n, const char* fn) {
 i32 Ddx(Translator& t, const Node& n, const ExpressionDesc&, u32) { return Derivative(t, n, "dFdx"); }
 i32 Ddy(Translator& t, const Node& n, const ExpressionDesc&, u32) { return Derivative(t, n, "dFdy"); }
 
+// Locals of a Custom node's extra outputs; node ids repeat across function
+// calls, so calls add their scope.
+std::string CustomLocalPrefix(const Translator& t, const Node& n) {
+    return "custom" + (t.ScopeId() == 0 ? std::string() : std::to_string(t.ScopeId()) + "s") + std::to_string(n.id) + "_";
+}
+
 // Custom: the code becomes `<out> CustomExpressionN(<inputs>, inout <extra outputs>)`.
 i32 Custom(Translator& t, const Node& n, const ExpressionDesc& d, u32 outputPin) {
     struct Extra {
@@ -151,7 +157,7 @@ i32 Custom(Translator& t, const Node& n, const ExpressionDesc& d, u32 outputPin)
         }
         const u32 index = t.FunctionCount();
         const std::string fn = "CustomExpression" + std::to_string(index);
-        const std::string localPrefix = "custom" + std::to_string(n.id) + "_";
+        const std::string localPrefix = CustomLocalPrefix(t, n);
         for (const Extra& e : extras) {
             params += (params.empty() ? "" : ", ") + std::string("inout ") + GlslType(e.type) + " " + e.name;
             t.Statement(std::string(GlslType(e.type)) + " " + localPrefix + e.name + " = " +
@@ -170,7 +176,7 @@ i32 Custom(Translator& t, const Node& n, const ExpressionDesc& d, u32 outputPin)
     }
     // The extra outputs are locals the call above writes.
     const Extra& e = extras[outputPin - 1];
-    return t.Reference("custom" + std::to_string(n.id) + "_" + e.name, e.type, Frequency::Varying);
+    return t.Reference(CustomLocalPrefix(t, n) + e.name, e.type, Frequency::Varying);
 }
 
 i32 VertexInterpolator(Translator& t, const Node& n, const ExpressionDesc&, u32) {
@@ -191,7 +197,7 @@ i32 Passthrough(Translator& t, const Node& n, const ExpressionDesc&, u32) { retu
 i32 NamedRerouteUsage(Translator& t, const Node& n, const ExpressionDesc& d, u32) {
     const std::string name = PropS(d, n, "name");
     const auto* declDesc = MaterialGraph::ExpressionRegistry::Get().Find("NamedRerouteDeclaration");
-    for (const Node& other : t.MaterialAsset().graph.Nodes()) {
+    for (const Node& other : t.CurrentGraph().Nodes()) {
         if (other.type == "NamedRerouteDeclaration" && declDesc && PropS(*declDesc, other, "name") == name) {
             return t.CompileOutput(other.id, 0, t.CurrentStage());
         }

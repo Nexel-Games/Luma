@@ -19,6 +19,10 @@
 // Values are vec4s; a Float1 is kept broadcast in all four lanes, so every
 // lane-wise op works on any width and GLSL reads a scalar as MP(slot).x.
 
+namespace Luma::Material {
+class MaterialLibrary;
+}
+
 namespace Luma::MaterialCompiler {
 
 enum class PreOp : u8 {
@@ -58,6 +62,10 @@ using TextureResolver = std::function<TextureBinding(const std::string& path, co
 // Current value of a collection parameter (nullopt = unknown: uses 0).
 using ParameterValueSource =
     std::function<std::optional<Math::Vec4>(const std::string& collection, const std::string& parameter)>;
+
+// Current values of the library's Parameter Collections (scalars broadcast).
+// The library must outlive the returned source.
+ParameterValueSource CollectionValues(Material::MaterialLibrary& library);
 
 // Runs the program with `overrides` (by parameter name) and fills texture
 // slots through `textures` (unbound when null). Returns the whole block.

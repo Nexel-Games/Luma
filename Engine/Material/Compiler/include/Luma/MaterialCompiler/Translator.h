@@ -33,7 +33,9 @@ u64 StaticSwitchKey(const StaticSwitchSet& set);
 
 class Translator {
 public:
-    Translator(const Material::GraphMaterial& material, const Material::MaterialLibrary* library,
+    // `library` resolves Material Function calls and Parameter Collections
+    // (null: those nodes are errors).
+    Translator(const Material::GraphMaterial& material, Material::MaterialLibrary* library,
                StaticSwitchSet staticSwitches);
 
     // Follows the link into `inputPin` of `node`, or uses the pin's default
@@ -98,6 +100,26 @@ public:
     i32 Texture(TextureSlot slot, const ParameterInfo* param);
     const ParameterBlockLayout& Layout() const { return m_layout; }
 
+    // --- Material functions -------------------------------------------------
+    // Compiles `outputNode` (a Function Output of `function`) inline for the
+    // call node `call` of the current graph. Each call gets its own scope, so
+    // two calls never share chunks. Errors (self-recursion, depth > 16) are
+    // reported at the call.
+    i32 CompileFunctionOutput(MaterialGraph::NodeId call, const std::string& path,
+                              const Material::MaterialFunction& function, MaterialGraph::NodeId outputNode);
+    // Inside a function: compiles the call's input `pin` in the caller's
+    // scope. `linked` is false (and nothing compiles) when it is unconnected.
+    i32 CompileCallerInput(u32 pin, bool& linked);
+    // The function being compiled (null at material level).
+    const Material::MaterialFunction* CurrentFunction() const;
+    // The graph nodes resolve against: the material's or the current function's.
+    const MaterialGraph::Graph& CurrentGraph() const;
+    // 0 at material level; a distinct id per function call instance (for
+    // generated names that must not collide between calls).
+    u32 ScopeId() const { return m_scope; }
+
+    // Errors and warnings raised inside a function are reported at the
+    // material-level call node, prefixed with the function's name.
     void Error(MaterialGraph::NodeId node, i32 pin, std::string message);
     void Warning(MaterialGraph::NodeId node, i32 pin, std::string message);
     const std::vector<CompileError>& Errors() const { return m_errors; }
@@ -105,7 +127,7 @@ public:
     const Chunk& ChunkAt(i32 index) const { return m_chunks[static_cast<usize>(index)]; }
     Stage CurrentStage() const { return m_stage; }
     const Material::GraphMaterial& MaterialAsset() const { return m_material; }
-    const Material::MaterialLibrary* Library() const { return m_library; }
+    Material::MaterialLibrary* Library() const { return m_library; }
     const StaticSwitchSet& StaticSwitches() const { return m_switches; }
 
     // Compiles every Material Output input the material's settings use.
@@ -130,17 +152,32 @@ private:
         std::array<u8, 5> extra{};
     };
 
+    struct Scope {
+        const MaterialGraph::Graph* graph = nullptr;
+        const Material::MaterialFunction* function = nullptr;  // null for the material
+        std::string path;
+        u32 parent = 0;
+        MaterialGraph::NodeId call = 0;  // call node in the parent scope
+        u32 depth = 0;
+    };
+    // Maps a node of the current scope to what the user sees (the
+    // material-level call node) and prefixes the message with the call path.
+    std::pair<MaterialGraph::NodeId, std::string> Attribute(MaterialGraph::NodeId node, std::string message) const;
+
     const Material::GraphMaterial& m_material;
-    const Material::MaterialLibrary* m_library;
+    Material::MaterialLibrary* m_library;
+    std::vector<Scope> m_scopes;  // [0] = the material
+    u32 m_scope = 0;
+    std::map<std::pair<u32, MaterialGraph::NodeId>, u32> m_callScopes;  // (scope, call node) -> scope
     StaticSwitchSet m_switches;
     Stage m_stage = Stage::Pixel;
     std::vector<Chunk> m_chunks;
     std::string m_body[2];  // per stage
     u32 m_nextLocal = 0;
-    std::map<std::tuple<MaterialGraph::NodeId, u32, Stage>, i32> m_cache;
-    std::set<std::pair<MaterialGraph::NodeId, Stage>> m_inProgress;
+    std::map<std::tuple<u32, MaterialGraph::NodeId, u32, Stage>, i32> m_cache;  // (scope, node, pin, stage)
+    std::set<std::tuple<u32, MaterialGraph::NodeId, Stage>> m_inProgress;
     std::vector<CompileError> m_errors, m_warnings;
-    std::map<std::tuple<MaterialGraph::NodeId, std::string, Stage>, i32> m_memo;
+    std::map<std::tuple<u32, MaterialGraph::NodeId, std::string, Stage>, i32> m_memo;
     std::string m_functions;
     u32 m_functionCount = 0;
     std::vector<std::string> m_includes;

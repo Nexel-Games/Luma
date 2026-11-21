@@ -152,16 +152,86 @@ std::string CompiledMaterial::Fingerprint() const {
     return hex;
 }
 
-Translator::Translator(const Material::GraphMaterial& material, const Material::MaterialLibrary* library,
+Translator::Translator(const Material::GraphMaterial& material, Material::MaterialLibrary* library,
                        StaticSwitchSet staticSwitches)
-    : m_material(material), m_library(library), m_switches(std::move(staticSwitches)) {}
+    : m_material(material), m_library(library), m_switches(std::move(staticSwitches)) {
+    Scope root;
+    root.graph = &m_material.graph;
+    m_scopes.push_back(std::move(root));
+}
+
+const MaterialGraph::Graph& Translator::CurrentGraph() const { return *m_scopes[m_scope].graph; }
+
+const Material::MaterialFunction* Translator::CurrentFunction() const { return m_scopes[m_scope].function; }
+
+std::pair<NodeId, std::string> Translator::Attribute(NodeId node, std::string message) const {
+    if (m_scope == 0) return {node, std::move(message)};
+    std::string path;
+    u32 s = m_scope;
+    NodeId call = node;
+    while (s != 0) {
+        const Scope& scope = m_scopes[s];
+        const std::string name = scope.function && !scope.function->name.empty() ? scope.function->name : scope.path;
+        path = path.empty() ? name : name + " > " + path;
+        call = scope.call;
+        s = scope.parent;
+    }
+    return {call, path + ": " + message};
+}
+
+i32 Translator::CompileFunctionOutput(NodeId call, const std::string& path, const Material::MaterialFunction& function,
+                                      NodeId outputNode) {
+    for (u32 s = m_scope; s != 0; s = m_scopes[s].parent) {
+        if (m_scopes[s].path == path) {
+            Error(call, -1, "'" + path + "' calls itself");
+            return -1;
+        }
+    }
+    constexpr u32 kMaxDepth = 16;
+    if (m_scopes[m_scope].depth >= kMaxDepth) {
+        Error(call, -1, "Material Functions nest more than " + std::to_string(kMaxDepth) + " deep");
+        return -1;
+    }
+    auto [it, added] = m_callScopes.try_emplace(std::make_pair(m_scope, call), 0u);
+    if (added) {
+        Scope scope;
+        scope.graph = &function.graph;
+        scope.function = &function;
+        scope.path = path;
+        scope.parent = m_scope;
+        scope.call = call;
+        scope.depth = m_scopes[m_scope].depth + 1;
+        m_scopes.push_back(std::move(scope));
+        it->second = static_cast<u32>(m_scopes.size() - 1);
+    }
+    const u32 saved = m_scope;
+    m_scope = it->second;
+    const i32 result = CompileInput(outputNode, 0, m_stage);
+    m_scope = saved;
+    return result;
+}
+
+i32 Translator::CompileCallerInput(u32 pin, bool& linked) {
+    linked = false;
+    if (m_scope == 0) return -1;
+    const Scope& scope = m_scopes[m_scope];
+    if (!m_scopes[scope.parent].graph->Source(PinRef{scope.call, pin})) return -1;
+    linked = true;
+    const u32 saved = m_scope;
+    m_scope = scope.parent;
+    const i32 result = CompileInput(scope.call, pin, m_stage);
+    m_scope = saved;
+    return result;
+}
 
 void Translator::Error(NodeId node, i32 pin, std::string message) {
-    m_errors.push_back({node, pin, std::move(message), false});
+    auto [at, text] = Attribute(node, std::move(message));
+    m_errors.push_back({at, m_scope == 0 ? pin : -1, std::move(text), false});
 }
 
 void Translator::Warning(NodeId node, i32 pin, std::string message) {
-    m_warnings.push_back({node, pin, std::move(message), true});
+    auto [at, text] = Attribute(node, std::move(message));
+    m_warnings.push_back({at, m_scope == 0 ? pin : -1, std::move(text), true});
 }
 
 i32 Translator::AddChunk(std::string code, ValueType type, Frequency freq, std::optional<Math::Vec4> constant) {
@@ -217,7 +287,7 @@ void Translator::Statement(std::string code) {
 }
 
 i32 Translator::Memo(NodeId node, std::string_view key, const std::function<i32()>& make) {
-    const auto k = std::make_tuple(node, std::string(key), m_stage);
+    const auto k = std::make_tuple(m_scope, node, std::string(key), m_stage);
     if (const auto it = m_memo.find(k); it != m_memo.end()) return it->second;
     const i32 chunk = make();
     m_memo[k] = chunk;
@@ -351,6 +421,14 @@ i32 Translator::CollectionValue(const std::string& collection, const std::string
     node.op = PreOp::PushCollection;
     node.index = index;
     m_pre.push_back(node);
+    if (Width(type) == 1) {
+        // A scalar is broadcast whatever the value source puts in y/z/w.
+        PreNode broadcast;
+        broadcast.op = PreOp::Swizzle;
+        broadcast.args = {static_cast<i32>(m_pre.size() - 1)};
+        broadcast.extra = {1, 0, 0, 0, 0};
+        m_pre.push_back(std::move(broadcast));
+    }
     return UniformFromPre(static_cast<i32>(m_pre.size() - 1), type);
 }
 
@@ -567,10 +645,11 @@ i32 Translator::Cast(i32 chunk, ValueType to, NodeId at) {
 }
 
 i32 Translator::CompileInput(NodeId node, u32 inputPin, Stage stage) {
-    const Node* n = m_material.graph.Find(node);
+    const MaterialGraph::Graph& graph = CurrentGraph();
+    const Node* n = graph.Find(node);
     const ExpressionDesc* desc = n ? ExpressionRegistry::Get().Find(n->type) : nullptr;
     if (!desc) return -1;
-    if (const auto source = m_material.graph.Source(PinRef{node, inputPin})) {
+    if (const auto source = graph.Source(PinRef{node, inputPin})) {
         return CompileOutput(source->node, source->pin, stage);
     }
     if (inputPin >= desc->inputs.size()) {
@@ -605,10 +684,10 @@ i32 Translator::CompileInput(NodeId node, u32 inputPin, Stage stage) {
 }
 
 i32 Translator::CompileOutput(NodeId node, u32 outputPin, Stage stage) {
-    const auto key = std::make_tuple(node, outputPin, stage);
+    const auto key = std::make_tuple(m_scope, node, outputPin, stage);
     if (const auto it = m_cache.find(key); it != m_cache.end()) return it->second;
 
-    const Node* n = m_material.graph.Find(node);
+    const Node* n = CurrentGraph().Find(node);
     const ExpressionDesc* desc = n ? ExpressionRegistry::Get().Find(n->type) : nullptr;
     if (!desc) {
         Error(node, -1, n ? "Unknown expression '" + n->type + "'" : "Missing node");
@@ -619,7 +698,7 @@ i32 Translator::CompileOutput(NodeId node, u32 outputPin, Stage stage) {
               desc->displayName + " can't be used in the vertex shader (World Position Offset / Custom UVs)");
         return m_cache[key] = -1;
     }
-    const auto progress = std::make_pair(node, stage);
+    const auto progress = std::make_tuple(m_scope, node, stage);
     if (m_inProgress.contains(progress)) {
         Error(node, -1, desc->displayName + " depends on itself");
         return -1;

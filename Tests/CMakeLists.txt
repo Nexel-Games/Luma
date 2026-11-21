@@ -20,6 +20,7 @@ add_executable(LumaTests
     Material/CompilerCoreTests.cpp
     Material/ExpressionCompileTests.cpp
     Material/PreshaderTests.cpp
+    Material/FunctionCompileTests.cpp
     Material/MaterialMigrationV4Tests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp

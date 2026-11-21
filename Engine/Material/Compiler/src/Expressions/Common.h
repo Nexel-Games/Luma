@@ -28,6 +28,8 @@ void RegisterConstantsParameters(Table& table);
 void RegisterMath(Table& table);
 void RegisterTextureCoordinates(Table& table);
 void RegisterUtility(Table& table);
+void RegisterFunctions(Table& table);
+void RegisterCollections(Table& table);
 
 // --- Properties ---------------------------------------------------------------
 f64 PropF(const MaterialGraph::ExpressionDesc& d, const MaterialGraph::Node& n, std::string_view key);

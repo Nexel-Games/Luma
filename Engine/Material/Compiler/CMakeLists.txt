@@ -8,7 +8,9 @@ add_library(LumaMaterialCompiler STATIC
     src/Translator.cpp
     src/Preshader.cpp
     src/ExpressionCompilers.cpp
+    src/Expressions/Collections.cpp
     src/Expressions/Common.cpp
+    src/Expressions/Functions.cpp
     src/Expressions/ConstantsParameters.cpp
     src/Expressions/Math.cpp
     src/Expressions/TextureCoordinates.cpp
