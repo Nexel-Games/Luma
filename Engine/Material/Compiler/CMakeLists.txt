@@ -6,7 +6,12 @@
 add_library(LumaMaterialCompiler STATIC
     src/CodeChunk.cpp
     src/Translator.cpp
-    src/ExpressionCompilers.cpp)
+    src/ExpressionCompilers.cpp
+    src/Expressions/Common.cpp
+    src/Expressions/ConstantsParameters.cpp
+    src/Expressions/Math.cpp
+    src/Expressions/TextureCoordinates.cpp
+    src/Expressions/Utility.cpp)
 
 add_library(Luma::MaterialCompiler ALIAS LumaMaterialCompiler)
 

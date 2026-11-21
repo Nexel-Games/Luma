@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <map>
 #include <set>
 #include <span>
@@ -51,8 +52,38 @@ public:
     // A new chunk of arbitrary code (no folding).
     i32 Emit(std::string code, MaterialGraph::ValueType type, Frequency freq);
 
+    // A chunk for code that needs no local variable (an existing local,
+    // interpolant or uniform read).
+    i32 Reference(std::string code, MaterialGraph::ValueType type, Frequency freq);
+    // Appends a raw statement to the current stage body.
+    void Statement(std::string code);
+    // Runs `make` once per (node, key, stage) and reuses its chunk (shared
+    // work of multi-output nodes such as a texture sample).
+    i32 Memo(MaterialGraph::NodeId node, std::string_view key, const std::function<i32()>& make);
+    // Adds a generated function definition; returns its sequence number.
+    u32 AddFunction(std::string definition);
+    u32 FunctionCount() const { return m_functionCount; }
+    void AddInclude(std::string include);
+    // Registers a vertex -> pixel interpolant; returns its index.
+    u32 AddInterpolator(MaterialGraph::ValueType type, std::string vertexCode);
+    // The permutation's value of a Static Switch / Static Bool parameter.
+    bool StaticSwitch(const std::string& name, bool defaultValue) const;
+
+    // --- Parameters and textures (parameter-block slots) --------------------
+    // Declares (or re-uses) a parameter and returns a Uniform chunk reading it.
+    i32 ScalarParameter(ParameterInfo info);
+    i32 VectorParameter(ParameterInfo info);  // Float4
+    // Declares a parameter that has no block slot (Static Switch / Bool).
+    // False (and an error at `info.node`) when the name is taken by another kind.
+    bool DeclareParameter(ParameterInfo info);
+    // Adds a texture slot; returns a Texture2D / TextureCube chunk whose code
+    // is the slot index. `param` names a Texture parameter ("" = fixed).
+    i32 Texture(TextureSlot slot, const ParameterInfo* param);
+    const ParameterBlockLayout& Layout() const { return m_layout; }
+
     void Error(MaterialGraph::NodeId node, i32 pin, std::string message);
     void Warning(MaterialGraph::NodeId node, i32 pin, std::string message);
+    const std::vector<CompileError>& Errors() const { return m_errors; }
 
     const Chunk& ChunkAt(i32 index) const { return m_chunks[static_cast<usize>(index)]; }
     Stage CurrentStage() const { return m_stage; }
@@ -77,6 +108,14 @@ private:
     std::map<std::tuple<MaterialGraph::NodeId, u32, Stage>, i32> m_cache;
     std::set<std::pair<MaterialGraph::NodeId, Stage>> m_inProgress;
     std::vector<CompileError> m_errors, m_warnings;
+    std::map<std::tuple<MaterialGraph::NodeId, std::string, Stage>, i32> m_memo;
+    std::string m_functions;
+    u32 m_functionCount = 0;
+    std::vector<std::string> m_includes;
+    std::vector<Interpolator> m_interpolators;
+    std::vector<ParameterInfo> m_parameters;
+    std::map<std::string, u32> m_parameterSlots;  // scalar/vector parameter -> block slot
+    ParameterBlockLayout m_layout;
 };
 
 }  // namespace Luma::MaterialCompiler

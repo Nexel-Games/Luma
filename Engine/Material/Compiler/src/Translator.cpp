@@ -120,8 +120,20 @@ std::string CompiledMaterial::Fingerprint() const {
         h ^= 0xFF;
         h *= 1099511628211ull;
     };
+    mix(functions);
+    for (const std::string& inc : includes) mix(inc);
     mix(vertexBody);
     mix(pixelBody);
+    for (const Interpolator& i : interpolators) {
+        mix(GlslType(i.type));
+        mix(i.vertexCode);
+    }
+    mix(std::to_string(layout.vec4Count));
+    for (const TextureSlot& s : layout.textures) {
+        mix(std::to_string(s.slot) + (s.cube ? "c" : "2") + (s.srgb ? "s" : "l") + s.defaultTexture + "|" +
+            s.parameter + "|" + std::to_string(static_cast<int>(s.sampler.address)) +
+            std::to_string(static_cast<int>(s.sampler.filter)) + std::to_string(static_cast<int>(s.samplerType)));
+    }
     for (const MaterialOutputValue& o : outputs) {
         mix(o.pin);
         mix(o.stage == Stage::Vertex ? "v" : "p");
@@ -167,6 +179,11 @@ i32 Translator::AddChunk(std::string code, ValueType type, Frequency freq, std::
 }
 
 i32 Translator::Constant(const Math::Vec4& v, ValueType type) {
+    if (type == ValueType::Bool) {
+        const bool on = v.x != 0.0f;
+        return AddChunk(on ? "true" : "false", type, Frequency::Constant,
+                        Math::Vec4{on ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f});
+    }
     Math::Vec4 value = v;
     const u32 w = std::max(Width(type), 1u);
     if (w < 4) value.w = 0.0f;
@@ -177,6 +194,137 @@ i32 Translator::Constant(const Math::Vec4& v, ValueType type) {
 
 i32 Translator::Emit(std::string code, ValueType type, Frequency freq) {
     return AddChunk(std::move(code), type, freq, std::nullopt);
+}
+
+i32 Translator::Reference(std::string code, ValueType type, Frequency freq) {
+    Chunk chunk;
+    chunk.code = std::move(code);
+    chunk.type = type;
+    chunk.freq = freq;
+    chunk.stage = m_stage;
+    m_chunks.push_back(std::move(chunk));
+    return static_cast<i32>(m_chunks.size() - 1);
+}
+
+void Translator::Statement(std::string code) {
+    m_body[static_cast<usize>(m_stage)] += "    " + code + "\n";
+}
+
+i32 Translator::Memo(NodeId node, std::string_view key, const std::function<i32()>& make) {
+    const auto k = std::make_tuple(node, std::string(key), m_stage);
+    if (const auto it = m_memo.find(k); it != m_memo.end()) return it->second;
+    const i32 chunk = make();
+    m_memo[k] = chunk;
+    return chunk;
+}
+
+u32 Translator::AddFunction(std::string definition) {
+    m_functions += definition;
+    if (!m_functions.empty() && m_functions.back() != '\n') m_functions += '\n';
+    m_functions += '\n';
+    return m_functionCount++;
+}
+
+void Translator::AddInclude(std::string include) {
+    if (std::find(m_includes.begin(), m_includes.end(), include) == m_includes.end()) {
+        m_includes.push_back(std::move(include));
+    }
+}
+
+u32 Translator::AddInterpolator(ValueType type, std::string vertexCode) {
+    m_interpolators.push_back({type, std::move(vertexCode)});
+    return static_cast<u32>(m_interpolators.size() - 1);
+}
+
+bool Translator::StaticSwitch(const std::string& name, bool defaultValue) const {
+    const auto it = m_switches.find(name);
+    return it == m_switches.end() ? defaultValue : it->second;
+}
+
+namespace {
+
+const char* KindName(ParameterInfo::Kind k) {
+    switch (k) {
+        case ParameterInfo::Kind::Vector: return "Vector";
+        case ParameterInfo::Kind::Texture: return "Texture";
+        case ParameterInfo::Kind::StaticSwitch: return "Static Switch";
+        default: return "Scalar";
+    }
+}
+
+}  // namespace
+
+bool Translator::DeclareParameter(ParameterInfo info) {
+    for (const ParameterInfo& p : m_parameters) {
+        if (p.name != info.name) continue;
+        if (p.kind != info.kind) {
+            Error(info.node, -1,
+                  "Parameter '" + info.name + "' is already a " + KindName(p.kind) + " parameter (node #" +
+                      std::to_string(p.node) + ")");
+            return false;
+        }
+        return true;
+    }
+    m_parameters.push_back(std::move(info));
+    return true;
+}
+
+i32 Translator::ScalarParameter(ParameterInfo info) {
+    info.kind = ParameterInfo::Kind::Scalar;
+    const i32 vec = VectorParameter(std::move(info));
+    if (vec < 0) return -1;
+    return Reference(ChunkAt(vec).code + ".x", ValueType::Float1, Frequency::Uniform);
+}
+
+i32 Translator::VectorParameter(ParameterInfo info) {
+    for (const ParameterInfo& p : m_parameters) {
+        if (p.name != info.name) continue;
+        if (p.kind != info.kind) {
+            Error(info.node, -1,
+                  "Parameter '" + info.name + "' is already a " + KindName(p.kind) + " parameter (node #" +
+                      std::to_string(p.node) + ")");
+            return -1;
+        }
+        return Reference("MP(" + std::to_string(m_parameterSlots.at(info.name)) + ")", ValueType::Float4,
+                         Frequency::Uniform);
+    }
+    const u32 slot = m_layout.vec4Count++;
+    m_parameterSlots[info.name] = slot;
+    m_parameters.push_back(std::move(info));
+    return Reference("MP(" + std::to_string(slot) + ")", ValueType::Float4, Frequency::Uniform);
+}
+
+i32 Translator::Texture(TextureSlot slot, const ParameterInfo* param) {
+    if (param) {
+        for (const ParameterInfo& p : m_parameters) {
+            if (p.name != param->name) continue;
+            if (p.kind != ParameterInfo::Kind::Texture) {
+                Error(param->node, -1,
+                      "Parameter '" + param->name + "' is already a " + KindName(p.kind) + " parameter (node #" +
+                          std::to_string(p.node) + ")");
+                return -1;
+            }
+        }
+        if (std::none_of(m_parameters.begin(), m_parameters.end(),
+                         [&](const ParameterInfo& p) { return p.name == param->name; })) {
+            m_parameters.push_back(*param);
+        }
+        slot.parameter = param->name;
+    }
+    // One slot per distinct (texture, parameter, sampler, decode) binding.
+    for (const TextureSlot& s : m_layout.textures) {
+        if (s.defaultTexture == slot.defaultTexture && s.parameter == slot.parameter && s.cube == slot.cube &&
+            s.sampler == slot.sampler && s.samplerType == slot.samplerType && s.srgb == slot.srgb) {
+            return Reference(std::to_string(s.slot), slot.cube ? ValueType::TextureCube : ValueType::Texture2D,
+                             Frequency::Uniform);
+        }
+    }
+    slot.slot = m_layout.vec4Count++;
+    const u32 index = slot.slot;
+    const bool cube = slot.cube;
+    m_layout.textures.push_back(std::move(slot));
+    return Reference(std::to_string(index), cube ? ValueType::TextureCube : ValueType::Texture2D,
+                     Frequency::Uniform);
 }
 
 i32 Translator::Binary(std::string_view op, i32 a, i32 b, NodeId at) {
@@ -261,6 +409,14 @@ i32 Translator::CompileInput(NodeId node, u32 inputPin, Stage stage) {
         return CompileOutput(source->node, source->pin, stage);
     }
     if (inputPin >= desc->inputs.size()) {
+        // Dynamic pins (Custom, Function Call) default to 0 when unlinked.
+        if (desc->dynamicPins) {
+            const Stage saved = m_stage;
+            m_stage = stage;
+            const i32 zero = Constant({0.0f, 0.0f, 0.0f, 0.0f}, ValueType::Float1);
+            m_stage = saved;
+            return zero;
+        }
         Error(node, static_cast<i32>(inputPin), "Unknown input pin");
         return -1;
     }
@@ -358,8 +514,13 @@ CompiledMaterial Translator::Finish() {
             out.outputs.push_back({p.name, stage, p.type, ChunkAt(value).code});
         }
     }
+    out.functions = m_functions;
+    out.includes = m_includes;
     out.vertexBody = m_body[static_cast<usize>(Stage::Vertex)];
     out.pixelBody = m_body[static_cast<usize>(Stage::Pixel)];
+    out.interpolators = m_interpolators;
+    out.parameters = m_parameters;
+    out.layout = m_layout;
     out.errors = std::move(m_errors);
     out.warnings = std::move(m_warnings);
     return out;
