@@ -590,6 +590,28 @@ void ViewportPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelConte
                 ctx.onDropMaterial(origin, dir, drop->data);
             }
         }
+        // A static mesh: previewed while it is dragged over the viewport,
+        // placed on release (Unreal's drop preview + actor factory).
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(body, "asset/mesh")) {
+            if (ctx.onDropMesh) {
+                Math::Vec3 origin, dir;
+                rayThrough(ui.mouse(), origin, dir);
+                ctx.onDropMesh(origin, dir, drop->data);
+            }
+            m_meshPreviewing = false;
+        }
+        const Slate::DragPayload* dragging = ui.ActiveDrag();
+        if (dragging && dragging->type == "asset/mesh" && body.Contains(ui.mouse()) &&
+            ctx.onMeshDragPreview) {
+            Math::Vec3 origin, dir;
+            rayThrough(ui.mouse(), origin, dir);
+            ctx.onMeshDragPreview(origin, dir, dragging->data);
+            m_meshPreviewing = true;
+        } else if (m_meshPreviewing) {
+            // Left the viewport, cancelled (Escape) or dropped elsewhere.
+            if (ctx.onMeshDragEnd) ctx.onMeshDragEnd();
+            m_meshPreviewing = false;
+        }
     }
 
     // Click-select: a left press that is released without dragging picks the

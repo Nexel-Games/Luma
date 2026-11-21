@@ -4,6 +4,7 @@ add_library(LumaScene STATIC
     src/Scene.cpp
     src/ComponentReflection.cpp
     src/SceneSerializer.cpp
+    src/AssetReferences.cpp
     src/MaterialMigration.cpp)
 
 add_library(Luma::Scene ALIAS LumaScene)

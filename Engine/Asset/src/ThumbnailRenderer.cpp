@@ -316,20 +316,12 @@ bool ThumbnailManager::GenerateThumbnail(const AssetId& assetId,
                                          const std::filesystem::path& nativePath,
                                          const std::filesystem::path& outputPath,
                                          const ThumbnailSettings& settings) {
-    // Get asset type from file extension
-    AssetType type = AssetType::Unknown;
+    // One extension table for the whole engine (AssetType.cpp): textures
+    // (incl. PSD/HDR/EXR), .lmesh, materials, sounds.
     std::string ext = nativePath.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    
-    if (ext == ".ltex" || ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
-        ext == ".tga" || ext == ".bmp" || ext == ".webp" || ext == ".hdr") {
-        type = AssetType::Texture;
-    } else if (ext == ".lmesh" || ext == ".fbx" || ext == ".obj" || ext == ".gltf" ||
-               ext == ".glb" || ext == ".dae" || ext == ".blend" || ext == ".3ds") {
-        type = AssetType::Mesh;
-    } else if (ext == ".lmat" || ext == ".lmatinst") {
-        type = AssetType::Material;
-    }
+    AssetType type = AssetTypeFromExtension(ext);
+    // Instances render through the material preview.
+    if (type == AssetType::MaterialInstance) type = AssetType::Material;
     
     if (type == AssetType::Unknown) {
         LUMA_LOG_WARN("ThumbnailManager", "Unknown asset type for file: {} (ext: {})", nativePath.string(), ext);

@@ -90,6 +90,7 @@ bool Font::LoadFromFile(Renderer& renderer, const std::string& ttfPath,
 }
 
 Vec2 Font::Measure(std::string_view text) const {
+    if (m_chars.empty()) return Vec2{0.0f, m_lineHeight};  // not loaded
     f32 width = 0.0f;
     for (usize i = 0; i < text.size();) {
         const int idx = static_cast<int>(NextCodepoint(text, i)) - kFirstChar;
@@ -102,6 +103,7 @@ Vec2 Font::Measure(std::string_view text) const {
 void Font::Layout(
     Vec2 pos, std::string_view text,
     const std::function<void(const Rect&, const Rect&)>& emit) const {
+    if (m_chars.empty()) return;  // not loaded: nothing to draw
     f32 penX = pos.x;
     f32 baseline = pos.y + m_ascent;
     const f32 invW = 1.0f / static_cast<f32>(m_atlasWidth);

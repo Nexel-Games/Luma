@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -10,15 +11,16 @@
 
 #include "Luma/Asset/AssetPath.h"
 #include "Luma/Asset/AssetRegistry.h"
-#include "Luma/Asset/AssetImportManager.h"
-#include "Luma/Asset/AssetFileWatcher.h"
 #include "Luma/Asset/LumaMesh.h"
+#include "Luma/Editor/Panels/ImportDialog.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
+#include "Luma/Editor/Panels/BackgroundTasks.h"
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/MaterialEditor.h"
 #include "Luma/Editor/Panels/Viewport.h"
+#include "Luma/Editor/Panels/MeshPlacement.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "MaterialPreview.h"
 #include "PanelContext.h"
@@ -32,6 +34,14 @@
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/DockSpace.h"
 #include "Luma/VFS/FileWatcher.h"
+
+namespace Luma::Import {
+class ImportSession;
+class SourceWatch;
+}
+namespace Luma::Audio {
+class AudioPreview;
+}
 
 namespace Luma {
 
@@ -103,14 +113,28 @@ public:
     // Handle dropped files from the OS (forwarded to Content Browser)
     void HandleDroppedFiles(const std::vector<std::filesystem::path>& files);
 
-    // "Import to Current Folder" (Content Browser right-click menu): opens a
-    // native multi-select file dialog, copies the picked files into `folder`
-    // (empty = content root) and rescans the asset registry.
+    // "Import to Current Folder": native multi-select picker, then the import
+    // window. Dropped files and folders take the same path.
     void ImportAssetsInto(const std::filesystem::path& folder);
+    void SetAudioPreview(Audio::AudioPreview* preview) { m_audioPreview = preview; }
+    void OpenImport(const std::vector<std::filesystem::path>& files, const std::filesystem::path& folder,
+                    bool reimport);
+    void ReimportAsset(const std::filesystem::path& asset);
+    // Reading a source file (Assimp, image/audio decode) can take seconds, so
+    // it runs on the Job System; the Import window opens when it finishes.
+    void BeginTranslate(std::string title, std::filesystem::path folder, bool reimport,
+                        std::function<std::unique_ptr<Import::ImportSession>(std::string* err)> work);
+    void PollTranslate();
+    void FinishOpenImport(std::unique_ptr<Import::ImportSession> session, const std::filesystem::path& folder,
+                          bool reimport);
+    void PollImport();
+    void OnImportDialog(Editor::Panels::ImportDialog::Action action);
 
     // Wires the renderer: thumbnails, and the material preview scene on the
     // backend's secondary deferred renderer (GPU material/mesh thumbnails).
     void SetRenderer(Luma::Renderer* renderer);
+    // Engine services owned by the app (must outlive the editor).
+    void SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManager* tasks);
     Luma::Renderer* Renderer() const noexcept { return m_renderer; }
     
     // Build scene view for deferred renderer. `width`/`height` are the
@@ -200,6 +224,12 @@ private:
     void CreateMaterialInstanceAsset(const std::string& parent, const std::filesystem::path& folder);
     void CreateMaterialFromTextures(const std::filesystem::path& texture);
     void DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& path);
+    // Static mesh drag and drop into the level: where it would land (bridge
+    // preview), and the real placement on release.
+    std::optional<Math::Vec3> MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
+                                               const std::string& mesh);
+    void PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);
+    void DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);
     // `desired` if no material asset uses it, else desired_1, desired_2, ...
     std::string UniqueMaterialPath(const std::string& desired);
     std::vector<std::string> ListAssets(bool materials) const;
@@ -209,6 +239,9 @@ private:
     // Nearest actor hit by a world ray (bounds of its mesh / a small sphere
     // for non-mesh actors). kNullEntity when nothing is hit.
     Entity PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const;
+    // Nearest mesh actor surface along the ray (its bounds), in world space.
+    std::optional<Editor::Panels::PlacementHit> PickSurface(const Math::Vec3& origin,
+                                                            const Math::Vec3& dir) const;
     // `path` relative to the project folder (for user-facing messages).
     std::string ProjectRelative(const std::filesystem::path& path) const;
 
@@ -268,6 +301,18 @@ private:
     // and textures resident in the renderer.
     AssetPathResolver m_assetPaths;
     std::unique_ptr<Material::MaterialLibrary> m_materials;
+    std::unique_ptr<Import::ImportSession> m_importSession;
+    struct PendingTranslate;
+    std::shared_ptr<PendingTranslate> m_translate;  // source being read for the Import window
+    // Cached "source changed?" per imported asset; checked on the Job System.
+    std::unique_ptr<Import::SourceWatch> m_sourceWatch;
+    Editor::Panels::ImportDialog m_importDialog;
+    std::filesystem::path m_importDest;
+    std::string m_importVirtual;
+    bool m_importActive = false;
+    Tasks::TaskToken m_importTask;  // Background Tasks entry while an import runs
+    u64 m_importTotal = 0;
+    Audio::AudioPreview* m_audioPreview = nullptr;
     Editor::MaterialSceneBridge m_bridge;
     VFS::FileWatcher m_assetWatcher;
     std::unordered_set<std::string> m_watchedFiles;
@@ -294,6 +339,9 @@ private:
     Editor::Panels::InspectorPanel m_inspectorPanel;
     Editor::Panels::ConsolePanel m_consolePanel;
     Editor::Panels::ContentBrowserPanel m_contentBrowser;
+    Editor::Panels::BackgroundTasksPanel m_backgroundTasks;
+    Jobs::JobSystem* m_jobs = nullptr;
+    Tasks::TaskManager* m_tasks = nullptr;
 
     // Renderer for thumbnail generation
     Luma::Renderer* m_renderer = nullptr;

@@ -92,7 +92,7 @@ private:
     TextureHandle m_texActorDirLight = 0;   // Directional-light row icon
     TextureHandle m_texActorPointLight = 0; // Point-light row icon
     TextureHandle m_texActorSpotLight = 0;  // Spot-light row icon
-    TextureHandle m_texActorMesh = 0;       // Generic mesh-asset row icon
+    TextureHandle m_texActorMesh = 0;       // Static mesh actor row icon (stacked blocks)
 };
 
 }  // namespace Luma::Editor::Panels

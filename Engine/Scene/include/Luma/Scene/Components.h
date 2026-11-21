@@ -32,19 +32,21 @@ struct TransformComponent {
 // Marks an entity as drawing a mesh with a PBR material.
 // Can use built-in primitives or loaded mesh assets.
 struct MeshRendererComponent {
-    // Built-in primitive (used if meshAsset is invalid)
+    // Built-in primitive (drawn while `mesh` is empty or fails to load)
     MeshPrimitive primitive = MeshPrimitive::Cube;
 
-    // Mesh asset reference (invalid ID means use primitive)
-    AssetId meshAsset;
+    // Static mesh asset as a virtual path ("/Game/.../SM_Rock"); empty draws
+    // `primitive`. Saved with the scene, like the material slots.
+    std::string mesh;
 
-    // One material per mesh section, as virtual asset paths (/Game/...).
-    // An empty or missing slot uses the Default Material; slots beyond the
+    // Material overrides, one per mesh section, as virtual asset paths
+    // (/Game/...). An empty or missing slot uses the mesh's own material for
+    // that section (the Default Material for primitives); slots beyond the
     // mesh's section count are kept (a mesh swap may need them) but unused.
     std::vector<std::string> materials;
 
     // Check if using mesh asset or primitive
-    bool UsesMeshAsset() const { return meshAsset.IsValid(); }
+    bool UsesMeshAsset() const { return !mesh.empty(); }
 };
 
 // A camera. Its position/orientation come from the entity's Transform; this

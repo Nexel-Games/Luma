@@ -21,22 +21,10 @@ FetchContent_Declare(Catch2
     GIT_TAG        v3.7.1       # pinned release
     GIT_SHALLOW    TRUE)
 
-# Assimp for 3D asset importing (FBX, OBJ, GLTF, etc.)
-set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
-# Enable Assimp's built-in ZLIB to avoid external dependency
-set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
-# Fix MSVC compilation flags for exception handling
+# Fix MSVC compilation flags for exception handling (Assimp sources throw).
 if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
 endif()
-
-FetchContent_Declare(assimp
-    GIT_REPOSITORY https://github.com/assimp/assimp.git
-    GIT_TAG        v5.4.0      # pinned release
-    GIT_SHALLOW    TRUE)
 
 # Idempotent helpers so multiple modules can request the same dependency.
 function(luma_require_glfw)
@@ -55,6 +43,55 @@ endfunction()
 
 function(luma_require_assimp)
     if(NOT TARGET assimp)
-        FetchContent_MakeAvailable(assimp)
+        set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+        set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+        set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+        foreach(fmt OBJ FBX GLTF)
+            set(ASSIMP_BUILD_${fmt}_IMPORTER ON CACHE BOOL "" FORCE)
+        endforeach()
+        foreach(fmt FBX GLTF OBJ)   # exporters: fixture generation only
+            set(ASSIMP_BUILD_${fmt}_EXPORTER ON CACHE BOOL "" FORCE)
+        endforeach()
+        add_subdirectory(${PROJECT_SOURCE_DIR}/ThirdParty/assimp
+                         ${CMAKE_BINARY_DIR}/ThirdParty/assimp EXCLUDE_FROM_ALL)
+        set_target_properties(assimp PROPERTIES FOLDER "ThirdParty")
+    endif()
+endfunction()
+
+function(luma_require_miniaudio)
+    if(NOT TARGET luma_miniaudio)
+        enable_language(C)
+        add_library(luma_miniaudio STATIC
+            ${PROJECT_SOURCE_DIR}/ThirdParty/miniaudio/miniaudio.c)
+        target_include_directories(luma_miniaudio PUBLIC
+            ${PROJECT_SOURCE_DIR}/ThirdParty/miniaudio)
+        target_compile_definitions(luma_miniaudio PUBLIC
+            MA_NO_GENERATION
+            MA_NO_ENCODING)
+        if(MSVC)
+            target_compile_options(luma_miniaudio PRIVATE /W0)
+        else()
+            target_compile_options(luma_miniaudio PRIVATE -w)
+        endif()
+        set_target_properties(luma_miniaudio PROPERTIES FOLDER "ThirdParty")
+    endif()
+endfunction()
+
+function(luma_require_tinyexr)
+    if(NOT TARGET luma_tinyexr)
+        add_library(luma_tinyexr STATIC
+            ${PROJECT_SOURCE_DIR}/ThirdParty/tinyexr_impl.cpp)
+        target_include_directories(luma_tinyexr PUBLIC
+            ${PROJECT_SOURCE_DIR}/ThirdParty/stb
+            ${PROJECT_SOURCE_DIR}/ThirdParty)
+        if(MSVC)
+            target_compile_options(luma_tinyexr PRIVATE /W0)
+        endif()
+        set_target_properties(luma_tinyexr PROPERTIES FOLDER "ThirdParty")
     endif()
 endfunction()

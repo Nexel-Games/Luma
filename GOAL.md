@@ -302,7 +302,8 @@ Unreal-style PBR materials as assets (spec/plan:
 ### 2.5 Meshes  ·  🟡 PARTIAL
 `Engine/Rendering/Mesh` — built-in primitives (cube/sphere/plane…) + PBR draw.
 - [x] Primitive mesh generation + GPU buffers + draw path
-- [ ] Imported static meshes (from glTF/OBJ/FBX via asset pipeline 5.6)
+- [x] Imported static meshes (from glTF/OBJ/FBX via asset pipeline 5.6), placed and assigned
+      in the editor (T-0004)
 - [ ] Skeletal mesh support (skinning) — architecture for Animation (3.7)
 - [ ] Instancing + LOD hooks; mesh streaming architecture
 - **DoD:** an imported mesh asset renders identically to a primitive; instanced draw
@@ -407,7 +408,9 @@ Event-based input exists (`Event.h`/`Events.h`, Slate consumes it). No action ma
   controller moves; all visible via physics debug draw.
 - **Log:** _(pending)_
 
-### 3.5 Audio  ·  🔲 TODO
+### 3.5 Audio  ·  🟡 PARTIAL  *(decode + editor preview only)*
+- [x] `Engine/Audio` (`Luma::Audio`, miniaudio): WAV/MP3 decode, waveform peaks, one-shot
+      editor preview (`AudioPreview`)
 - [ ] Audio subsystem + backend; 2D and 3D positional audio
 - [ ] Audio assets, sources, buses, volume, spatialization, doppler, reverb (arch)
 - [ ] `AudioSource` / `AudioListener` components
@@ -576,16 +579,37 @@ Editor references a console; core Log exists.
 - **DoD:** logs stream in with filtering; a shader compile error is clickable.
 - **Log:** _(partial)_
 
-### 5.6 Asset Tools — Pipeline + Registry  ·  🔲 TODO  *(large, foundational)*
-- [ ] **Asset Registry / database**: stable GUID per asset; type, source path, processed
-      path, dependencies, import settings, timestamp, version
-- [ ] **Import pipeline**: FBX/glTF/GLB/OBJ, PNG/JPG/TGA/HDR, WAV/MP3/OGG, fonts, shaders
-      → processed engine-native formats (`Source → Importer → Processed → Registry → Runtime`)
-- [ ] Async import on the asset thread (no editor stalls)
-- [ ] Hot reload of changed assets
+### 5.6 Asset Tools — Pipeline + Registry  ·  🟡 PARTIAL  *(import landed: T-0003)*
+`Engine/AssetImport` (`Luma::AssetImport`) — Interchange-style: **translators** (source →
+`ImportScene`), **pipelines** (settings → `ImportPlan` of asset requests), **factories**
+(requests → `.lmesh` / `.lmat` / textures / sounds + `.meta`), and an async `ImportSession`.
+- [x] Formats: glTF, GLB, FBX, OBJ (Assimp) · PNG, JPEG, TGA, BMP, PSD, HDR, EXR · WAV, MP3
+- [x] **Import window** (`Editor/panels/ImportDialog`): per-file tree with checkboxes,
+      Common/Meshes/Materials/Textures/Audio settings, presets + last-used settings,
+      conflict policy (Overwrite / Skip / Keep Both); opened from the Content Browser
+      Import button, Assets → Import..., and drag & drop from Explorer (folders recurse)
+- [x] `.meta` sidecar per asset: GUID, source path/size/mtime/hash, importer, settings
+- [x] **Reimport** (context menu) with the recorded settings; "source changed" badge from a
+      cached `SourceWatch` (checked on the Job System — never per frame)
+- [x] Async: reading the source and writing assets run off the main thread with
+      Background Tasks entries; a model is parsed once per run (`ModelPayloadCache`)
+- [x] Thumbnails: 3D mesh/material previews, images (incl. PSD/HDR/EXR), sound waveforms;
+      produced within a frame budget; sound tiles have a play button (`Luma::Audio`)
+- [x] Missing referenced textures are warnings (material created without them)
+- [ ] Skeletal meshes / animation, LODs, collision, BCn compression, HDR/EXR as material
+      textures (lead), fonts/shaders import, hot reload
+- [x] **Static meshes in the level (T-0004):** drag a mesh from the Content Browser into the
+      viewport (placement preview resting on the surface under the cursor, grid snapping);
+      Inspector **Static Mesh** row (searchable picker, Use Selected / Browse / Reset, drop
+      target); material slots follow the mesh (slot names, the mesh's own materials as
+      defaults); actors save their mesh by virtual path; renames move `.meta` and retarget
+      the open scene
+- [ ] Redirectors for scenes that are not open when an asset is renamed; Static Mesh
+      Editor; "Replace Selected Actors with"; multi-asset drops (multi-select)
 - **DoD:** dropping a glTF into the project imports it, registers a GUID, and it renders
   from the Content Browser; re-importing updates it live.
-- **Log:** _(pending)_
+- **Log:** _import pipeline, window, reimport, thumbnails and sound preview done (T-0003);
+  static mesh placement/assignment done (T-0004); the items above pending._
 
 ### 5.7 Transform Tools & Gizmos  ·  🟡 PARTIAL
 `Editor/Gizmo` — translate gizmo only.

@@ -12,6 +12,15 @@
 namespace Luma::Material {
 class MaterialLibrary;
 }
+namespace Luma::Jobs {
+class JobSystem;
+}
+namespace Luma::Tasks {
+class TaskManager;
+}
+namespace Luma::Audio {
+class AudioPreview;
+}
 
 namespace Luma {
 // Forward declarations keep PanelContext.h lightweight; only the panels that
@@ -38,6 +47,12 @@ enum class CreateActorKind {
     TubeLight,
     Environment,
     PostProcessVolume,
+};
+
+// One material slot of a static mesh, as the Inspector shows it.
+struct MeshSlotInfo {
+    std::string name;             // "Paint", "Element 0"
+    std::string defaultMaterial;  // the mesh's own material (virtual path) or ""
 };
 
 struct PanelContext {
@@ -76,12 +91,21 @@ struct PanelContext {
     // (empty = content root), then rescans the registry. Implemented by
     // EditorScreen; panels just invoke it.
     std::function<void(const std::filesystem::path& folder)> onImportAssets;
+    // Reimport an asset that has a .meta (Content Browser context menu).
+    std::function<void(const std::filesystem::path& asset)> onReimport;
+    // True when the asset's recorded source no longer matches its .meta.
+    std::function<bool(const std::filesystem::path& asset)> sourceChanged;
+    // One-shot sound preview. Null when no device is available.
+    Audio::AudioPreview* audioPreview = nullptr;
 
     // Content Browser: create an empty scene asset in `folder`; move a file
     // or folder to the platform recycle bin (recoverable); reveal a path in
     // the system file browser.
     std::function<void(const std::filesystem::path& folder)> onCreateScene;
     std::function<void(const std::filesystem::path& path)> onDeleteAsset;
+    // An asset or folder was renamed in the Content Browser (virtual paths,
+    // extension-less; folders too): references to it should follow.
+    std::function<void(const std::string& oldPath, const std::string& newPath)> onAssetRenamed;
     std::function<void(const std::filesystem::path& path)> onRevealInExplorer;
 
     // World Outliner entity actions (EditorScreen owns naming, selection
@@ -99,8 +123,17 @@ struct PanelContext {
     // ---- Materials ----------------------------------------------------------
     // The editor's material assets (edits are live in every viewport).
     Material::MaterialLibrary* materials = nullptr;
+    // Engine services: background work (Job System) and its user-visible
+    // progress (Task Manager). Owned by the app; may be null in tests.
+    Jobs::JobSystem* jobs = nullptr;
+    Tasks::TaskManager* tasks = nullptr;
     // Number of material sections of an actor's mesh (1 for primitives).
     std::function<u32(Entity)> sectionCount;
+    // Material slots of an actor's static mesh (name + the mesh's own
+    // material per section); empty for primitives or a mesh not loaded yet.
+    std::function<std::vector<MeshSlotInfo>(Entity)> meshSections;
+    // Virtual paths of every static mesh (.lmesh) asset.
+    std::function<std::vector<std::string>()> listMeshes;
     // Renders a material on a preview shape (0 sphere, 1 cube, 2 plane,
     // 3 cylinder) orbiting by yaw/pitch at width x height; `sky` shows the sky
     // backdrop (else a dark studio). Returns the UI texture (0 = unavailable).
@@ -127,6 +160,13 @@ struct PanelContext {
         onCreateMaterialInstance;
     // Builds a material from the texture set `texture` belongs to.
     std::function<void(const std::filesystem::path& texture)> onCreateMaterialFromTextures;
+    // A static mesh dragged over the viewport (every frame, along the world ray
+    // under the cursor), dropped there, or the drag left/ended/was cancelled.
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh)>
+        onMeshDragPreview;
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh)>
+        onDropMesh;
+    std::function<void()> onMeshDragEnd;
     // A material dropped on the viewport along a world ray.
     std::function<void(const Math::Vec3& origin, const Math::Vec3& dir,
                        const std::string& materialPath)>

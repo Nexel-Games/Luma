@@ -300,6 +300,8 @@ public:
     bool BeginDrag(u64 sourceId, const Rect& source, const DragPayload& payload);
     bool IsDragging(std::string_view type) const { return m_drag.IsDragging(type); }
     bool IsDraggingAnything() const { return m_drag.Active(); }
+    // The payload being dragged right now (past the start threshold), or null.
+    const DragPayload* ActiveDrag() const { return m_drag.Active() ? &m_drag.Payload() : nullptr; }
     // Target: highlights `target` while a `type` payload hovers it; returns the
     // payload on release inside it (once per drop), else nullptr.
     const DragPayload* AcceptDrop(const Rect& target, std::string_view type);

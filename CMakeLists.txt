@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 project(LumaEngine
     VERSION 0.1.0
     DESCRIPTION "Luma Engine - a production-grade Vulkan game engine"
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Build configurations
@@ -37,6 +37,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 option(LUMA_BUILD_TESTS "Build Luma automated tests" ON)
+option(LUMA_BUILD_TOOLS "Build Luma command-line tools" ON)
 
 include(LumaCompilerFlags)
 include(LumaDependencies)
@@ -57,6 +58,8 @@ endif()
 # Engine modules
 # ---------------------------------------------------------------------------
 add_subdirectory(Engine/Core)
+add_subdirectory(Engine/Jobs)
+add_subdirectory(Engine/Tasks)
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Math/CMakeLists.txt)
     add_subdirectory(Engine/Math)
@@ -108,8 +111,14 @@ endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Asset/CMakeLists.txt)
     add_subdirectory(Engine/Asset)
 endif()
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Audio/CMakeLists.txt)
+    add_subdirectory(Engine/Audio)
+endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/Material/CMakeLists.txt)
     add_subdirectory(Engine/Material)
+endif()
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Engine/AssetImport/CMakeLists.txt)
+    add_subdirectory(Engine/AssetImport)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Runtime/Sandbox/CMakeLists.txt)
     add_subdirectory(Runtime/Sandbox)
@@ -128,6 +137,10 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Editor/panels/CMakeLists.txt)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Editor/LumaEditor/CMakeLists.txt)
     add_subdirectory(Editor/LumaEditor)
+endif()
+
+if(LUMA_BUILD_TOOLS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Tools/ImportFixtureGen/CMakeLists.txt)
+    add_subdirectory(Tools/ImportFixtureGen)
 endif()
 
 if(LUMA_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Tests/CMakeLists.txt)

@@ -61,7 +61,7 @@ TEST_CASE("AddRoot + Scan indexes files and folders", "[asset][registry]") {
     for (const auto* a : all) {
         if (a->assetName == "hero" && a->type == AssetType::Texture)
             sawHero = true;
-        if (a->assetName == "tree" && a->type == AssetType::Mesh)
+        if (a->assetName == "tree" && a->type == AssetType::Unknown)
             sawTree = true;
     }
     REQUIRE(sawHero);
@@ -253,4 +253,24 @@ TEST_CASE("DisplayPathFor handles the root itself", "[asset][registry][display]"
     r.AddRoot(dir.Path());
     auto display = r.DisplayPathFor(dir.Path());
     REQUIRE(display == "Assets/");
+}
+
+TEST_CASE("Import sidecars, temp files and dot folders are not assets", "[asset][registry]") {
+    TempDir dir;
+    dir.Touch("a.png");
+    dir.Touch("a.png.meta");
+    dir.Touch("b.lmesh.tmp");
+    dir.Touch(".git/config");
+    AssetRegistry r;
+    r.AddRoot(dir.Path());
+    r.Scan();
+    REQUIRE(r.LookupByPath(dir.Path() / "a.png") != nullptr);
+    REQUIRE(r.LookupByPath(dir.Path() / "a.png.meta") == nullptr);
+    REQUIRE(r.LookupByPath(dir.Path() / "b.lmesh.tmp") == nullptr);
+    REQUIRE(r.LookupByPath(dir.Path() / ".git") == nullptr);
+    REQUIRE(r.LookupByPath(dir.Path() / ".git" / "config") == nullptr);
+
+    dir.Touch("c.png.meta");
+    r.RefreshPath(dir.Path() / "c.png.meta");
+    REQUIRE(r.LookupByPath(dir.Path() / "c.png.meta") == nullptr);
 }

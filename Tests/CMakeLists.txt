@@ -13,11 +13,15 @@ add_executable(LumaTests
     Core/LayerStackTests.cpp
     Core/ApplicationTests.cpp
     Core/MemoryTests.cpp
+    Jobs/JobSystemTests.cpp
+    Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
     Serialization/SerialValueTests.cpp
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
     Scene/SceneSerializerTests.cpp
+    Scene/MeshRendererSerializationTests.cpp
+    Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
     Math/MathTests.cpp
@@ -39,17 +43,32 @@ add_executable(LumaTests
     Asset/MaterialThumbnailTests.cpp
     Asset/AssetPathTests.cpp
     Asset/TextureColorSpaceTests.cpp
+    Asset/Import/ImportSceneTests.cpp
+    Asset/Import/ModelTranslatorTests.cpp
+    Asset/Import/ImageTranslatorTests.cpp
+    Asset/Import/AudioTranslatorTests.cpp
+    Asset/Import/PipelineTests.cpp
+    Asset/Import/FactoryTests.cpp
+    Asset/Import/ImportSessionTests.cpp
+    Asset/Import/SourceWatchTests.cpp
+    Asset/ThumbnailImportTests.cpp
+    Audio/AudioDecodeTests.cpp
     Scene/MaterialMigrationTests.cpp
     Material/MaterialModelTests.cpp
     Material/MaterialSerializerTests.cpp
     Material/MaterialLibraryTests.cpp
     Material/MaterialFromTexturesTests.cpp
     Editor/ContentBrowserTests.cpp
+    Editor/ThumbnailBudgetTests.cpp
+    Editor/ImportDialogTests.cpp
     Editor/ConsoleTests.cpp
     Editor/MaterialSceneBridgeTests.cpp
     Editor/MaterialEditorTests.cpp
     Editor/InspectorMaterialTests.cpp
+    Editor/StaticMeshSlotTests.cpp
+    Editor/MeshPlacementTests.cpp
     Editor/TransformGizmoTests.cpp
+    Editor/BackgroundTasksTests.cpp
     VFS/PathTests.cpp
     VFS/VFSTests.cpp
     VFS/FileWatcherTests.cpp
@@ -57,10 +76,11 @@ add_executable(LumaTests
     Rendering/MeshGeometryTests.cpp
     Rendering/MaterialGpuDescTests.cpp
     Rendering/VulkanTextureCacheTests.cpp
+    Rendering/VulkanUITextureTests.cpp
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 
