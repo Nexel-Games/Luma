@@ -6,7 +6,6 @@
 
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
-#include "Luma/Asset/AssetImportManager.h"
 #include "Luma/VFS/FileWatcher.h"
 
 // Asset File Watcher - bridges the VFS FileWatcher with the Asset Import Manager
@@ -14,6 +13,8 @@
 // Watches source files (not derived files) and queues reimport jobs on change.
 
 namespace Luma {
+
+class AssetImportManager;
 
 class AssetFileWatcher {
 public:

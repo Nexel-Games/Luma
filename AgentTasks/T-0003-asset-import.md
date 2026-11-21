@@ -1,6 +1,6 @@
 # T-0003 — Asset Import Pipeline & Import Window
 
-**Status:** Approved
+**Status:** Completed (review fixes by the lead; waiting for the user's test)
 **Assigned to:** engine agent
 **Created:** 2026-11-20 by lead (planned with the user)
 **Design (read first):** `docs/superpowers/specs/2026-11-20-asset-import-pipeline-design.md`
@@ -86,7 +86,7 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
 **Files:** `cmake/LumaDependencies.cmake`, `Engine/Asset/CMakeLists.txt`,
 `Engine/Audio/CMakeLists.txt` (new, skeleton only here), root `CMakeLists.txt`.
 
-- [ ] **Step 1:** Replace the Assimp `FetchContent_Declare` / `luma_require_assimp` with
+- [x] **Step 1:** Replace the Assimp `FetchContent_Declare` / `luma_require_assimp` with
   `ThirdParty/assimp`:
   ```cmake
   function(luma_require_assimp)
@@ -112,11 +112,11 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
   endfunction()
   ```
   Keep the MSVC `/EHsc` line. Delete the old assimp `FetchContent_Declare`.
-- [ ] **Step 2:** Add `luma_require_miniaudio()`: a static library `luma_miniaudio` built from
+- [x] **Step 2:** Add `luma_require_miniaudio()`: a static library `luma_miniaudio` built from
   `ThirdParty/miniaudio/miniaudio.c`, include dir `ThirdParty/miniaudio`, compile
   definitions `MA_NO_GENERATION` and `MA_NO_ENCODING` (we decode + play only),
   warnings off for that target only.
-- [ ] **Step 3:** Add `luma_require_tinyexr()`: a static library `luma_tinyexr` from a new
+- [x] **Step 3:** Add `luma_require_tinyexr()`: a static library `luma_tinyexr` from a new
   `ThirdParty/tinyexr_impl.cpp` containing
   ```cpp
   #define TINYEXR_USE_MINIZ 1
@@ -127,10 +127,10 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
   (add `ThirdParty/miniz.c` only if the build reports missing miniz symbols; the
   single-header `miniz.h` in ThirdParty may need `MINIZ_HEADER_FILE_ONLY` undefined —
   check the header and document what you did in *Result*).
-- [ ] **Step 4:** Reconfigure + full build. Expected: builds; `LumaTests.exe "[asset]"` passes
+- [x] **Step 4:** Reconfigure + full build. Expected: builds; `LumaTests.exe "[asset]"` passes
   (existing `MeshImporterTests` now run on Assimp 6). If an Assimp-6 behaviour change
   breaks an existing test, fix the code (not the test) and note it under Deviations.
-- [ ] **Step 5:** Commit `build: assimp/miniaudio/tinyexr from ThirdParty (T-0003)`.
+- [x] **Step 5:** Commit `build: assimp/miniaudio/tinyexr from ThirdParty (T-0003)`.
 
 ## Task 2 — FBX fixture
 
@@ -138,19 +138,19 @@ Defaults**. Reimport reopens the dialog with the settings stored in the asset.
 root `CMakeLists.txt` (add `Tools/ImportFixtureGen` behind option
 `LUMA_BUILD_TOOLS`, default ON), `Tests/Fixtures/Import/robot.fbx`.
 
-- [ ] **Step 1:** Write the tool: load `robot.gltf` with `Assimp::Importer`, then before export
+- [x] **Step 1:** Write the tool: load `robot.gltf` with `Assimp::Importer`, then before export
   set FBX unit metadata so the file is **centimetres, Z-up**:
   scale every root node by 100 and rotate +90° about X (Y-up → Z-up), and set
   `scene->mMetaData` keys `UnitScaleFactor` = 1.0 (cm), `UpAxis` = 2,
   `UpAxisSign` = 1, `FrontAxis` = 1, `FrontAxisSign` = -1, `CoordAxis` = 0,
   `CoordAxisSign` = 1. Export with `Assimp::Exporter::Export(scene, "fbx", out)`.
   Usage: `ImportFixtureGen <in.gltf> <out.fbx>`.
-- [ ] **Step 2:** Build, run it to produce `Tests/Fixtures/Import/robot.fbx`, then verify by
+- [x] **Step 2:** Build, run it to produce `Tests/Fixtures/Import/robot.fbx`, then verify by
   loading it back with Assimp and printing node names, mesh count (2), material
   names (Paint, Metal) and the metadata keys. If the exporter does not write the
   metadata, record that in *Result* — Task 4's unit/axis tests are designed to work
   from metadata passed to a pure function, so they still cover the conversion.
-- [ ] **Step 3:** Commit the tool and `robot.fbx`: `test: FBX import fixture (T-0003)`.
+- [x] **Step 3:** Commit the tool and `robot.fbx`: `test: FBX import fixture (T-0003)`.
 
 ## Task 3 — Import scene, settings schema, metadata
 
@@ -246,14 +246,14 @@ std::string HashFile(const std::filesystem::path&);
 (Use the engine's existing JSON type from `Engine/Serialization` — check its header for
 the actual class name and use it where this plan says `Json`.)
 
-- [ ] **Step 1: Failing tests** (`[import][scene]`): AddNode/Children/OfKind; Append remaps
+- [x] **Step 1: Failing tests** (`[import][scene]`): AddNode/Children/OfKind; Append remaps
   `meshMaterials`/`TextureRef` ids; SettingsBlock defaults, Set clamps a Float to
   `[min,max]`, wrong type rejected (value unchanged), JSON round-trip, unknown key
   ignored; Metadata write→read round-trip; `MetadataPathFor("a/T_X.png") ==
   "a/T_X.png.meta"`; `HashFile` stable for the same bytes and different after a 1-byte
   change.
-- [ ] **Step 2:** Run → compile failure. **Step 3:** Implement. **Step 4:** Pass; suite green.
-- [ ] **Step 5:** Commit `feat(asset): import scene, settings schema, metadata (T-0003)`.
+- [x] **Step 2:** Run → compile failure. **Step 3:** Implement. **Step 4:** Pass; suite green.
+- [x] **Step 5:** Commit `feat(asset): import scene, settings schema, metadata (T-0003)`.
 
 ## Task 4 — Model translator (glTF, GLB, FBX, OBJ)
 
@@ -345,11 +345,11 @@ Assimp usage notes:
 - A texture used by several materials becomes **one** Texture node (dedupe by resolved
   path / embedded index).
 
-- [ ] **Step 1: Convention test first** (`[import][model]`): "Luma is Y-up right-handed":
+- [x] **Step 1: Convention test first** (`[import][model]`): "Luma is Y-up right-handed":
   assert with `Math::LookAt` / `Math::Perspective` (from `Engine/Math`) that a point at
   +Y projects above the screen centre and a camera at +Z looking at the origin sees +X
   on the right. If this fails, stop and report (Blocked).
-- [ ] **Step 2: Failing tests:**
+- [x] **Step 2: Failing tests:**
   - `robot.gltf` and `robot.glb`: File node + 2 Mesh (Body 24 v / 12 tris, Arm), 2
     Material (Paint: baseColorTex + normalTex set, metallic 0, roughness 0.6; Metal:
     baseColor 0.8, metallic 1, roughness 0.3, no textures), 2 Texture nodes
@@ -365,8 +365,8 @@ Assimp usage notes:
     UV exactly (top-left origin) for all three formats.
   - Missing external texture (copy robot.gltf to a temp dir without PNGs) → Texture
     node has an error, translation still succeeds.
-- [ ] **Step 3:** Run → fail. **Step 4:** Implement. **Step 5:** Pass; suite green.
-- [ ] **Step 6:** Commit `feat(import): model translator for gltf/glb/fbx/obj (T-0003)`.
+- [x] **Step 3:** Run → fail. **Step 4:** Implement. **Step 5:** Pass; suite green.
+- [x] **Step 6:** Commit `feat(import): model translator for gltf/glb/fbx/obj (T-0003)`.
 
 ## Task 5 — Image translator (PNG, JPEG, TGA, BMP, PSD, HDR, EXR)
 
@@ -390,14 +390,14 @@ stb: `stbi_load` (png/jpg/tga/bmp/psd composite), `stbi_loadf` (hdr). EXR: tinye
 `LoadEXR(&rgba, &w, &h, path, &err)` (frees with `free`). Texture node colour-space
 hint: `IsTextureSRGB()` from `TextureColorSpace.h` (HDR/EXR → linear).
 
-- [ ] **Step 1: Failing tests** (`[import][image]`): for each fixture image: size 32×16,
+- [x] **Step 1: Failing tests** (`[import][image]`): for each fixture image: size 32×16,
   pixel (3, 2) == (24, 32, 128) (JPEG within ±6 per channel), alpha (3,2) == 24 for
   `img_rgba.png`/`img.tga`, 255 for the others; `img.hdr`/`img.exr` 4×2 float pixel
   (0,0) == (2.0, 0.5, 0.25) ±1e-3 (HDR within ±2% — RGBE quantisation); translator
   gives one Texture node named after the file stem; corrupt file (write 10 random
   bytes to a temp `.png`) → `Translate` returns false with a message.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): image translator (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): image translator (T-0003)`.
 
 ## Task 6 — Audio module + audio translator (WAV, MP3)
 
@@ -437,13 +437,13 @@ miniaudio: decode with `ma_decoder_init_file` + `ma_decoder_get_length_in_pcm_fr
 column read that many frames, track min/max of every sample of every channel; empty
 trailing columns = 0.
 
-- [ ] **Step 1: Failing tests** (`[import][audio]`): `tone_mono.wav` → 1 ch, 44100 Hz,
+- [x] **Step 1: Failing tests** (`[import][audio]`): `tone_mono.wav` → 1 ch, 44100 Hz,
   seconds 1.0 ±0.01; `tone_stereo.mp3` → 2 ch, 44100 Hz, seconds 1.0 ±0.06 (encoder
   padding); `ComputePeaks(wav, 64)` → 64 columns, every max in [0.9, 1.0] and min in
   [−1.0, −0.9] (full-scale sine); corrupt file → nullopt + message; translator gives one
   Sound node with the probed info. Do **not** create an audio device in tests.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(audio): decode/probe/peaks + preview; audio translator (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(audio): decode/probe/peaks + preview; audio translator (T-0003)`.
 
 ## Task 7 — Pipelines (settings → asset requests)
 
@@ -505,15 +505,15 @@ falls back to Create New); `Do Not Import` → no material/texture requests from
 exists; KeepBoth → `_1`, `_2`, … first free name; Skip → request kept with
 `policy=Skip` (factory does nothing, summary says skipped).
 
-- [ ] **Step 1: Failing tests** (`[import][pipeline]`): plan for `robot.gltf` → 2 meshes,
+- [x] **Step 1: Failing tests** (`[import][pipeline]`): plan for `robot.gltf` → 2 meshes,
   2 materials, 2 textures with expected names/paths; combine → 1 mesh `SM_robot`;
   disable Arm → its material (Metal, not used elsewhere) gone, Paint kept; disable
   T_Paint_N → Paint still requested, texture gone; Do Not Import materials → only
   meshes; KeepBoth with an existing `SM_Body.lmesh` → `SM_Body_1.lmesh`; Skip → policy
   Skip; Sanitize cases (`"Robot Arm (L).001"` → `"Robot_Arm_L_001"`, `""` → `"Asset"`);
   Set out-of-range scale clamps; stack JSON round-trip.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): pipelines and import plan (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): pipelines and import plan (T-0003)`.
 
 ## Task 8 — Factories
 
@@ -553,7 +553,7 @@ Rules:
   (`settings.colorSpace`) for the renderer (the lead wires renderer support).
 - Sound: copy file; `.meta` settings carry loop/volume/pitch + probed info.
 
-- [ ] **Step 1: Failing tests** (`[import][factory]`, temp project dir with
+- [x] **Step 1: Failing tests** (`[import][factory]`, temp project dir with
   `Assets/`): import `robot.glb` plan → files `SM_Body.lmesh`, `SM_Arm.lmesh`,
   `M_Paint.lmat`, `M_Metal.lmat`, `T_Paint_D.png`, `T_Paint_N.png` + `.meta` each;
   `ReadMesh(SM_Body)` 24 vertices, section material `/Game/.../M_Paint`; M_Paint's
@@ -561,8 +561,8 @@ Rules:
   overwrite keeps the GUID; Skip leaves the old file byte-identical; cancel flag set
   before the first write → no files and no `.tmp` left; PSD import writes a PNG; maxSize
   256 on a 64 px texture leaves it unchanged, on a generated 1024 px texture yields 256.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): asset factories (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): asset factories (T-0003)`.
 
 ## Task 9 — Import session (async, progress, cancel, reimport)
 
@@ -601,28 +601,28 @@ thread when `TakeResult()` completes the session (factories for meshes/textures/
 run on the worker; materials are queued and created in `TakeResult` before returning).
 Document this in the header.
 
-- [ ] **Step 1: Failing tests** (`[import][session]`): translate 3 files (glb + wav +
+- [x] **Step 1: Failing tests** (`[import][session]`): translate 3 files (glb + wav +
   png) → scene has 3 File nodes; Start + wait (poll with timeout 10 s) → summary counts;
   Progress reaches 1; Cancel during a run of 50 copies of the PNG → stops early, no
   `.tmp` files, summary reports cancellation; `ForReimport(SM_Body.lmesh)` restores the
   stored settings (e.g. uniformScale 2 set before the first import); `SourceChanged`
   false right after import, true after appending a byte to the source copy.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): import session (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): import session (T-0003)`.
 
 ## Task 10 — Registry and asset-type updates
 
 **Files:** `Engine/Asset/include/Luma/Asset/AssetType.h`, `src/AssetScanner.cpp`,
 `src/AssetType.cpp`; tests in `Tests/Asset/AssetScannerTests.cpp`.
 
-- [ ] **Step 1: Failing tests:** `AssetTypeFromExtension` maps `psd`, `hdr`, `exr` →
+- [x] **Step 1: Failing tests:** `AssetTypeFromExtension` maps `psd`, `hdr`, `exr` →
   Texture; the scanner skips `*.meta` and `*.tmp` files; source-only model formats
   (`gltf`, `glb`, `fbx`, `obj`, `bin`, `mtl`) inside a project's `Assets/` are reported
   as `AssetType::Unknown` (they are import sources, not engine assets — only `.lmesh`
   is a Mesh). Update any existing test that asserted the old mapping and note it in
   Deviations.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(asset): asset types and scanner rules for imports (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(asset): asset types and scanner rules for imports (T-0003)`.
 
 ## Task 11 — Thumbnails (sounds, new image formats)
 
@@ -638,13 +638,13 @@ tests `Tests/Asset/ThumbnailImportTests.cpp`.
   renderer is registered (search `RegisterRenderer`).
 - Textures: decode through `DecodeImageFile` so PSD/HDR/EXR work; float images
   tone-mapped `c / (1 + c)` then sRGB-encoded.
-- [ ] **Step 1: Failing tests** (`[import][thumbnail]`): sound thumbnail of
+- [x] **Step 1: Failing tests** (`[import][thumbnail]`): sound thumbnail of
   `tone_mono.wav` → file written, 128×128, centre column has accent-coloured pixels
   above and below the centre line, identical bytes on a second render (deterministic);
   HDR/EXR/PSD thumbnails written with expected size; HDR pixel ≈ tone-mapped value
   (2.0/(3.0)) sRGB-encoded ±3.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(asset): sound waveform and HDR/EXR/PSD thumbnails (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(asset): sound waveform and HDR/EXR/PSD thumbnails (T-0003)`.
 
 ## Task 12 — Import window (editor panel)
 
@@ -696,15 +696,15 @@ tri-state `Checkbox` with `CheckState`, `VerticalScroll`, `Combo`, `SpinBox`,
 - Remember last-used settings per project in `Config/ImportPresets.json` under the key
   `"__last"`; presets file format: `{ "presets": { "<name>": <PipelineStack JSON> }, "__last": {...} }`.
 
-- [ ] **Step 1: Failing tests** (`[import][dialog]`): open with a `robot.gltf` session;
+- [x] **Step 1: Failing tests** (`[import][dialog]`): open with a `robot.gltf` session;
   clicking the "Meshes (2)" checkbox unchecks Body and Arm and their scene nodes'
   `enabled` flags; un-checking only Arm makes the File checkbox Undetermined; changing
   the uniform-scale SpinBox (drag) changes `Settings().Meshes().GetFloat("uniformScale")`;
   a sound-only session hides the Meshes category; Escape → `Action::Cancel`; clicking
   Import → `Action::Import`; preset save → `Config/ImportPresets.json` contains it and
   reloads.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(editor): Import window (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(editor): Import window (T-0003)`.
 
 ## Task 13 — Editor wiring, cleanup, manual verification
 
@@ -712,32 +712,32 @@ tri-state `Checkbox` with `CheckState`, `VerticalScroll`, `Combo`, `SpinBox`,
 `Editor/LumaEditor/main.cpp` (AudioPreview init/shutdown), `Editor/panels/ContentBrowser/**`,
 `Editor/panels/PanelContext.h` (new callbacks only), `Engine/Asset/**` (deletions).
 
-- [ ] **Step 1:** `ImportAssetsInto(folder)`: file picker filter built from
+- [x] **Step 1:** `ImportAssetsInto(folder)`: file picker filter built from
   `TranslatorRegistry::SupportedExtensions()` ("All Supported" + one entry per family),
   then `ImportSession::Translate` → `ImportDialog::Open`. `HandleDroppedFiles`: same
   flow (folders dropped → their supported files, recursively). Unsupported files →
   `LUMA_USER_WARN("Import", "'x.abc' is not a supported import format")`.
-- [ ] **Step 2:** Dialog `Import` → `ImportSession::Start` with a `FactoryContext` built from
+- [x] **Step 2:** Dialog `Import` → `ImportSession::Start` with a `FactoryContext` built from
   the editor's `MaterialLibrary` and `AssetPathResolver`; a progress bar
   (`Slate::Context::ProgressBar`) with a Cancel button in the Content Browser toolbar while
   running; on `TakeResult`: `m_assetRegistry.Scan()`, invalidate thumbnails of created
   files (`ThumbnailManager::DirtyThumbnail` + `ContentBrowserPanel::InvalidateThumbnail`),
   `LUMA_USER_INFO("Import", "Imported N assets into /Game/... (K skipped, F failed)")` and
   one `LUMA_USER_ERROR` per failure message.
-- [ ] **Step 3:** Content Browser context menu on an imported asset (has `.meta`):
+- [x] **Step 3:** Content Browser context menu on an imported asset (has `.meta`):
   "Reimport" (→ `ForReimport` → dialog in reimport mode, conflict policy Overwrite) and,
   when `SourceChanged`, a small badge on the tile + "Source changed — Reimport" entry.
-- [ ] **Step 4:** Sound tiles: hover shows a play/stop button (bottom-left of the tile) →
+- [x] **Step 4:** Sound tiles: hover shows a play/stop button (bottom-left of the tile) →
   `AudioPreview::Play/Stop`; the tile caption shows the duration (`m:ss`). Double-click
   a sound = play. `AudioPreview` is created in `main.cpp` after the window and shut down
   before exit; pass it to panels through `PanelContext` (new member
   `Audio::AudioPreview* audioPreview`).
-- [ ] **Step 5:** Delete the replaced code once nothing references it:
+- [x] **Step 5:** Delete the replaced code once nothing references it:
   `AssetImportManager`, `ImportDialog` (Engine/Asset), `BatchImportManager`, `Factory`,
   `ImportValidator`, `MeshImporter`, `TextureImporter` (and their headers/tests), after
   moving any still-useful test coverage to the new tests. Keep `LumaMesh`,
   `AssetMetadata` only if still used (otherwise delete). Build + full suite.
-- [ ] **Step 6: Manual verification** in a scratch copy of `Tests/Fixtures/MaterialShowcase`
+- [x] **Step 6: Manual verification** in a scratch copy of `Tests/Fixtures/MaterialShowcase`
   (never in `TestProject`):
   1. Import button → pick `robot.glb` → window shows Robot with Meshes (2) / Materials (2)
      / Textures (2) → Import → assets appear with a 3D thumbnail (mesh), images, material
@@ -750,11 +750,11 @@ tri-state `Checkbox` with `CheckState`, `VerticalScroll`, `Combo`, `SpinBox`,
   5. Reimport `SM_Body` with scale 2 → mesh doubles, scene reference intact.
   6. `Saved/Logs/Editor.log`: 0 `VUID` / `validation error`.
   Write what you saw in *Result*.
-- [ ] **Step 7:** Commit `feat(editor): import window wiring, reimport, sound preview (T-0003)`.
+- [x] **Step 7:** Commit `feat(editor): import window wiring, reimport, sound preview (T-0003)`.
 
 ## Task 14 — Docs
 
-- [ ] Update `GOAL.md` (asset import section: formats, window, reimport, thumbnails,
+- [x] Update `GOAL.md` (asset import section: formats, window, reimport, thumbnails,
   audio preview; open items: skeletal/animation, LODs, collision, BCn, HDR/EXR as
   material textures — lead). Commit `docs: asset import (T-0003)`.
 
@@ -774,4 +774,246 @@ colour space / HDR-EXR material textures (lead).
 
 ## Result
 
+### Deviations (Task 1)
+
+- Root `project()` also enables C. Assimp and miniaudio are C, and Ninja never received `CMAKE_C_COMPILE_OBJECT` when C was enabled only from a helper function.
+- `ThirdParty/miniz.h` includes `miniz_common.h`, `miniz_tdef.h`, `miniz_tinfl.h`, and `miniz_zip.h`, none of which are in the tree, and there is no `miniz.c` (no new downloads). `tinyexr_impl.cpp` sets `TINYEXR_USE_MINIZ` to 0 and uses stb zlib (`TINYEXR_USE_STB_ZLIB`) from `ThirdParty/stb`. stb is included after `tinyexr.h` so `stbi_zlib_compress` stays `extern "C"`.
+- `[asset]` after the Assimp 6 switch: `All tests passed (134 assertions in 37 test cases)`. No existing test needed a code change.
+- Task 10: `AssetScannerTests` expected `.obj` and `.glb` to scan as `AssetType::Mesh`, and `AssetRegistryTests` expected `tree.obj` to be a mesh. Those assertions now expect `Unknown`. Only `.lmesh` is a mesh.
+
+### Task 2
+
+`ImportFixtureGen` loaded `robot.gltf` and wrote `Tests/Fixtures/Import/robot.fbx`. Reloading that FBX with Assimp reported meshes=2, materials Paint and Metal, nodes RootNode / Body / Arm. The exporter did write the global settings: UpAxis=2, UpAxisSign=1, FrontAxis=1, FrontAxisSign=-1, CoordAxis=0, CoordAxisSign=1, UnitScaleFactor=1 (float, centimetres).
+
+### Task 3
+
+`Json` in the plan is `Luma::SerialValue`. `[import][scene]` passed (41 assertions in 4 cases). Whole suite: `All tests passed (22799 assertions in 419 test cases)`. The first test build failed to link (headers only, no sources), then the implementation linked and passed.
+
+### Task 4
+
+Luma's `LookAt` / `Perspective` match the convention: a point at +Y projects above the screen centre (Vulkan NDC y < 0) and a camera on +Z sees +X on the right. `[import][model]` then failed to compile (`ModelTranslator.h` missing) and, after the translator landed, passed (142 assertions in 6 cases). Whole suite: `All tests passed (22941 assertions in 425 test cases)`.
+
+`SourceToLuma` does not apply the plan's extra minus on the front axis. `robot.fbx` already stores `FrontAxisSign = -1` for "into the screen", and that second minus mirrored Z against the glTF. Without it, default Y-up/metres is identity, source (0,0,1) on the Z-up axes maps to Luma (0,1,0), `unitScaleCm = 1` scales by 0.01, and Body's FBX bounds match the glTF within 1e-3. Assimp's own FBX root conversion is turned off (`AI_CONFIG_IMPORT_FBX_IGNORE_UP_DIRECTION`) so the unit/axis step is ours. UV of Body vertex 0 is (0, 1) for glTF, GLB, FBX, and OBJ after `aiProcess_FlipUVs`. Assimp adds an unreferenced default material; only materials a mesh uses are emitted.
+
+### Task 5
+
+`[import][image]` failed to compile (`ImageDecode.h` missing), then passed (127 assertions in 2 cases). Whole suite: `All tests passed (23068 assertions in 427 test cases)`. PNG, JPEG, TGA, BMP, and PSD match pixel (3, 2); JPEG is within ±6. HDR is within 2% and EXR within 1e-3 of (2, 0.5, 0.25). The translator adds one Texture node named from the file stem. HDR/EXR are linear; other names follow `IsTextureSRGB`. A 10-byte `.png` makes `Translate` return false.
+
+ffmpeg's `img.exr` omits `pixelAspectRatio` (OpenEXR default 1). tinyexr rejects that, so the decoder inserts the attribute and shifts the scanline offset table. `tinyexr_impl.cpp` no longer compiles `stb_image_write`; `stbi_zlib_compress` is the copy already linked from the renderer, which avoided a duplicate-symbol link of `LumaTests`.
+
+### Task 6
+
+`[import][audio]` failed to compile (headers missing), then passed (161 assertions in 2 cases). Whole suite: `All tests passed (23229 assertions in 429 test cases)`. `tone_mono.wav` is 1 channel, 44100 Hz, 1.0 s ±0.01. `tone_stereo.mp3` is 2 channels, 44100 Hz, 1.0 s ±0.06. A corrupt WAV returns nullopt with a message. The translator adds one Sound node (`tone_mono` / `tone_stereo`) with that probe. Tests do not open an audio device. `AudioPreview::Init` warns once with `LUMA_USER_WARN("Audio", ...)` when no device is available and does not throw.
+
+The committed sine is not full scale: ffmpeg's `sine` source peaks at s16 ±4095 (about ±0.125). `ComputePeaks(wav, 64)` therefore expects every column near that amplitude, not [0.9, 1.0]. Samples themselves stay in [-1, 1].
+
+### Task 7
+
+`[import][pipeline]` failed to compile (`ImportPlan.h` missing), then passed (48 assertions in 5 cases). Whole suite: `All tests passed (23277 assertions in 434 test cases)`.
+
+`Json` on `PipelineStack` is `Luma::SerialValue`. `SettingsBlock::IsVisible` treats an empty `visibleIfKey` as always shown and a leading `!` as "the named bool is false" (`smoothingAngle` uses `!importNormals`). Prefix labels for materials, textures, and sounds follow the mesh label ("Material Prefix", "Texture Prefix", "Sound Prefix"). A combined mesh is named from the source file stem, one mesh per source file. `subfolders` places sounds in `Sounds/` alongside Meshes, Materials, and Textures. `Use Existing` looks up the planned `.lmat` path (including the Materials subfolder); a hit keeps that path with `policy = Skip` so the factory will not overwrite it, and a miss warns and falls through to Create New. Standalone image files still produce a texture request when materials are "Do Not Import".
+
+### Task 8
+
+`[import][factory]` failed to compile (`FactoryCommon.h` missing), then passed (70 assertions in 3 cases). Whole suite: `All tests passed (23347 assertions in 437 test cases)`.
+
+`robot.glb` writes `SM_Body.lmesh` (24 vertices, section material `/Game/M_Paint`), `SM_Arm.lmesh`, `M_Paint.lmat` (BaseColor `/Game/T_Paint_D`, Normal `/Game/T_Paint_N`, roughness 0.6), `M_Metal.lmat`, and the two paint PNGs, each with a `.meta`. Overwrite reuses the GUID. Skip leaves the existing bytes. Cancel before the first write leaves no asset and no `.tmp`. `img.psd` becomes a 32×16 PNG. `maxSize` 256 leaves the 64×64 paint texture as a copy and box-filters a generated 1024×1024 BMP down to 256×256 PNG.
+
+The factory sources compile into `Luma::Material`. That library already links `Luma::Asset`, and the reverse link would cycle. `MaterialLibrary::SetMaterial` + `Save` still run; the `.lmat` is also written to `<dest>.tmp` and replaced first. `.meta` is written last the same way. `PipelineStack` gained const accessors so a const settings block can be read from `FactoryContext`. A downscale or PSD re-encode is a PNG, so a BMP that exceeds `maxSize` is saved as `.png`.
+
+### Task 9
+
+`[import][session]` failed to compile (`ImportSession.h` missing), then passed (28 assertions in 3 cases). Whole suite: `All tests passed (23375 assertions in 440 test cases)`.
+
+Translating a glb, a wav, and a png yields 3 File nodes. The worker writes meshes, textures, and sounds; `TakeResult` creates the materials on the calling thread because `MaterialLibrary` is not thread-safe. Progress is 1 when the worker finishes, and the summary's created count matches the plan. Cancelling a 50-png run stops before every file is written, leaves no `.tmp`, and the summary says the import was cancelled. `ForReimport(SM_Body.lmesh)` restores `uniformScale` 2 from the `.meta`. `SourceChanged` is false immediately after import and true after a byte is appended to the source copy.
+
+Each asset's `.meta` now stores the whole pipeline stack (plus sound probe fields and a top-level `colorSpace`) so reimport can restore every block. The session and registry compile into `Luma::Material` for the same link-cycle reason as the factories.
+
+### Task 10
+
+`[asset][scan]` and `[asset][registry]` failed on the old mapping (5 cases: `psd` was Unknown, `.meta` was not ignored, `.obj` was still a mesh), then passed (96 assertions in 26 cases). Whole suite: `All tests passed (23394 assertions in 441 test cases)`.
+
+`AssetTypeFromExtension` maps `psd`, `hdr`, and `exr` to Texture (case-insensitive, with or without a leading dot). The mesh extension list is only `lmesh`, so `gltf`, `glb`, `fbx`, `obj`, `bin`, and `mtl` are `Unknown`. The scanner skips `*.meta` and `*.tmp`. Two older tests that treated `.obj` / `.glb` as meshes now expect `Unknown`.
+
+### Task 11
+
+`[import][thumbnail]` failed to compile (`SoundThumbnailRenderer.h` missing), then passed (30 assertions in 2 cases). Whole suite: `All tests passed (23424 assertions in 443 test cases)`.
+
+A sound thumbnail is 128×128. The background is `#262626`, the centre row is `#3A3A3A`, and each column in the 4 px margin is filled between the min and max from `ComputePeaks` in `#2D9CDB`. Positive samples sit above the centre line. `tone_mono.wav` peaks near ±0.125, so the accent band is narrow and is not normalised. A second render of the same file matches the first byte for byte. The editor registers the renderer next to the texture one (`Thumbnail system initialized with 4 renderers`).
+
+Texture thumbnails other than `.ltex` go through `DecodeImageFile`. Float images are tone-mapped with `c / (1 + c)`, sRGB-encoded (`c <= 0.0031308` → `12.92c`, else `1.055 * c^(1/2.4) - 0.055`), and stored as RGB so an opaque HDR alpha is not tone-mapped into the checkerboard blend. `img.hdr` is a flat (2, 0.5, 0.25), so the centre pixel matches that red/green/blue within ±3 after a bilinear resize. EXR and PSD thumbnails are 128×128. `.psd` and `.exr` are now accepted by `CanRender`.
+
+Linking `LumaEditor` pulled tinyexr's stb_image (the HDR/EXR decode) against Slate's copy and failed with LNK2005. `Engine/UI/Slate/src/Image.cpp` now compiles stb with `STB_IMAGE_STATIC`, so those symbols stay inside that file. The editor links.
+
+### Task 12
+
+`[import][dialog]` failed to compile (`ImportDialog.h` missing), then passed (22 assertions in 3 cases). Whole suite: `All tests passed (23446 assertions in 446 test cases)`.
+
+The window is a 960×620 modal (clamped to 90% of the screen), titled "Import Content" or "Reimport <name>". The left tree is one row per file, then "Meshes (n)" / "Materials (n)" / "Textures (n)" / "Sounds (n)". A parent checkbox writes `enabled` on every child that has no error. With Body on and Arm off, the file checkbox is Undetermined, so the next click turns both on (a checked parent would have turned both off). Dragging Uniform Scale by 50 px adds 1.0 at the default spin speed of 0.02. A wav session hides Meshes, Materials, and Textures, so that same drag leaves `uniformScale` at 1. Escape returns `Cancel`. Import returns `Import` and closes. `SavePreset("Wide")` writes `ImportPresets.json` with that name under `presets` and copies the stack to `__last`; `LoadPresets` applies `__last`.
+
+The dialog is its own module, `Luma::PanelImportDialog`. It is not opened from the editor yet (Task 13). Slate has no disabled checkbox, so an item with `error` is forced back to unchecked on the same click, drawn in `theme.error`, and given the error as its tooltip. "Import All" appears only when two file nodes share an extension.
+
+### Task 13
+
+Whole suite after the legacy importers were removed: `All tests passed (23441 assertions in 445 test cases)`. The dropped case is "Texture import keeps source pixels for sRGB textures", which called `TextureImporter::Import`. The name-inference cases in that file stay. `MeshImporterTests.cpp` was not in the test target. `LumaMesh` and `AssetMetadata` stay. `AssetFileWatcher` stays unbuilt; its header forward-declares `AssetImportManager` so the include still compiles. The Content Browser Import pill used to ignore the click; it now calls `onImportAssets`.
+
+Manual check on a scratch copy of `Tests/Fixtures/MaterialShowcase` (temp, not TestProject and not the fixture). The Import button opened a picker whose filter read "All Supported". Choosing `robot.glb` opened "Import Content" for destination `/Game`, with robot.glb, Meshes (2) Body and Arm, Materials (2) Paint and Metal, and Textures (2) T_Paint_D and T_Paint_N. Import closed the window and the console printed `Imported 6 assets into /Game (0 skipped, 0 failed)`. The scratch `Assets` folder then held `SM_Body.lmesh`, `SM_Arm.lmesh`, `M_Paint.lmat`, `M_Metal.lmat`, `T_Paint_D.png`, `T_Paint_N.png`, each with a `.meta`. The content browser pane was only wide enough to show one column of folders (Materials, then Scenes), so the new mesh, image, and material thumbnails were not on screen. Explorer drag of `robot.fbx`, `robot.obj`, `tone_stereo.mp3`, and `img.*`, assigning `SM_Body` in the Inspector, the sound play button, and reimport at scale 2 were not exercised. `Saved/Logs/Editor.log` for that run had 0 `VUID` and 0 `validation error`.
+
+### Review fixes (lead, 2026-11-21 — the agent was offline)
+
+Branch `agent/T-0003-asset-import`, commits `08e0f0f`, `ca3d3e0`, `f6510ce`, `2bbdbb9`, plus docs.
+Whole suite: `All tests passed (23987 assertions in 461 test cases)`; 0 `VUID` / validation
+errors in the editor logs of the manual runs.
+
+- **R1:** `SourceWatch` (`Engine/AssetImport`) caches "source changed?" per asset; the check runs
+  on the Job System: `.meta` → stat (size, then mtime) → hash only when the mtime moved, memoised per
+  (path, size, mtime) for the process. `.meta` now stores `sourceSize`. `HashFile` reads 1 MB
+  blocks (same FNV-1a value). Tests: `[import][source]` (an unchanged source is checked without
+  reading its bytes, edited/touched/missing sources, the watch's cache and invalidation). Manual:
+  the project with all 18 car materials opens in ~4 s (before: hang with 2).
+- **R2:** `AssetRegistry::Scan` (the real source of the tiles) and `RefreshPath` apply
+  `AssetScanner::ShouldIgnore` relative to the root (dot folders skipped with their contents).
+- **R3:** new module `Engine/AssetImport` → `Luma::AssetImport` (include prefix
+  `Luma/AssetImport/`). `Engine/Material/CMakeLists.txt` is back to dev's. `ImageDecode` stays in
+  `Luma::Asset` (`Luma/Asset/ImageDecode.h`) because texture thumbnails use it.
+- **R4:** a texture node with an error yields a plan warning, no request; the material is created
+  without it. `ImportSummary::warnings`; the editor prints "(… failed, N warnings)" and one warning
+  per texture. Car: `Imported 120 assets … (0 skipped, 0 failed, 3 warnings)`.
+- **R5:** reading the source (import and reimport) runs on the Job System with a Background Tasks
+  entry ("Reading 10-Car.fbx"); the window opens when it finishes. Thumbnails are produced within
+  an 8 ms frame budget (`ThumbnailBudget`, at least one per frame) with a "Generating thumbnails"
+  task while tiles wait.
+- **R6:** the Materials group was fine (my mistake in the review). Fixed instead: leaf rows had a
+  disclosure arrow, and the icon was drawn over the label; Slate `PropertyRow` now clips its label
+  to the label column; the setting is "Create Sub-folders" with a tooltip.
+- **R7:** not reproducible after R1: one G-buffer resize per run. The shrinking was most likely
+  the hung window being resized by Windows.
+
+Found during the manual checks and fixed (each with a failing test first):
+- Imported sounds had no waveform thumbnail: `ThumbnailManager` had its own extension table
+  without sounds/PSD/EXR. It now uses `AssetTypeFromExtension`.
+- Clicking **Import** also opened a hidden *Material Mode* drop-down that stayed on screen after
+  the window closed: rows scrolled out of the settings panel still took clicks (Slate has no input
+  clipping). Rows now exist only while fully inside their panel (tree and settings).
+- Each of the car's 102 mesh requests re-read and post-processed the whole 76 MB FBX (minutes).
+  `ModelPayloadCache` keeps the parsed model for one run: the car imports in under 10 s.
+- The editor aborted after ~128 thumbnails: the Vulkan UI pass had a single 128-set descriptor
+  pool. Pools are now added on demand (`[rendering][vulkan][ui]`: 400 textures).
+- A reimport saved its settings (Overwrite, the asset's scale) as the next import's defaults.
+
+Manual checks (scratch copy of `Tests/Fixtures/MaterialShowcase`):
+1. Import button → robot.glb + tone_stereo.mp3 + img.tga in one window → `Imported 8 assets …
+   (0 skipped, 0 failed, 0 warnings)`; mesh, material, texture and waveform thumbnails; no `.meta`
+   tiles. ✅
+2. Sound tile: hover shows ▶; clicking switches it to ■ while playing. ✅ (not listened to)
+3. Reimport `SM_Body` with Uniform Scale 2 → `Imported 6 assets … (0 skipped, 0 failed)`, `.meta`
+   records `uniformScale: 2`. ✅
+4. 10-Car.fbx (76 MB, 102 meshes): editor stays responsive while reading and importing; 120
+   assets, 3 warnings; ~140 thumbnails without errors. ✅
+5. **Not done:** drag & drop from Windows Explorer (the lead's tools cannot drag from Explorer —
+   the user should try it; it uses the same path as the Import button). **Not possible:**
+   assigning `SM_Body` to an actor — the Inspector has no mesh slot and the viewport only accepts
+   materials. That is a new task (static mesh assignment), not part of T-0003.
+
 ## Review
+
+**2026-11-21, lead: Changes Requested.** The build is clean (`a27de4b`), all 445 tests pass, and the
+import cases all pass. The translator, pipeline and factory work is solid: robot.glb/fbx/obj, the Cornell Box OBJ and a
+76 MB FBX car (102 meshes, 19 assets) all import with the right scale and orientation. The
+items below must be fixed before this can be Accepted. Fix them on `agent/T-0003-asset-import`,
+tick each one, add what you did under *Result → Review fixes*, then set the status to
+`Completed` again.
+
+### R1 — CRITICAL: the editor freezes (source hashed every frame)
+
+`ContentBrowserPanel::DrawGridPane` calls `ctx.sourceChanged(a->packagePath)` for **every
+visible tile with a `.meta`, every frame**. `Import::SourceChanged` (ImportSession.cpp)
+re-reads the `.meta` and then **hashes the whole source file** whenever `sourceHash` is set,
+which is always. Two assets imported from the 76 MB car FBX mean about 160 MB hashed per frame.
+The editor shows "Not Responding", one core sits at 100% and the log stops.
+
+Repro: import `10-Car.fbx` (any large FBX works), close the editor, and reopen the project. It hangs
+with two or more of its assets in the open folder. Proof: the same project opens normally once
+`sourceHash` is blanked in those two `.meta` files, which forces the mtime path.
+
+Required fix:
+- [x] Nothing in a draw path may do file I/O. Keep a per-asset cache of the source state in the
+  Content Browser or in a small `SourceWatch` service in the import module. Fill it when the
+  registry scans or refreshes and when an import finishes, never per frame.
+- [x] Order the checks cheap to expensive: does the file exist, then size + mtime against the `.meta`
+  (store `sourceSize` too), and hash **only** when the mtime changed. Run that hash on the
+  Job System (`PanelContext::jobs`) and give it a Task Manager entry when the file is larger than
+  ~16 MB. The badge appears when the job finishes.
+- [x] Add a test that checks `SourceChanged` on an unchanged source does not read the file's
+  contents. For example, count bytes read through an injectable hasher, or assert that the mtime
+  path is taken.
+- [x] Manual check: reopen a project holding the car assets. It must open at normal frame rate.
+
+### R2 — `.meta` files show up as Content Browser tiles
+
+The scanner skips `*.meta`/`*.tmp`, but `AssetRegistry::RefreshPath` (used after an import
+and by the browser's refresh) does not. Each `.meta` gets its own "Unknown" tile, and the browser
+also asks for a thumbnail for each one (`WARN ThumbnailManager: Unknown asset type ... (ext: .meta)`
+in the log). 
+- [x] Route every registry entry point through `AssetScanner::ShouldIgnore`.
+- [x] Add a registry test: refresh a folder that holds `a.png` + `a.png.meta` and expect 1 entry.
+
+### R3 — Module boundary: the import code lives inside `Luma::Material`
+
+`Engine/Material/CMakeLists.txt` compiles `Engine/Asset/src/Import/Factories/*`,
+`TranslatorRegistry.cpp` and `ImportSession.cpp`, and links `Luma::Audio`. The material
+module must not own asset import (project rule: every feature is its own module).
+- [x] Create a **`Luma::AssetImport`** target (`Engine/AssetImport/` with its own `include/` and
+  `src/`, moving the `Engine/Asset/**/Import/**` code). It links `Luma::Asset`, `Luma::Material`
+  and `Luma::Audio`. `Luma::Material` goes back to exactly what it was on `dev`.
+- [x] The editor, the Import dialog and the tests link `Luma::AssetImport`. Revert the
+  `Engine/Material/CMakeLists.txt` change completely: that file is in the lead's no-touch area.
+
+### R4 — A missing texture counts as a failed import
+
+Importing the car printed "Imported 19 assets… 3 failed". The 3 were textures the FBX
+references but which are not on disk. That is a warning, not a failure.
+- [x] A texture node whose file is missing shows its error in the dialog, as now, but produces
+  **no** request. Its material is created without that texture, and the summary says
+  `K warnings` with one `LUMA_USER_WARN` per missing file. "failed" is only for a write or
+  decode that actually failed.
+- [x] Add a pipeline test: a model with one missing texture gives 0 failures and 1 warning.
+
+### R5 — Main-thread stalls
+
+- [x] `ImportSession::Translate` runs on the main thread before the dialog opens. Reading the car
+  FBX freezes the UI for several seconds. Run translation as a job with a Task Manager entry
+  ("Reading 10-Car.fbx", cancellable), and open the dialog when it finishes.
+- [x] Thumbnails are generated synchronously when a tile first draws. Each mesh or material
+  preview takes ~1.3 s, so a folder of new assets freezes the editor. Generate at most one per
+  frame (or on the Job System where the renderer allows it), show the type icon until the
+  thumbnail is ready, and add a Task Manager entry when more than a few are queued.
+
+### R6 — Import window UI
+
+- [x] ~~In the left tree the "Materials (n)" group for robot.glb has no expand arrow and no
+  children. Meshes and Textures expand correctly.~~ (it works; see Review fixes)
+- [x] The "Create Sub-folders" label overlaps its checkbox. `LabelIn` adds a 12 px left pad
+  (`space.lg`), so allow for that or use the row helper the other settings use.
+
+### R7 — Also seen (please investigate and report)
+
+- On the agent build, the G-buffer was resized again and again while the editor was open, with the
+  viewport shrinking ~27 px per frame (`Resizing G-buffer from … to …` lines). Check whether the
+  toolbar/progress-chrome or dialog layout changes the viewport rect each frame. Fix it if it is yours,
+  or write what you found under *Questions*.
+
+### R8 — Workflow items still open
+
+- [ ] Task 13 Step 6: the manual checks 2–5 were not run (Explorer drag-drop, Inspector assignment,
+  sound play button, reimport at scale 2). Run them after R1–R6 and write what you saw. Widen the
+  Content Browser pane so the thumbnails are visible, and say so.
+- [x] Task 14 (GOAL.md docs) is not done.
+- [ ] T-0000: its *Result* section is still empty. Fill it in.
+- [x] When everything above is ticked: merge `dev` into your branch, build, run the full suite, set
+  `Completed`, and push the branch. Also merge the branch into `dev` as the workflow says. Never
+  `main`.
+
+Accepted as-is: `STB_IMAGE_STATIC` in Slate `Image.cpp`; root `project(... C CXX)`;
+`LUMA_BUILD_TOOLS`; dropping the extra front-axis minus in `SourceToLuma` (the plan was wrong);
+the EXR `pixelAspectRatio` workaround.

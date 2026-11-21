@@ -45,6 +45,10 @@ TEST_CASE("AssetScanner::ShouldIgnore flags dotfiles", "[asset][scan]") {
     REQUIRE_FALSE(AssetScanner::ShouldIgnore("/content/textures/x.png"));
     REQUIRE(AssetScanner::ShouldIgnore("/content/foo.luma_temp"));
     REQUIRE(AssetScanner::ShouldIgnore("/content/foo~"));
+    REQUIRE(AssetScanner::ShouldIgnore("/content/Assets/M_Paint.lmat.meta"));
+    REQUIRE(AssetScanner::ShouldIgnore("/content/Assets/SM_Body.lmesh.tmp"));
+    REQUIRE(AssetScanner::ShouldIgnore("/content/Assets/partial.TMP"));
+    REQUIRE_FALSE(AssetScanner::ShouldIgnore("/content/Assets/SM_Body.lmesh"));
 }
 
 TEST_CASE("Scan finds files and folders recursively", "[asset][scan]") {
@@ -70,7 +74,7 @@ TEST_CASE("Scan finds files and folders recursively", "[asset][scan]") {
     for (const auto& e : entries) {
         if (e.assetName == "hero" && e.type == AssetType::Texture)
             foundHeroPng = true;
-        if (e.assetName == "tree" && e.type == AssetType::Mesh)
+        if (e.assetName == "tree" && e.type == AssetType::Unknown)
             foundTreeObj = true;
         REQUIRE_FALSE(e.packagePath.empty());
         REQUIRE(e.id.IsValid());
@@ -101,8 +105,8 @@ TEST_CASE("Scan infers type from extension", "[asset][scan][type]") {
     };
     REQUIRE(typeOf("hero") == AssetType::Texture);
     REQUIRE(typeOf("wall") == AssetType::Texture);   // .jpg is found first
-    REQUIRE(typeOf("tree") == AssetType::Mesh);
-    REQUIRE(typeOf("helmet") == AssetType::Mesh);
+    REQUIRE(typeOf("tree") == AssetType::Unknown);   // .obj is an import source
+    REQUIRE(typeOf("helmet") == AssetType::Unknown);  // .glb is an import source
     REQUIRE(typeOf("script") == AssetType::Script);
     REQUIRE(typeOf("main") == AssetType::Scene);
     REQUIRE(typeOf("p") == AssetType::Shader);
@@ -166,6 +170,47 @@ TEST_CASE("ScanStreaming fires onEntry per row", "[asset][scan]") {
         REQUIRE(d.id.IsValid());
     });
     REQUIRE(count >= 2);
+}
+
+TEST_CASE("Import sources are not engine assets", "[asset][scan][type]") {
+    REQUIRE(AssetTypeFromExtension("psd") == AssetType::Texture);
+    REQUIRE(AssetTypeFromExtension(".hdr") == AssetType::Texture);
+    REQUIRE(AssetTypeFromExtension("EXR") == AssetType::Texture);
+    REQUIRE(AssetTypeFromExtension("lmesh") == AssetType::Mesh);
+    for (const char* ext : {"gltf", "glb", "fbx", "obj", "bin", "mtl"}) {
+        REQUIRE(AssetTypeFromExtension(ext) == AssetType::Unknown);
+    }
+
+    TempDir dir;
+    dir.Touch("Assets/robot.gltf");
+    dir.Touch("Assets/robot.glb");
+    dir.Touch("Assets/robot.fbx");
+    dir.Touch("Assets/robot.obj");
+    dir.Touch("Assets/robot.bin");
+    dir.Touch("Assets/robot.mtl");
+    dir.Touch("Assets/SM_Body.lmesh");
+    dir.Touch("Assets/img.psd");
+    dir.Touch("Assets/img.hdr");
+    dir.Touch("Assets/img.exr");
+    dir.Touch("Assets/M_Paint.lmat.meta");
+    dir.Touch("Assets/SM_Body.lmesh.tmp");
+
+    auto entries = AssetScanner::Scan(dir.Path());
+    auto typeOf = [&](const std::string& stem) {
+        for (const auto& entry : entries) {
+            if (entry.assetName == stem) return entry.type;
+        }
+        return AssetType::Count;
+    };
+    REQUIRE(typeOf("robot") == AssetType::Unknown);
+    REQUIRE(typeOf("SM_Body") == AssetType::Mesh);
+    REQUIRE(typeOf("img") == AssetType::Texture);
+    REQUIRE(typeOf("M_Paint") == AssetType::Count);
+    bool sawTmp = false;
+    for (const auto& entry : entries) {
+        if (entry.extension == "tmp" || entry.extension == "meta") sawTmp = true;
+    }
+    REQUIRE_FALSE(sawTmp);
 }
 
 TEST_CASE("Scan on missing root returns empty", "[asset][scan]") {

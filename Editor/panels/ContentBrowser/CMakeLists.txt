@@ -1,5 +1,6 @@
 add_library(LumaPanelContentBrowser STATIC
-    src/ContentBrowser.cpp)
+    src/ContentBrowser.cpp
+    src/ThumbnailBudget.cpp)
 
 add_library(Luma::PanelContentBrowser ALIAS LumaPanelContentBrowser)
 
@@ -12,6 +13,8 @@ target_include_directories(LumaPanelContentBrowser
 
 target_link_libraries(LumaPanelContentBrowser
     PUBLIC Luma::Core Luma::Asset Luma::Scene Luma::Slate
-           Luma::PanelFileSystemTree)
+           Luma::PanelFileSystemTree
+    PRIVATE Luma::Audio Luma::AssetImport)
+target_link_libraries(LumaPanelContentBrowser PUBLIC Luma::Tasks)
 
 set_target_properties(LumaPanelContentBrowser PROPERTIES FOLDER "Editor/Panels")

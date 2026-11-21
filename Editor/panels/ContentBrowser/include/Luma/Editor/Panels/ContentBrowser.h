@@ -9,6 +9,8 @@
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Editor/Panels/FileSystemTree.h"
+#include "Luma/Editor/Panels/ThumbnailBudget.h"
+#include "Luma/Tasks/TaskManager.h"
 #include "Luma/RHI/Renderer.h"
 #include "PanelContext.h"
 #include "Luma/Slate/Context.h"
@@ -131,6 +133,7 @@ private:
     // Right-click target resolved by the grid this frame: the asset under
     // the cursor (invalid = empty space -> folder menu).
     AssetId m_contextTarget{};
+    AssetId m_soundPress{};
     bool m_hovered = false;
     // Set when a menu action starts an inline rename; the rename field takes
     // keyboard focus on the next frame it is drawn.
@@ -154,6 +157,9 @@ private:
     
     // Thumbnail cache (asset ID -> texture handle)
     std::unordered_map<AssetId, u64> m_thumbnailCache;
+    ThumbnailBudget m_thumbBudget;
+    Tasks::TaskToken m_thumbTask;  // "Generating thumbnails" while tiles wait
+    void UpdateThumbnailTask(PanelContext& ctx);
 
     // Layout constants.
     static constexpr f32 kToolbarH = 36.0f;
@@ -164,7 +170,7 @@ private:
     static constexpr f32 kTileGap = 6.0f;
 
     // Draw helpers (called from Draw).
-    void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect);
+    void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect, PanelContext& ctx);
     void DrawGridPane(Slate::Context& ui, const Slate::Rect& rect,
                       PanelContext& ctx);
     // Menus (Slate::MenuBuilder; drawn + input-handled by the Slate menu

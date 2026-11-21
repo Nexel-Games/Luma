@@ -1641,10 +1641,13 @@ Rect Context::PropertyRow(const Rect& rect, std::string_view label,
     // control in the returned rect. Label sits left, vertically centered.
     m_draw.AddRectFilled({rect.x, rect.Bottom() - 1.0f, rect.w, 1.0f},
                          m_theme.separator);
+    // The label never runs into the field: clip it to its column.
+    m_draw.PushClip({rect.x, rect.y, labelWidth + m_theme.space.md - m_theme.space.xs, rect.h});
     m_draw.AddText(m_font,
                    {rect.x + m_theme.space.md,
                     rect.y + (rect.h - m_font.LineHeight()) * 0.5f},
                    label, m_theme.textDim);
+    m_draw.PopClip();
     f32 fieldX = rect.x + labelWidth + m_theme.space.md;
     return Rect{fieldX, rect.y + (rect.h - 22.0f) * 0.5f,
                 std::max(0.0f, rect.Right() - fieldX - m_theme.space.md), 22.0f};
