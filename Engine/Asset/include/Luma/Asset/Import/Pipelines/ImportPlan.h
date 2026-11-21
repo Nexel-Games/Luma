@@ -51,6 +51,11 @@ public:
     SettingsBlock& Materials();
     SettingsBlock& Textures();
     SettingsBlock& Audio();
+    const SettingsBlock& Common() const;
+    const SettingsBlock& Meshes() const;
+    const SettingsBlock& Materials() const;
+    const SettingsBlock& Textures() const;
+    const SettingsBlock& Audio() const;
     std::vector<SettingsBlock*> Blocks();
 
     ImportPlan BuildPlan(const ImportScene& scene, const std::filesystem::path& destFolder) const;

@@ -146,6 +146,11 @@ SettingsBlock& PipelineStack::Meshes() { return m_meshes; }
 SettingsBlock& PipelineStack::Materials() { return m_materials; }
 SettingsBlock& PipelineStack::Textures() { return m_textures; }
 SettingsBlock& PipelineStack::Audio() { return m_audio; }
+const SettingsBlock& PipelineStack::Common() const { return m_common; }
+const SettingsBlock& PipelineStack::Meshes() const { return m_meshes; }
+const SettingsBlock& PipelineStack::Materials() const { return m_materials; }
+const SettingsBlock& PipelineStack::Textures() const { return m_textures; }
+const SettingsBlock& PipelineStack::Audio() const { return m_audio; }
 
 std::vector<SettingsBlock*> PipelineStack::Blocks() {
     return {&m_common, &m_meshes, &m_materials, &m_textures, &m_audio};

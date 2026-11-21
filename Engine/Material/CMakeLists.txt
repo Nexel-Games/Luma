@@ -8,7 +8,16 @@ add_library(LumaMaterial STATIC
     src/MaterialSerializer.cpp
     src/MaterialInstanceSerializer.cpp
     src/MaterialLibrary.cpp
-    src/MaterialFromTextures.cpp)
+    src/MaterialFromTextures.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/FactoryCommon.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/MeshFactory.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/MaterialFactory.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/TextureFactory.cpp
+    ${CMAKE_SOURCE_DIR}/Engine/Asset/src/Import/Factories/SoundFactory.cpp)
+
+target_include_directories(LumaMaterial PRIVATE ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
+
+target_link_libraries(LumaMaterial PRIVATE Luma::Audio)
 
 add_library(Luma::Material ALIAS LumaMaterial)
 

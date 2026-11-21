@@ -553,7 +553,7 @@ Rules:
   (`settings.colorSpace`) for the renderer (the lead wires renderer support).
 - Sound: copy file; `.meta` settings carry loop/volume/pitch + probed info.
 
-- [ ] **Step 1: Failing tests** (`[import][factory]`, temp project dir with
+- [x] **Step 1: Failing tests** (`[import][factory]`, temp project dir with
   `Assets/`): import `robot.glb` plan → files `SM_Body.lmesh`, `SM_Arm.lmesh`,
   `M_Paint.lmat`, `M_Metal.lmat`, `T_Paint_D.png`, `T_Paint_N.png` + `.meta` each;
   `ReadMesh(SM_Body)` 24 vertices, section material `/Game/.../M_Paint`; M_Paint's
@@ -561,8 +561,8 @@ Rules:
   overwrite keeps the GUID; Skip leaves the old file byte-identical; cancel flag set
   before the first write → no files and no `.tmp` left; PSD import writes a PNG; maxSize
   256 on a 64 px texture leaves it unchanged, on a generated 1024 px texture yields 256.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(import): asset factories (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(import): asset factories (T-0003)`.
 
 ## Task 9 — Import session (async, progress, cancel, reimport)
 
@@ -811,5 +811,13 @@ The committed sine is not full scale: ffmpeg's `sine` source peaks at s16 ±4095
 `[import][pipeline]` failed to compile (`ImportPlan.h` missing), then passed (48 assertions in 5 cases). Whole suite: `All tests passed (23277 assertions in 434 test cases)`.
 
 `Json` on `PipelineStack` is `Luma::SerialValue`. `SettingsBlock::IsVisible` treats an empty `visibleIfKey` as always shown and a leading `!` as "the named bool is false" (`smoothingAngle` uses `!importNormals`). Prefix labels for materials, textures, and sounds follow the mesh label ("Material Prefix", "Texture Prefix", "Sound Prefix"). A combined mesh is named from the source file stem, one mesh per source file. `subfolders` places sounds in `Sounds/` alongside Meshes, Materials, and Textures. `Use Existing` looks up the planned `.lmat` path (including the Materials subfolder); a hit keeps that path with `policy = Skip` so the factory will not overwrite it, and a miss warns and falls through to Create New. Standalone image files still produce a texture request when materials are "Do Not Import".
+
+### Task 8
+
+`[import][factory]` failed to compile (`FactoryCommon.h` missing), then passed (70 assertions in 3 cases). Whole suite: `All tests passed (23347 assertions in 437 test cases)`.
+
+`robot.glb` writes `SM_Body.lmesh` (24 vertices, section material `/Game/M_Paint`), `SM_Arm.lmesh`, `M_Paint.lmat` (BaseColor `/Game/T_Paint_D`, Normal `/Game/T_Paint_N`, roughness 0.6), `M_Metal.lmat`, and the two paint PNGs, each with a `.meta`. Overwrite reuses the GUID. Skip leaves the existing bytes. Cancel before the first write leaves no asset and no `.tmp`. `img.psd` becomes a 32×16 PNG. `maxSize` 256 leaves the 64×64 paint texture as a copy and box-filters a generated 1024×1024 BMP down to 256×256 PNG.
+
+The factory sources compile into `Luma::Material`. That library already links `Luma::Asset`, and the reverse link would cycle. `MaterialLibrary::SetMaterial` + `Save` still run; the `.lmat` is also written to `<dest>.tmp` and replaced first. `.meta` is written last the same way. `PipelineStack` gained const accessors so a const settings block can be read from `FactoryContext`. A downscale or PSD re-encode is a PNG, so a BMP that exceeds `maxSize` is saved as `.png`.
 
 ## Review
