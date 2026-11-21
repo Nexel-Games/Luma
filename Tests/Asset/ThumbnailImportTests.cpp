@@ -9,6 +9,7 @@
 #include "Luma/Asset/ImageDecode.h"
 #include "Luma/Asset/SoundThumbnailRenderer.h"
 #include "Luma/Asset/TextureThumbnailRenderer.h"
+#include "Luma/Asset/ThumbnailRenderer.h"
 
 using namespace Luma;
 
@@ -98,4 +99,20 @@ TEST_CASE("HDR, EXR, and PSD thumbnails decode through the image importer", "[im
     REQUIRE(render("img.exr"));
     REQUIRE(render("img.psd"));
     std::filesystem::remove(out);
+}
+
+TEST_CASE("ThumbnailManager routes sounds and new image formats to their renderers", "[import][thumbnail]") {
+    ThumbnailManager& manager = ThumbnailManager::Get();
+    manager.RegisterRenderer(AssetType::Sound, std::make_unique<SoundThumbnailRenderer>());
+    manager.RegisterRenderer(AssetType::Texture, std::make_unique<TextureThumbnailRenderer>());
+    ThumbnailSettings settings;
+    settings.width = 64;
+    settings.height = 64;
+    const auto out = std::filesystem::temp_directory_path() / "luma-thumb-route";
+    std::filesystem::remove_all(out);
+    for (const char* name : {"tone_stereo.mp3", "tone_mono.wav", "img.psd", "img.exr"}) {
+        INFO(name);
+        REQUIRE(manager.GenerateThumbnail(AssetId{}, Fixture(name), out / (std::string(name) + ".png"), settings));
+    }
+    std::filesystem::remove_all(out);
 }

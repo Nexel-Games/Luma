@@ -189,3 +189,80 @@ TEST_CASE("A sound-only import hides the Meshes category", "[import][dialog]") {
     h.Drag(UniformScale(), 50.0f, draw);
     REQUIRE_THAT(session.Settings().Meshes().GetFloat("uniformScale"), WithinAbs(1.0, 1e-4));
 }
+
+TEST_CASE("Closing the import dialog never leaves one of its drop-downs open", "[import][dialog]") {
+    std::string error;
+    ImportSession session;
+    REQUIRE(session.Translate({Fixture("robot.gltf")}, &error));
+    const Hit presetCombo{1050.0f, 200.0f};
+
+    for (const bool viaImportButton : {false, true}) {
+        DYNAMIC_SECTION((viaImportButton ? "Import button" : "Escape")) {
+            DialogHarness h;
+            h.dialog.Open(&session, "Assets", "/Game", false);
+            auto draw = [&] { (void)h.dialog.Draw(h.ui.ctx, 1400.0f, 900.0f); };
+            h.Frame(draw);
+            h.Click(presetCombo, draw);
+            REQUIRE(h.ui.ctx.AnyMenuOpen());
+            if (viaImportButton) {
+                h.Click(ImportButton(), draw);
+            } else {
+                h.ui.ctx.OnKey(256, true);
+                h.Frame(draw);
+                h.ui.ctx.OnKey(256, false);
+                h.Frame(draw);
+            }
+            // Either the drop-down took the input (dialog still open) or the
+            // dialog closed and took its drop-down with it.
+            REQUIRE((h.dialog.IsOpen() || !h.ui.ctx.AnyMenuOpen()));
+        }
+    }
+}
+
+TEST_CASE("Rows scrolled out of view do not take clicks", "[import][dialog]") {
+    // The settings list is taller than its panel. At 1400x900 a drop-down
+    // further down the list lies at y ~782..794, below the panel (and even
+    // below the modal), where nothing is drawn.
+    std::string error;
+    ImportSession session;
+    REQUIRE(session.Translate({Fixture("robot.gltf")}, &error));
+    DialogHarness h;
+    ImportDialog::Action action = ImportDialog::Action::None;
+    auto draw = [&] { action = h.dialog.Draw(h.ui.ctx, 1400.0f, 900.0f); };
+    h.dialog.Open(&session, "Assets", "/Game", false);
+    h.Frame(draw);
+    h.Click(Hit{900.0f, 788.0f}, draw);
+    REQUIRE_FALSE(h.ui.ctx.AnyMenuOpen());
+    REQUIRE(session.Settings().Materials().GetString("materialMode") == "Create New");
+    h.Click(ImportButton(), draw);
+    REQUIRE(action == ImportDialog::Action::Import);
+    REQUIRE_FALSE(h.ui.ctx.AnyMenuOpen());
+}
+
+TEST_CASE("Typing a value and pressing Enter opens no drop-down", "[import][dialog]") {
+    std::string error;
+    ImportSession session;
+    REQUIRE(session.Translate({Fixture("robot.gltf")}, &error));
+    DialogHarness h;
+    auto draw = [&] { (void)h.dialog.Draw(h.ui.ctx, 1400.0f, 900.0f); };
+    h.dialog.Open(&session, "Assets", "/Game", false);
+    h.Frame(draw);
+    const Hit scale = UniformScale();
+    // Double-click enters text mode.
+    h.Click(scale, draw);
+    h.Click(scale, draw);
+    for (int i = 0; i < 6; ++i) {
+        h.ui.ctx.OnKey(259, true);  // Backspace
+        h.Frame(draw);
+        h.ui.ctx.OnKey(259, false);
+    }
+    h.ui.ctx.OnText(static_cast<Luma::u32>('2'));
+    h.Frame(draw);
+    h.ui.ctx.OnKey(257, true);  // Enter
+    h.Frame(draw);
+    h.ui.ctx.OnKey(257, false);
+    h.Frame(draw);
+    h.Frame(draw);
+    REQUIRE_THAT(session.Settings().Meshes().GetFloat("uniformScale"), WithinAbs(2.0, 1e-4));
+    REQUIRE_FALSE(h.ui.ctx.AnyMenuOpen());
+}

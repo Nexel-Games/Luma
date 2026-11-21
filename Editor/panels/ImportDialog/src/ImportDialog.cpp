@@ -2,6 +2,7 @@
 
 #include "Luma/Serialization/Json.h"
 #include "Luma/Slate/IconKind.h"
+#include "Luma/Slate/Icons.h"
 
 #include <algorithm>
 #include <fstream>
@@ -37,6 +38,13 @@ const char* KindTitle(Import::NodeKind kind) {
         case Import::NodeKind::File: return "File";
     }
     return "File";
+}
+
+// Slate has no input clipping: a widget drawn outside its scroll area is
+// invisible but still takes clicks (e.g. a drop-down under the Import
+// button). Rows only exist while fully inside their panel.
+bool FullyInside(const Slate::Rect& row, const Slate::Rect& panel) {
+    return row.y >= panel.y - 0.5f && row.Bottom() <= panel.Bottom() + 0.5f;
 }
 
 Slate::Icon KindIcon(Import::NodeKind kind) {
@@ -373,6 +381,7 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
         const Row& row = rows[i];
         const f32 y = tree.y - m_treeScroll + static_cast<f32>(i) * kRowH;
         const Slate::Rect rowRect{tree.x, y, tree.w, kRowH};
+        if (!FullyInside(rowRect, tree)) continue;
         const f32 checkX = rowRect.x + static_cast<f32>(row.depth) * kIndent;
         const Slate::Rect box{checkX, y + (kRowH - kCheck) * 0.5f, kCheck, kCheck};
         const bool errored = row.kind == Row::Kind::Item && row.node < m_session->Scene().nodes.size() &&
@@ -390,9 +399,17 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
         }
         const Slate::Rect nodeRect{box.Right() + 4.0f, y, std::max(0.0f, rowRect.Right() - box.Right() - 4.0f), kRowH};
         if (row.kind == Row::Kind::Item) {
-            // Leaves have nothing to expand: no disclosure arrow.
+            // Leaves have nothing to expand: same layout as the group rows
+            // (icon and label columns line up), without the disclosure arrow.
+            const bool selected = m_selected == row.node;
             const bool clicked = ui.Selectable(Slate::Context::ID("import.node." + std::to_string(row.node)), nodeRect,
-                                               row.label, m_selected == row.node, KindIcon(row.group));
+                                               "", selected);
+            const f32 indent = theme.space.md;
+            const f32 icon = theme.size.iconMd;
+            Slate::DrawIcon(ui, {nodeRect.x + indent + theme.space.sm, y + (kRowH - icon) * 0.5f, icon, icon},
+                            KindIcon(row.group), selected ? theme.selectionText : theme.text);
+            const f32 textX = nodeRect.x + indent + icon + theme.space.sm + icon + theme.space.sm;
+            ui.Label({textX, y + (kRowH - 16.0f) * 0.5f}, row.label, selected ? theme.selectionText : theme.text);
             if (clicked) {
                 m_selected = row.node;
                 m_scrollCategory = CategoryFor(row.group);
@@ -447,12 +464,18 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
         auto openIt = m_categoryOpen.find(category);
         if (openIt == m_categoryOpen.end()) openIt = m_categoryOpen.emplace(category, true).first;
         const Slate::Rect header{settings.x, y, settings.w, kCatH};
-        ui.CollapsingHeader(Slate::Context::ID("import.cat." + category), header, category, openIt->second);
+        if (FullyInside(header, settings)) {
+            ui.CollapsingHeader(Slate::Context::ID("import.cat." + category), header, category, openIt->second);
+        }
         y += kCatH;
         if (!openIt->second) continue;
         for (const Import::SettingField* fieldPtr : entry.second) {
             const Import::SettingField& field = *fieldPtr;
             const Slate::Rect row{settings.x, y, settings.w, kFieldH};
+            if (!FullyInside(row, settings)) {
+                y += kFieldH;
+                continue;
+            }
             const Slate::Rect fieldRect = ui.PropertyRow(row, field.label, kLabelW);
             const std::string idKey = category + "/" + field.key;
             const u64 id = Slate::Context::ID(idKey);
