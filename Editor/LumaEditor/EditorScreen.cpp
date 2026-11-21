@@ -1751,7 +1751,11 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
             b.AddEntry("Import...", Icon::Plus,
                        [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); },
                        when(m_project.has_value(), "Import files into the open Content Browser folder."));
-            b.AddEntry("Refresh Content", Icon::Refresh, [this] { m_assetRegistry.Scan(); },
+            b.AddEntry("Refresh Content", Icon::Refresh,
+                       [this] {
+                           m_assetRegistry.Scan();
+                           if (m_sourceWatch) m_sourceWatch->InvalidateAll();
+                       },
                        when(true, "Rescan the project's content from disk."));
             break;
         case 3:  // Window
