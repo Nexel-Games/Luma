@@ -411,3 +411,23 @@ TEST_CASE("Thumbnail icons are fetched while the menu is drawn", "[slate][menu]"
     (void)before;
     CHECK(f.ui.AnyMenuOpen());
 }
+
+TEST_CASE("A long menu is capped at its maximum height and scrolls", "[slate][menu]") {
+    Fixture f;
+    MenuBuilder b;
+    for (int i = 0; i < 80; ++i) b.AddEntry("Material " + std::to_string(i), {}, [] {});
+    MenuOptions options;
+    options.maxHeight = 300.0f;
+    f.ui.OpenMenuBelow(Context::ID("picker"), Rect{100, 100, 200, 22}, b.Build(), options);
+    f.Frame();
+    const Rect r = f.ui.menus().LevelRect(0);
+    CHECK(r.h <= 300.0f);
+    CHECK(r.h > 200.0f);
+    CHECK(r.y >= 122.0f);  // still opens below its anchor
+
+    MenuBuilder c;
+    for (int i = 0; i < 80; ++i) c.AddEntry("Material " + std::to_string(i), {}, [] {});
+    f.ui.OpenMenuBelow(Context::ID("picker2"), Rect{100, 100, 200, 22}, c.Build());
+    f.Frame();
+    CHECK(f.ui.menus().LevelRect(0).h > 600.0f);  // no cap: as tall as the window allows
+}

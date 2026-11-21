@@ -374,7 +374,9 @@ void MenuHost::PlaceRoot(Context& ctx, Level& level) {
     const f32 dh = ctx.displayHeight();
     const f32 margin = 4.0f;
     const f32 w = MeasureWidth(ctx, level);
-    const f32 h = std::min(level.contentH, std::max(40.0f, dh - margin * 2.0f));
+    f32 maxH = std::max(40.0f, dh - margin * 2.0f);
+    if (m_options.maxHeight > 0.0f) maxH = std::min(maxH, std::max(40.0f, m_options.maxHeight));
+    const f32 h = std::min(level.contentH, maxH);
     f32 x = m_anchor.x;
     f32 y = m_rootY;
     if (!m_rootPlaced) {
