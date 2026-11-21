@@ -96,7 +96,8 @@ std::string UniqueEntityName(Luma::Scene& scene, const std::string& base) {
 }
 }  // namespace
 
-EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
+EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
+    : m_preferences(m_viewportPanel.Settings(), m_gizmo.Snap(), Editor::Panels::PreferencesPanel::UserFile()) {
     std::string err;
     m_project = Project::Load(projectFile, &err);
     if (m_project) {
@@ -142,6 +143,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
 }
 
 EditorScreen::~EditorScreen() {
+    m_preferences.SaveChanges();
     // The thumbnail manager outlives the editor; drop the callback into it.
     ThumbnailManager::Get().SetRenderCallback({});
 }
@@ -1509,6 +1511,15 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     PollTranslate();
     PollImport();
     if (m_sourceWatch) m_sourceWatch->Update();
+    // A full workspace page owns input. An incoming import or close prompt
+    // returns to the level editor, where the existing dialog flow lives.
+    if (m_closeRequested || m_importDialog.IsOpen()) m_preferencesOpen = false;
+    if (m_preferencesOpen) {
+        m_preferencesOpen = m_preferences.Draw(ui, width, height);
+        if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
+        return;
+    }
+    if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
     Slate::Theme& t = ui.theme();
     if (!m_dockBuilt) BuildDock();
     ui.Panel({0, 0, width, height}, t.windowBg);
@@ -1517,11 +1528,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     ui.GradientRect(menu, t.surface2, t.surface1);
     ui.Panel({0, 31, width, 1}, t.separator);
 
-    if (m_iconLogo) {
-        ui.Image(m_iconLogo, {8, 4, 24, 24});
-    } else {
-        ui.LogoMark({20, 16}, 9.0f);
-    }
+    ui.LogoMark({20, 16}, 12.0f);
     f32 mx = 42.0f;
 
     // Main menu bar (Unreal-style): each title drops a Slate menu.
@@ -1898,6 +1905,8 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
                 o.shortcut = "F";
                 b.AddEntry("Focus in Viewport", Icon::Eye, [this] { FocusEntity(m_selected); }, o);
             }
+            b.BeginSection("Configuration");
+            b.AddEntry("Editor Preferences", Icon::Gear, [this] { m_preferencesOpen = true; });
             break;
         case 2:  // Assets
             b.BeginSection("Content");

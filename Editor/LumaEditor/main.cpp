@@ -273,11 +273,11 @@ int main(int argc, char** argv) {
     // Window icon from the engine icon asset.
     {
         std::string iconPath = FindEditorAsset("luma_icon.png");
-        u32 iw = 0, ih = 0;
-        std::vector<u8> iconPixels;
-        if (!iconPath.empty() &&
-            Slate::LoadImagePixels(iconPath, iw, ih, iconPixels)) {
-            window->SetIcon(iw, ih, iconPixels.data());
+        if (!iconPath.empty()) {
+            std::vector<u8> pixels;
+            const Slate::Image icon = Slate::LoadImage(*renderer, iconPath, &pixels);
+            if (!pixels.empty()) window->SetIcon(icon.width, icon.height, pixels.data());
+            ui.SetBrandIcon(icon);
         }
     }
     // Logo for the banner / splash.
@@ -324,7 +324,6 @@ int main(int argc, char** argv) {
     TextureHandle iconPlay = loadIcon("Icons/play.png");
     TextureHandle iconPause = loadIcon("Icons/pause.png");
     TextureHandle iconStop = loadIcon("Icons/stop.png");
-    TextureHandle iconLogo = loadIcon("luma_icon.png");
     // Content Browser chrome icons (sort arrows + search glass + folder +
     // reload + import + open-folder).
     TextureHandle cbSortUp = loadIcon("Icons/sort_up.png");
@@ -403,7 +402,6 @@ int main(int argc, char** argv) {
             LUMA_LOG_WARN("Editor", "--select: no entity named '{}'", selectName);
         }
         editor->SetToolbarIcons(iconPlay, iconPause, iconStop);
-        editor->SetLogoIcon(iconLogo);
         editor->SetEditorIcons(ueIcons);
         editor->SetContentBrowserIcons(cbSortUp, cbSortDown, cbSearchGlass,
                                        cbFolder, cbReload, cbImport,
