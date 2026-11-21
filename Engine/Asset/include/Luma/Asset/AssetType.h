@@ -33,12 +33,14 @@ AssetType AssetTypeFromExtension(std::string_view ext) noexcept;
 std::string_view AssetTypeIconHint(AssetType t) noexcept;  // enum name from IconKind
 
 // The set of extensions the registry will index for each type. Editable
-// here so adding `.ktx2` or `.glb` is a one-line change.
+// here so adding `.ktx2` is a one-line change. Source models (gltf, glb,
+// fbx, obj, bin, mtl) are import inputs, not engine assets — only `.lmesh`
+// is a Mesh.
 struct TypeExtensions {
-    std::array<std::string_view, 9> texture{"png",  "jpg",  "jpeg", "tga",
-                                            "bmp",  "webp", "ktx",  "ktx2",
-                                            "ltex"};
-    std::array<std::string_view, 5> mesh{"obj", "gltf", "glb", "fbx", "lmesh"};
+    std::array<std::string_view, 12> texture{"png", "jpg",  "jpeg", "tga",
+                                             "bmp", "webp", "ktx",  "ktx2",
+                                             "ltex", "psd", "hdr",  "exr"};
+    std::array<std::string_view, 1> mesh{"lmesh"};
     std::array<std::string_view, 3> material{"mat", "lumat", "lmat"};
     std::array<std::string_view, 1> materialInstance{"lmatinst"};
     std::array<std::string_view, 5> shader{"hlsl", "glsl", "frag", "vert", "lshader"};

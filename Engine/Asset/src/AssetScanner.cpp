@@ -23,9 +23,14 @@ bool AssetScanner::ShouldIgnore(const std::filesystem::path& path) noexcept {
         auto s = it->string();
         if (!s.empty() && s.front() == '.') return true;
     }
-    // Editor temp files.
+    // Editor temp files, import sidecars, and in-progress atomic writes.
     auto name = path.filename().string();
     if (name.ends_with(".luma_temp") || name.ends_with("~")) return true;
+    std::string ext = path.extension().string();
+    for (char& c : ext) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (ext == ".meta" || ext == ".tmp") return true;
     return false;
 }
 

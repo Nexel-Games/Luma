@@ -61,7 +61,7 @@ TEST_CASE("AddRoot + Scan indexes files and folders", "[asset][registry]") {
     for (const auto* a : all) {
         if (a->assetName == "hero" && a->type == AssetType::Texture)
             sawHero = true;
-        if (a->assetName == "tree" && a->type == AssetType::Mesh)
+        if (a->assetName == "tree" && a->type == AssetType::Unknown)
             sawTree = true;
     }
     REQUIRE(sawHero);

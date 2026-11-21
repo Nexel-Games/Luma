@@ -615,14 +615,14 @@ Document this in the header.
 **Files:** `Engine/Asset/include/Luma/Asset/AssetType.h`, `src/AssetScanner.cpp`,
 `src/AssetType.cpp`; tests in `Tests/Asset/AssetScannerTests.cpp`.
 
-- [ ] **Step 1: Failing tests:** `AssetTypeFromExtension` maps `psd`, `hdr`, `exr` →
+- [x] **Step 1: Failing tests:** `AssetTypeFromExtension` maps `psd`, `hdr`, `exr` →
   Texture; the scanner skips `*.meta` and `*.tmp` files; source-only model formats
   (`gltf`, `glb`, `fbx`, `obj`, `bin`, `mtl`) inside a project's `Assets/` are reported
   as `AssetType::Unknown` (they are import sources, not engine assets — only `.lmesh`
   is a Mesh). Update any existing test that asserted the old mapping and note it in
   Deviations.
-- [ ] **Steps 2-4:** fail → implement → pass; suite green.
-- [ ] **Step 5:** Commit `feat(asset): asset types and scanner rules for imports (T-0003)`.
+- [x] **Steps 2-4:** fail → implement → pass; suite green.
+- [x] **Step 5:** Commit `feat(asset): asset types and scanner rules for imports (T-0003)`.
 
 ## Task 11 — Thumbnails (sounds, new image formats)
 
@@ -779,6 +779,7 @@ colour space / HDR-EXR material textures (lead).
 - Root `project()` also enables C. Assimp and miniaudio are C, and Ninja never received `CMAKE_C_COMPILE_OBJECT` when C was enabled only from a helper function.
 - `ThirdParty/miniz.h` includes `miniz_common.h`, `miniz_tdef.h`, `miniz_tinfl.h`, and `miniz_zip.h`, none of which are in the tree, and there is no `miniz.c` (no new downloads). `tinyexr_impl.cpp` sets `TINYEXR_USE_MINIZ` to 0 and uses stb zlib (`TINYEXR_USE_STB_ZLIB`) from `ThirdParty/stb`. stb is included after `tinyexr.h` so `stbi_zlib_compress` stays `extern "C"`.
 - `[asset]` after the Assimp 6 switch: `All tests passed (134 assertions in 37 test cases)`. No existing test needed a code change.
+- Task 10: `AssetScannerTests` expected `.obj` and `.glb` to scan as `AssetType::Mesh`, and `AssetRegistryTests` expected `tree.obj` to be a mesh. Those assertions now expect `Unknown`. Only `.lmesh` is a mesh.
 
 ### Task 2
 
@@ -827,5 +828,11 @@ The factory sources compile into `Luma::Material`. That library already links `L
 Translating a glb, a wav, and a png yields 3 File nodes. The worker writes meshes, textures, and sounds; `TakeResult` creates the materials on the calling thread because `MaterialLibrary` is not thread-safe. Progress is 1 when the worker finishes, and the summary's created count matches the plan. Cancelling a 50-png run stops before every file is written, leaves no `.tmp`, and the summary says the import was cancelled. `ForReimport(SM_Body.lmesh)` restores `uniformScale` 2 from the `.meta`. `SourceChanged` is false immediately after import and true after a byte is appended to the source copy.
 
 Each asset's `.meta` now stores the whole pipeline stack (plus sound probe fields and a top-level `colorSpace`) so reimport can restore every block. The session and registry compile into `Luma::Material` for the same link-cycle reason as the factories.
+
+### Task 10
+
+`[asset][scan]` and `[asset][registry]` failed on the old mapping (5 cases: `psd` was Unknown, `.meta` was not ignored, `.obj` was still a mesh), then passed (96 assertions in 26 cases). Whole suite: `All tests passed (23394 assertions in 441 test cases)`.
+
+`AssetTypeFromExtension` maps `psd`, `hdr`, and `exr` to Texture (case-insensitive, with or without a leading dot). The mesh extension list is only `lmesh`, so `gltf`, `glb`, `fbx`, `obj`, `bin`, and `mtl` are `Unknown`. The scanner skips `*.meta` and `*.tmp`. Two older tests that treated `.obj` / `.glb` as meshes now expect `Unknown`.
 
 ## Review
