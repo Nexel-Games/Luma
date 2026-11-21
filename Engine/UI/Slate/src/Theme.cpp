@@ -49,6 +49,8 @@ Theme DarkTheme() {
 
     // Semantic.
     t.separator = Color::RGB(15, 15, 15);  // Starship WindowBorder
+    t.propertyDivider = Color::RGB(8, 8, 8);  // Unreal Details row grid
+    t.listRowAlt = Color::RGB(20, 20, 20);    // Unreal Outliner striping
     t.outline = Color::RGB(61, 61, 61);
     t.focusRing = t.accent;
     t.text = Color::RGB(204, 204, 204);    // Starship Foreground (+ legibility)

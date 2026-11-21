@@ -111,11 +111,11 @@ TEST_CASE("DrawIcon with Icon::None emits nothing", "[slate][icon]") {
     REQUIRE(ctx.drawList().vertexCount() == before);
 }
 
-TEST_CASE("ArrowLeft and Reset icons each draw geometry", "[slate][icons]") {
+TEST_CASE("ArrowLeft, Reset and StaticMesh icons each draw geometry", "[slate][icons]") {
     Context ctx;
     NullRenderer r;
     ctx.Init(r, TestTypography());
-    for (Icon icon : {Icon::ArrowLeft, Icon::Reset}) {
+    for (Icon icon : {Icon::ArrowLeft, Icon::Reset, Icon::StaticMesh}) {
         ctx.BeginFrame(800, 600, 0.0166f);
         const auto before = ctx.drawList().vertexCount();
         Luma::Slate::DrawIcon(ctx, {0, 0, 16, 16}, icon, Color::RGB(255, 255, 255));

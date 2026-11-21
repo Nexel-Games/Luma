@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
     TextureHandle olActorPointLight =
         loadIcon("Icons/actor-light-point.png");
     TextureHandle olActorSpotLight = loadIcon("Icons/actor-light-spot.png");
-    TextureHandle olActorMesh = loadIcon("Icons/actor-mesh.png");
+    TextureHandle olActorMesh = loadIcon("Icons/actor-static-mesh.png");
 
     // Unreal icon pack (Content/Editor/Icons/ue).
     EditorScreen::IconSet ueIcons;

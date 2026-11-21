@@ -132,6 +132,8 @@ struct Theme {
 
     // -- Semantic colors --
     Color separator;      // flush-panel dividers (dark hairline)
+    Color propertyDivider;  // Details-panel row grid lines (near black)
+    Color listRowAlt;       // every other list row (Unreal-style striping)
     Color outline;        // raised control edge
     Color focusRing;      // focus outline (== accent)
     Color textDisabled;   // disabled text

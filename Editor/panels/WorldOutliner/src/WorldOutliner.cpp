@@ -153,9 +153,15 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             ui.PushClip(listRegion);
             f32 y = listTop - m_listScroll;
             Entity rowMenuEntity = kNullEntity;
+            usize rowIndex = 0;
             for (Entity e : visible) {
                 const std::string& name =
                     view.get<const NameComponent>(e).name;
+                // Unreal-style striping: every other row on a darker band,
+                // full width and touching, so the rows read as a table.
+                if (rowIndex++ % 2 == 0) {
+                    ui.drawList().AddRectFilled({body.x, y - 1.0f, body.w, 26.0f}, t.listRowAlt);
+                }
                 Rect row{body.x + 4, y, body.w - 8, 24};
                 bool selected = (e == *ctx.selected);
                 const u64 rowId =
@@ -184,15 +190,17 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                                                        t.radius.sm);
                 }
                 TextureHandle icon = iconFor(e);
+                // A static mesh actor without its icon texture still gets a glyph.
+                const auto* meshComp = ctx.scene->Registry().try_get<MeshRendererComponent>(e);
+                const bool meshGlyph = !icon && meshComp && meshComp->UsesMeshAsset();
                 const f32 textX =
-                    icon ? row.x + t.space.xs + kIconS + t.space.sm
-                         : row.x + t.space.md + t.space.xs;
+                    icon || meshGlyph ? row.x + t.space.xs + kIconS + t.space.sm
+                                      : row.x + t.space.md + t.space.xs;
+                const Rect iconR{row.x + t.space.xs, row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
                 if (icon) {
-                    ui.Image(icon,
-                             {row.x + t.space.xs,
-                              row.y + (row.h - kIconS) * 0.5f, kIconS,
-                              kIconS},
-                             selected ? t.selectionText : t.text);
+                    ui.Image(icon, iconR, selected ? t.selectionText : t.text);
+                } else if (meshGlyph) {
+                    Slate::DrawIcon(ui, iconR, Icon::StaticMesh, selected ? t.selectionText : t.text);
                 }
                 if (m_renaming == e) {
                     // Inline rename: Enter / focus loss commits, Escape cancels.

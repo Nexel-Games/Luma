@@ -49,7 +49,7 @@ bool FullyInside(const Slate::Rect& row, const Slate::Rect& panel) {
 
 Slate::Icon KindIcon(Import::NodeKind kind) {
     switch (kind) {
-        case Import::NodeKind::Mesh: return Slate::Icon::Cube;
+        case Import::NodeKind::Mesh: return Slate::Icon::StaticMesh;
         case Import::NodeKind::Material: return Slate::Icon::Sphere;
         case Import::NodeKind::Texture: return Slate::Icon::Image;
         case Import::NodeKind::Sound: return Slate::Icon::Play;
