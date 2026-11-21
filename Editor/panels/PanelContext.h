@@ -157,6 +157,13 @@ struct PanelContext {
         onCreateMaterialInstance;
     // Builds a material from the texture set `texture` belongs to.
     std::function<void(const std::filesystem::path& texture)> onCreateMaterialFromTextures;
+    // A static mesh dragged over the viewport (every frame, along the world ray
+    // under the cursor), dropped there, or the drag left/ended/was cancelled.
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh)>
+        onMeshDragPreview;
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh)>
+        onDropMesh;
+    std::function<void()> onMeshDragEnd;
     // A material dropped on the viewport along a world ray.
     std::function<void(const Math::Vec3& origin, const Math::Vec3& dir,
                        const std::string& materialPath)>

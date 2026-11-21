@@ -354,3 +354,26 @@ TEST_CASE("A missing mesh draws its primitive and has no sections", "[bridge]") 
     CHECK(f.bridge.Sections(mr.mesh) == nullptr);
     CHECK(f.bridge.Bounds(mr.mesh) == nullptr);
 }
+
+TEST_CASE("A placement preview is drawn but is not part of the scene", "[bridge]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    const std::string a = lib.CreateInMemoryInstance("/Game/Materials/MI_A", RedInstance());
+    const std::string rock = f.WriteMesh("Rock", 1, {a});
+    MeshRendererComponent cube;
+    f.Spawn(cube);
+
+    f.bridge.SetPlacementPreview(rock, Math::Translate(Math::Vec3(3.0f, 0.0f, 0.0f)));
+    auto instances = f.Build(lib);
+    REQUIRE(instances.size() == 2);
+    const SceneInstance& preview = instances.back();
+    CHECK(preview.mesh != kInvalidHandle);
+    CHECK(preview.selected);
+    CHECK(preview.model.m[12] == 3.0f);
+    CHECK(preview.sectionMaterials[0] == f.bridge.HandleFor(a));  // its own material, uploaded
+    CHECK(f.scene.Registry().view<const MeshRendererComponent>().size() == 1);
+
+    f.bridge.ClearPlacementPreview();
+    instances = f.Build(lib);
+    CHECK(instances.size() == 1);
+}

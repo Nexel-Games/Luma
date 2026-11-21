@@ -130,6 +130,12 @@ void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
     m_staleMeshes.clear();
 
     std::vector<std::string> used{std::string{}};  // the Default Material, always
+    if (m_preview) {
+        SyncMesh(m_preview->first, renderer, library.Paths());
+        if (const auto* sections = Sections(m_preview->first)) {
+            for (const MeshSectionInfo& s : *sections) used.push_back(SlotKey(s.defaultMaterial));
+        }
+    }
     auto view = scene.Registry().view<const TransformComponent, const MeshRendererComponent>();
     for (Entity e : view) {
         const auto& mr = view.get<const MeshRendererComponent>(e);
@@ -282,7 +288,30 @@ void MaterialSceneBridge::BuildInstances(const Scene& scene, Entity selected,
         }
         out.push_back(inst);
     }
+    if (m_preview) {
+        auto it = m_meshes.find(m_preview->first);
+        if (it != m_meshes.end() && !it->second.failed) {
+            SceneInstance inst;
+            inst.model = m_preview->second;
+            inst.mesh = it->second.handle;
+            inst.selected = true;  // outlined, like Unreal's drop preview
+            inst.sectionCount = it->second.sectionCount;
+            const u32 slots = std::min(inst.sectionCount, kMaxSectionMaterials);
+            for (u32 s = 0; s < slots; ++s) {
+                inst.sectionMaterials[s] = s < it->second.sections.size()
+                                               ? HandleFor(it->second.sections[s].defaultMaterial)
+                                               : kDefaultMaterialHandle;
+            }
+            out.push_back(inst);
+        }
+    }
 }
+
+void MaterialSceneBridge::SetPlacementPreview(std::string meshPath, const Math::Mat4& model) {
+    m_preview.emplace(std::move(meshPath), model);
+}
+
+void MaterialSceneBridge::ClearPlacementPreview() { m_preview.reset(); }
 
 void MaterialSceneBridge::OnTextureFileChanged(std::string_view virtualPath) {
     m_staleTextures.emplace_back(virtualPath);

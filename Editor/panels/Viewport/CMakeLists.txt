@@ -1,5 +1,6 @@
 add_library(LumaPanelViewport STATIC
-    src/Viewport.cpp)
+    src/Viewport.cpp
+    src/MeshPlacement.cpp)
 
 add_library(Luma::PanelViewport ALIAS LumaPanelViewport)
 

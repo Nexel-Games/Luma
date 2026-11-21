@@ -540,12 +540,15 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
 
         bool selected = (m_selected == a->id);
 
-        // Materials and textures drag onto Inspector slots / the viewport.
+        // Materials and textures drag onto Inspector slots / the viewport;
+        // static meshes into the level or onto the Inspector's Static Mesh row.
         if (!a->IsFolder() && ctx.virtualPathOf &&
             (a->type == AssetType::Material || a->type == AssetType::MaterialInstance ||
-             a->type == AssetType::Texture)) {
+             a->type == AssetType::Texture || a->type == AssetType::Mesh)) {
             Slate::DragPayload payload;
-            payload.type = a->type == AssetType::Texture ? "asset/texture" : "asset/material";
+            payload.type = a->type == AssetType::Texture ? "asset/texture"
+                           : a->type == AssetType::Mesh  ? "asset/mesh"
+                                                         : "asset/material";
             payload.data = ctx.virtualPathOf(a->packagePath);
             payload.label = a->assetName;
             if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {

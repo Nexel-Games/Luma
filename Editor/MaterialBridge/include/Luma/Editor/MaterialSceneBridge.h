@@ -61,6 +61,12 @@ public:
     void EnsureMesh(std::string_view meshPath, SceneRenderer& renderer,
                     const AssetPathResolver& paths);
 
+    // A transient mesh drawn as if placed (the viewport's drag-and-drop
+    // preview): synced with its own materials, appended to BuildInstances as a
+    // selected instance, never part of the scene.
+    void SetPlacementPreview(std::string meshPath, const Math::Mat4& model);
+    void ClearPlacementPreview();
+
     // Material sections of a Mesh Renderer's mesh (1 for primitives and for
     // mesh assets not loaded yet).
     u32 SectionCount(const MeshRendererComponent& mesh) const;
@@ -103,6 +109,7 @@ private:
     std::unordered_map<std::string, MeshEntry> m_meshes;  // by virtual path
     std::vector<std::string> m_staleTextures;
     std::vector<std::string> m_staleMeshes;
+    std::optional<std::pair<std::string, Math::Mat4>> m_preview;  // mesh path, model
 };
 
 }  // namespace Luma::Editor

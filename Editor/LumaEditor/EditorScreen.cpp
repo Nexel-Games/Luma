@@ -24,6 +24,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
+#include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
@@ -464,6 +465,106 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
     OpenMaterialEditor(path);
 }
 
+std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math::Vec3& origin,
+                                                                     const Math::Vec3& dir) const {
+    using namespace Math;
+    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto transformPoint = [](const Mat4& m, const Vec3& p) {
+        return Vec3(m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
+                    m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
+                    m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]);
+    };
+    auto transformDir = [](const Mat4& m, const Vec3& v) {
+        return Vec3(m.m[0] * v.x + m.m[4] * v.y + m.m[8] * v.z,
+                    m.m[1] * v.x + m.m[5] * v.y + m.m[9] * v.z,
+                    m.m[2] * v.x + m.m[6] * v.y + m.m[10] * v.z);
+    };
+    std::optional<Editor::Panels::PlacementHit> best;
+    f32 bestDistance = 1e30f;
+    auto view = reg.view<const TransformComponent, const MeshRendererComponent>();
+    for (Entity e : view) {
+        const auto& tf = view.get<const TransformComponent>(e);
+        const auto& mr = view.get<const MeshRendererComponent>(e);
+        Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
+        if (mr.UsesMeshAsset()) {
+            const Editor::MeshBounds* bounds = m_bridge.Bounds(mr.mesh);
+            if (!bounds) continue;
+            lo = bounds->min;
+            hi = bounds->max;
+        } else if (mr.primitive == MeshPrimitive::Plane) {
+            lo.y = hi.y = 0.0f;  // the plane's surface
+        }
+        const Mat4 model = tf.Matrix();
+        const Mat4 inv = Inverse(model);
+        const auto local = Editor::Panels::RayAabb(transformPoint(inv, origin), transformDir(inv, dir), lo, hi);
+        if (!local) continue;
+        const Vec3 world = transformPoint(model, local->point);
+        const Vec3 d = world - origin;
+        const f32 distance = Dot(d, d);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            Vec3 n = transformDir(model, local->normal);
+            const f32 len = std::sqrt(Dot(n, n));
+            best = Editor::Panels::PlacementHit{world, len > 1e-6f ? n * (1.0f / len) : Vec3(0, 1, 0)};
+        }
+    }
+    return best;
+}
+
+std::optional<Math::Vec3> EditorScreen::MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
+                                                         const std::string& mesh) {
+    if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
+        m_bridge.EnsureMesh(mesh, *sceneRenderer, m_assetPaths);
+    }
+    const Editor::MeshBounds* bounds = m_bridge.Bounds(mesh);
+    Editor::Panels::MeshPlacementInput in;
+    in.rayOrigin = origin;
+    in.rayDir = dir;
+    in.hit = PickSurface(origin, dir);
+    if (bounds) {
+        in.boundsMin = bounds->min;
+        in.boundsMax = bounds->max;
+    }
+    in.snap = m_gizmo.Snap().translate;
+    in.snapStep = m_gizmo.Snap().translateStep;
+    if (!bounds) return std::nullopt;  // not loaded (or failed): nothing to rest
+    return Editor::Panels::ComputeMeshPlacement(in);
+}
+
+void EditorScreen::PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir,
+                                   const std::string& mesh) {
+    if (const auto position = MeshDropPosition(origin, dir, mesh)) {
+        m_bridge.SetPlacementPreview(mesh, Math::Translate(*position));
+    } else {
+        m_bridge.ClearPlacementPreview();
+    }
+}
+
+void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh) {
+    m_bridge.ClearPlacementPreview();
+    // A mesh that fails to load is still placed (it draws its primitive and
+    // the bridge warns once), on the surface under the cursor.
+    Math::Vec3 position;
+    if (const auto placed = MeshDropPosition(origin, dir, mesh)) {
+        position = *placed;
+    } else {
+        Editor::Panels::MeshPlacementInput in;
+        in.rayOrigin = origin;
+        in.rayDir = dir;
+        in.hit = PickSurface(origin, dir);
+        in.boundsMin = {-0.5f, -0.5f, -0.5f};
+        in.boundsMax = {0.5f, 0.5f, 0.5f};
+        position = Editor::Panels::ComputeMeshPlacement(in);
+    }
+    const std::string name = UniqueEntityName(m_scene, Editor::Panels::AssetNameOf(mesh));
+    const Entity e = m_scene.CreateEntity(name);
+    m_scene.Registry().get<TransformComponent>(e).position = position;
+    auto& mr = m_scene.Registry().emplace<MeshRendererComponent>(e);
+    Editor::Panels::AssignStaticMesh(mr, mesh);
+    m_selected = e;
+    LUMA_USER_INFO("Level", "Placed '{}'", name);
+}
+
 void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) {
     const Entity e = PickEntity(origin, dir);
@@ -814,6 +915,11 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     };
     ctx.onDropMaterial = [this](const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) { DropMaterial(origin, dir, path); };
+    ctx.onMeshDragPreview = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                                   const std::string& mesh) { PreviewMeshDrop(origin, dir, mesh); };
+    ctx.onDropMesh = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                            const std::string& mesh) { DropMesh(origin, dir, mesh); };
+    ctx.onMeshDragEnd = [this] { m_bridge.ClearPlacementPreview(); };
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);

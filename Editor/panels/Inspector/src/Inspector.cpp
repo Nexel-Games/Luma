@@ -634,7 +634,8 @@ void InspectorPanel::DrawStaticMeshRow(Slate::Context& ui, PanelContext& ctx,
     // Same row as a material slot:
     //   Static Mesh [thumb]  [ SM_Rock                     v ]
     //                        (<-) (browse) (reset)   Static Mesh
-    const f32 kLabelW = std::min(ui.font().Measure("Static Mesh").x + 10.0f, w * 0.35f);
+    // LabelIn insets text by space.lg, so the column includes that pad.
+    const f32 kLabelW = std::min(ui.font().Measure("Static Mesh").x + t.space.lg + 10.0f, w * 0.4f);
     constexpr f32 kThumb = 48.0f;
     constexpr f32 kButton = 22.0f;
     constexpr f32 kGap = 2.0f;
@@ -777,7 +778,7 @@ void InspectorPanel::DrawMaterialSlots(Slate::Context& ui, PanelContext& ctx,
     //                        (<-) (search) (reset)   Material Instance
     f32 labelW = ui.font().Measure("Element 00").x;
     for (const MeshSlotInfo& s : meshSlots) labelW = std::max(labelW, ui.font().Measure(s.name).x);
-    const f32 kLabelW = std::min(labelW + 10.0f, w * 0.35f);
+    const f32 kLabelW = std::min(labelW + t.space.lg + 10.0f, w * 0.4f);
     constexpr f32 kThumb = 48.0f;
     constexpr f32 kButton = 22.0f;
     constexpr f32 kGap = 2.0f;
