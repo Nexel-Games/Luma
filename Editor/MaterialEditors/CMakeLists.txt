@@ -6,7 +6,8 @@
 add_library(LumaMaterialEditors STATIC
     src/InstanceParameters.cpp
     src/MaterialInstanceEditor.cpp
-    src/MaterialGraphModel.cpp)
+    src/MaterialGraphModel.cpp
+    src/MaterialGraphEditor.cpp)
 
 add_library(Luma::MaterialEditors ALIAS LumaMaterialEditors)
 

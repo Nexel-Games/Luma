@@ -84,9 +84,11 @@ add_executable(LumaTests
     Editor/BackgroundTasksTests.cpp
     Editor/InstanceParametersTests.cpp
     Editor/MaterialGraphModelTests.cpp
+    Editor/MaterialGraphEditorTests.cpp
     GraphEditor/GraphEditorCoreTests.cpp
     GraphEditor/GraphControllerTests.cpp
     GraphEditor/GraphEditorWidgetTests.cpp
+    GraphEditor/GraphPaletteTests.cpp
     VFS/PathTests.cpp
     VFS/VFSTests.cpp
     VFS/FileWatcherTests.cpp
