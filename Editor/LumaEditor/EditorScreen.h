@@ -25,6 +25,8 @@
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/MaterialEditor.h"
 #include "Luma/Editor/Panels/ProjectSettings.h"
+#include "Luma/Editor/Panels/GraphicsPages.h"
+#include "Luma/Graphics/GraphicsSettings.h"
 #include "Luma/Editor/Panels/ProjectSettingsStore.h"
 #include "Luma/Editor/Panels/Viewport.h"
 #include "Luma/Editor/Panels/Preferences.h"
@@ -73,13 +75,23 @@ public:
     void TickSimulation(f64 seconds) { m_runner.Tick(seconds); }
 
     void Draw(Slate::Context& ui, f32 width, f32 height);
+    enum class SettingsKind { Project, Preferences };
+    bool SettingsOpen(SettingsKind kind) const;
+    void CloseSettings(SettingsKind kind);
+    void DrawSettings(SettingsKind kind, Slate::Context& ui, f32 width, f32 height);
 
     // Persists the latest rendered editor frame as the project-browser card
     // preview. The renderer must still be alive when this is called.
     void CaptureProjectPreview();
     void FinalizeProjectPreview();
 
-    Slate::Rect ViewportRect() const { return m_preferencesOpen ? Slate::Rect{} : m_viewportPanel.Rect(); }
+    // The project's graphics settings (Project Settings > Engine > Display &
+    // Frame Rate / Rendering Quality), edited live; main.cpp applies them.
+    const Graphics::GraphicsSettings& GraphicsSettings() const { return m_graphics; }
+    // Reported on the Display page ("Swapchain is using: ...").
+    void SetActivePresentModeQuery(std::function<std::string()> query) { m_activePresentMode = std::move(query); }
+
+    Slate::Rect ViewportRect() const { return m_viewportPanel.Rect(); }
     void SetViewportTexture(TextureHandle texture) {
         m_viewportPanel.SetTexture(texture);
     }
@@ -320,6 +332,8 @@ private:
     // Project Settings: the Maps & Modes page's values, the Config/ store and the
     // window (Edit -> Project Settings).
     Editor::Panels::MapsAndModesSettings m_mapsAndModes;
+    Graphics::GraphicsSettings m_graphics;
+    std::function<std::string()> m_activePresentMode;
     std::unique_ptr<Editor::Panels::ProjectSettingsStore> m_settingsStore;
     Editor::Panels::ProjectSettingsPanel m_projectSettings{Editor::SettingsPages()};
     // The scene file open in the editor (saved back to the same file).

@@ -20,10 +20,22 @@ struct ClearColor {
     f32 a = 1.0f;
 };
 
+// Swapchain presentation. FIFO waits for vertical blank (VSync, never tears,
+// always supported); Mailbox replaces the queued image (no tearing, uncapped
+// when the GPU is faster than the display); Immediate presents at once (may
+// tear, lowest latency). Unsupported modes fall back: Mailbox -> Immediate ->
+// FIFO, Immediate -> Mailbox -> FIFO.
+enum class PresentMode : u8 { Fifo = 0, Mailbox = 1, Immediate = 2 };
+
 struct RendererConfig {
     std::string appName = "Luma";
-    bool enableValidation = true;  // ignored in Shipping backends
-    bool vsync = true;
+    bool enableValidation = false;  // Vulkan validation layers (never in Shipping)
+    PresentMode presentMode = PresentMode::Fifo;
+    // Texture sampling quality, fixed for the renderer's lifetime (the
+    // material sampler table is immutable).
+    u32 maxAnisotropy = 16;
+    f32 textureMipBias = 0.0f;
+    bool enableSceneRendering = true;  // settings windows need only Slate
 };
 
 // --- 2D UI drawing (Luma Slate produces this; the backend renders it) --------
@@ -305,6 +317,12 @@ public:
 
     // Block until the device is idle (use before teardown).
     virtual void WaitIdle() = 0;
+
+    // Changes the swapchain present mode; the swapchain is recreated before
+    // the next frame (no restart).
+    virtual void SetPresentMode(PresentMode mode) { (void)mode; }
+    // The mode the swapchain actually uses (after fallback).
+    virtual PresentMode ActivePresentMode() const { return PresentMode::Fifo; }
     
     // Get the RHI device (for advanced rendering integration)
     virtual void* GetRhiDevice() const { return nullptr; }

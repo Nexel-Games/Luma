@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "Luma/RHI/Renderer.h"
 #include "Vulkan/VulkanCommon.h"
 #include "Vulkan/VulkanDevice.h"
 
@@ -11,7 +12,7 @@ namespace Luma {
 class VulkanSwapchain {
 public:
     VulkanSwapchain(VulkanDevice& device, VkSurfaceKHR surface, u32 width,
-                    u32 height, bool vsync);
+                    u32 height, PresentMode presentMode);
     ~VulkanSwapchain();
 
     VulkanSwapchain(const VulkanSwapchain&) = delete;
@@ -19,6 +20,15 @@ public:
 
     // Tears down and rebuilds at the new size (device must be idle).
     void Recreate(u32 width, u32 height);
+
+    // The requested mode takes effect on the next Recreate.
+    void SetRequestedPresentMode(PresentMode mode) { m_requested = mode; }
+    PresentMode RequestedPresentMode() const { return m_requested; }
+    PresentMode ActivePresentMode() const { return m_active; }
+
+    // The supported mode closest to `wanted` (see PresentMode for the order).
+    static VkPresentModeKHR ChoosePresentMode(const std::vector<VkPresentModeKHR>& supported,
+                                              PresentMode wanted);
 
     VkSwapchainKHR Handle() const { return m_swapchain; }
     VkFormat Format() const { return m_format; }
@@ -33,7 +43,8 @@ private:
 
     VulkanDevice& m_device;
     VkSurfaceKHR m_surface;  // borrowed
-    bool m_vsync;
+    PresentMode m_requested;
+    PresentMode m_active = PresentMode::Fifo;
 
     VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
     VkFormat m_format = VK_FORMAT_UNDEFINED;

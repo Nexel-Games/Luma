@@ -20,24 +20,31 @@ VkSurfaceFormatKHR ChooseFormat(const std::vector<VkSurfaceFormatKHR>& formats) 
     return formats.front();
 }
 
-VkPresentModeKHR ChoosePresentMode(
-    const std::vector<VkPresentModeKHR>& modes, bool vsync) {
-    if (!vsync) {
-        for (auto m : modes) {
-            if (m == VK_PRESENT_MODE_MAILBOX_KHR) return m;
-        }
-        for (auto m : modes) {
-            if (m == VK_PRESENT_MODE_IMMEDIATE_KHR) return m;
-        }
+}  // namespace
+
+VkPresentModeKHR VulkanSwapchain::ChoosePresentMode(
+    const std::vector<VkPresentModeKHR>& supported, PresentMode wanted) {
+    auto has = [&](VkPresentModeKHR m) {
+        return std::find(supported.begin(), supported.end(), m) != supported.end();
+    };
+    switch (wanted) {
+        case PresentMode::Mailbox:
+            if (has(VK_PRESENT_MODE_MAILBOX_KHR)) return VK_PRESENT_MODE_MAILBOX_KHR;
+            if (has(VK_PRESENT_MODE_IMMEDIATE_KHR)) return VK_PRESENT_MODE_IMMEDIATE_KHR;
+            break;
+        case PresentMode::Immediate:
+            if (has(VK_PRESENT_MODE_IMMEDIATE_KHR)) return VK_PRESENT_MODE_IMMEDIATE_KHR;
+            if (has(VK_PRESENT_MODE_MAILBOX_KHR)) return VK_PRESENT_MODE_MAILBOX_KHR;
+            break;
+        case PresentMode::Fifo:
+            break;
     }
     return VK_PRESENT_MODE_FIFO_KHR;  // always available (vsync)
 }
 
-}  // namespace
-
 VulkanSwapchain::VulkanSwapchain(VulkanDevice& device, VkSurfaceKHR surface,
-                                 u32 width, u32 height, bool vsync)
-    : m_device(device), m_surface(surface), m_vsync(vsync) {
+                                 u32 width, u32 height, PresentMode presentMode)
+    : m_device(device), m_surface(surface), m_requested(presentMode) {
     Build(width, height);
 }
 
@@ -68,7 +75,10 @@ void VulkanSwapchain::Build(u32 width, u32 height) {
                                               modes.data());
 
     VkSurfaceFormatKHR surfaceFormat = ChooseFormat(formats);
-    VkPresentModeKHR presentMode = ChoosePresentMode(modes, m_vsync);
+    VkPresentModeKHR presentMode = ChoosePresentMode(modes, m_requested);
+    m_active = presentMode == VK_PRESENT_MODE_MAILBOX_KHR     ? PresentMode::Mailbox
+               : presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR ? PresentMode::Immediate
+                                                              : PresentMode::Fifo;
 
     // Extent: honor the surface's fixed size, otherwise clamp the requested one.
     if (caps.currentExtent.width != std::numeric_limits<u32>::max()) {
@@ -80,7 +90,9 @@ void VulkanSwapchain::Build(u32 width, u32 height) {
                                      caps.maxImageExtent.height);
     }
 
-    u32 imageCount = caps.minImageCount + 1;
+    // Mailbox needs a spare image to replace; one more than the minimum keeps
+    // the GPU from waiting on the presentation engine in every mode.
+    u32 imageCount = std::max(caps.minImageCount + 1, presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? 3u : 2u);
     if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount) {
         imageCount = caps.maxImageCount;
     }
@@ -147,7 +159,9 @@ void VulkanSwapchain::Build(u32 width, u32 height) {
 
     LUMA_LOG_INFO("Vulkan", "swapchain {}x{} ({} images, {})", m_extent.width,
                   m_extent.height, actualCount,
-                  presentMode == VK_PRESENT_MODE_FIFO_KHR ? "vsync" : "immediate");
+                  presentMode == VK_PRESENT_MODE_FIFO_KHR      ? "FIFO / vsync"
+                  : presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? "mailbox"
+                                                               : "immediate");
 }
 
 void VulkanSwapchain::Destroy() {

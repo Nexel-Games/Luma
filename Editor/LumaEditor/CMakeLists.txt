@@ -3,6 +3,7 @@
 
 add_executable(LumaEditor
     main.cpp
+    SettingsWindow.cpp
     SplashScreen.cpp
     EditorScreen.cpp
     MaterialPreview.cpp)
@@ -28,6 +29,7 @@ target_link_libraries(LumaEditor
             Luma::PanelProjectSettings Luma::PanelPreferences
             Luma::Material Luma::AssetImport Luma::MaterialBridge Luma::PanelMaterialEditor
             Luma::MaterialEditors Luma::GraphEditor Luma::AssetWindows
+            Luma::Profiling Luma::GraphicsSettings
             Vulkan::Vulkan)  # main.cpp drives VulkanDeferredRenderer directly
 
 set_target_properties(LumaEditor PROPERTIES

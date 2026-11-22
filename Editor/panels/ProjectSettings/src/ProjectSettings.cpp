@@ -46,7 +46,7 @@ void ProjectSettingsPanel::SaveNow() {
 
 void ProjectSettingsPanel::Close() {
     if (m_store && m_store->AnyDirty()) SaveNow();
-    m_isOpen = false;
+    if (!m_statusError) m_isOpen = false;
 }
 
 void ProjectSettingsPanel::DrawSidebar(Slate::Context& ui, const Rect& rect) {
@@ -88,24 +88,28 @@ void ProjectSettingsPanel::Draw(Slate::Context& ui, f32 width, f32 height) {
     EnsureSelection();
     Slate::Theme& t = ui.theme();
     const u64 id = Slate::Context::ID("ps.window");
-    const f32 w = std::max(520.0f, std::min(1100.0f, width - 80.0f));
-    const f32 h = std::max(360.0f, std::min(760.0f, height - 80.0f));
-    const Rect content = ui.BeginModal(id, "Project Settings", {w, h});
-
-    // Left: categories and pages; right: the selected page.
-    const f32 sidebarW = 220.0f;
+    ui.Panel({0, 0, width, height}, t.surface0);
+    ui.Panel({0, 0, width, 38}, t.tabWell);
+    ui.LogoMark({20, 19}, 12);
+    ui.PanelRounded({40, 4, 200, 34}, t.surface2, t.radius.sm);
+    Slate::DrawIcon(ui, {52, 12, 18, 18}, Slate::Icon::Gear, t.textDim);
+    ui.Heading({76, 4, 160, 34}, "Project Settings", t.text);
+    ui.Panel({0, 38, width, 1}, t.separator);
+    const Rect content{0, 39, width, std::max(0.0f, height - 82)};
+    const f32 sidebarW = std::min(width * 0.33f, 232.0f);
     const Rect sidebar{content.x, content.y, sidebarW, content.h};
     DrawSidebar(ui, sidebar);
-    ui.Panel({sidebar.Right(), content.y, 1.0f, content.h}, t.outline);
+    ui.Panel({sidebar.Right(), content.y, 1.0f, content.h}, t.separator);
     const Rect pageRect{sidebar.Right() + 16.0f, content.y, content.w - sidebarW - 16.0f,
                         content.h};
 
     if (const SettingsPageDesc* page = m_pages.Find(m_selected)) {
         ui.Heading({pageRect.x, pageRect.y, pageRect.w, 28.0f},
-                   page->category + " - " + page->title, t.accent);
+                   page->category + " - " + page->title, t.text);
         const Rect body{pageRect.x, pageRect.y + 36.0f, pageRect.w, pageRect.h - 36.0f};
+        m_scroll = ui.VerticalScroll(id ^ 0x51, body, page->contentHeight, m_scroll);
         ui.PushClip(body);
-        const bool changed = page->draw(ui, {body.x, body.y - m_scroll, body.w, body.h});
+        const bool changed = page->draw(ui, {body.x, body.y - m_scroll, std::max(1.0f, body.w - 12), body.h});
         ui.PopClip();
         if (changed && m_store) m_store->MarkDirty(page->id);
     } else {
@@ -115,7 +119,7 @@ void ProjectSettingsPanel::Draw(Slate::Context& ui, f32 width, f32 height) {
                    t.textDim);
     }
 
-    // Footer: status + Save / Close (below the content rect, like the modal row).
+    ui.Panel({0, content.Bottom(), width, 1}, t.separator);
     const f32 by = content.Bottom() + t.space.md;
     const Rect closeRect{content.Right() - 90.0f, by, 90.0f, 26.0f};
     const Rect saveRect{closeRect.x - 98.0f, by, 90.0f, 26.0f};
@@ -125,9 +129,9 @@ void ProjectSettingsPanel::Draw(Slate::Context& ui, f32 width, f32 height) {
     }
     const bool dirty = m_store && m_store->AnyDirty();
     if (ui.Button(id ^ 0x5A7Eull, saveRect, dirty ? "Save *" : "Save") && dirty) SaveNow();
-    if (ui.Button(id ^ 0xC105Eull, closeRect, "Close")) {
+    if (ui.Button(id ^ 0xC105Eull, closeRect, "Close") ||
+        (ui.keyEscape() && !ui.AnyMenuOpen() && !ui.textFieldFocused())) {
         Close();
-        ui.EndModal();
     }
 }
 

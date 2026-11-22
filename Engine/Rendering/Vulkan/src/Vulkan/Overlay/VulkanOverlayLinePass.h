@@ -35,7 +35,7 @@ public:
     // color target is `width` x `height`. `lines` holds vertex pairs.
     void Record(VkCommandBuffer cmd, const LineVertex* lines, u32 vertexCount,
                 const Math::Mat4& viewProj, u32 width, u32 height,
-                f32 thicknessPx = 1.5f);
+                f32 thicknessPx = 1.5f, u32 slot = 0);
 
 private:
     struct Vertex {

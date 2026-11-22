@@ -22,6 +22,7 @@ add_library(LumaRenderVulkan STATIC
     src/Vulkan/SkyLight/VulkanSkyLight.cpp
     src/Vulkan/EyeAdaptation/VulkanEyeAdaptation.cpp
     src/Vulkan/VulkanRenderer.cpp
+    src/Vulkan/Profiling/VulkanGpuTimer.cpp
     src/Vulkan/RHI/VulkanRHIResources.cpp
     src/Vulkan/RHI/VulkanRHICommandList.cpp
     src/Vulkan/RHI/VulkanRHIPipeline.cpp
@@ -76,7 +77,7 @@ target_include_directories(LumaRenderVulkan
             ${PROJECT_SOURCE_DIR}/Engine/Rendering/Renderer/include)
 
 target_link_libraries(LumaRenderVulkan
-    PUBLIC Luma::Core Luma::RHI Luma::Platform
+    PUBLIC Luma::Core Luma::RHI Luma::Platform Luma::Profiling
     PRIVATE Vulkan::Vulkan Luma::Math Luma::Mesh Luma::Asset)
 
 # Let the engine locate the SDK's validation layer even when it isn't registered

@@ -78,6 +78,15 @@ VulkanEyeAdaptation::VulkanEyeAdaptation(VkPhysicalDevice physical, VkDevice dev
     ai.pSetLayouts = &m_setLayout;
     if (vkAllocateDescriptorSets(m_device, &ai, &m_set) != VK_SUCCESS) return;
 
+    SetSource(sceneHDR, sampler);
+
+    m_histogramPipeline = CreatePipeline(shaderDir + "/eye_histogram.comp.spv");
+    m_adaptPipeline = CreatePipeline(shaderDir + "/eye_adapt.comp.spv");
+    m_valid = m_histogramPipeline && m_adaptPipeline;
+    if (!m_valid) LUMA_LOG_ERROR("VulkanEyeAdaptation", "Failed to create eye adaptation pipelines");
+}
+
+void VulkanEyeAdaptation::SetSource(VkImageView sceneHDR, VkSampler sampler) {
     VkDescriptorImageInfo scene{sampler, sceneHDR, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkDescriptorBufferInfo histInfo{m_histogram.buffer, 0, kHistogramBytes};
     VkDescriptorBufferInfo stateInfo{m_state.buffer, 0, kStateBytes};
@@ -92,11 +101,6 @@ VulkanEyeAdaptation::VulkanEyeAdaptation(VkPhysicalDevice physical, VkDevice dev
     w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         w[1].pBufferInfo = &histInfo;
     w[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;         w[2].pBufferInfo = &stateInfo;
     vkUpdateDescriptorSets(m_device, 3, w, 0, nullptr);
-
-    m_histogramPipeline = CreatePipeline(shaderDir + "/eye_histogram.comp.spv");
-    m_adaptPipeline = CreatePipeline(shaderDir + "/eye_adapt.comp.spv");
-    m_valid = m_histogramPipeline && m_adaptPipeline;
-    if (!m_valid) LUMA_LOG_ERROR("VulkanEyeAdaptation", "Failed to create eye adaptation pipelines");
 }
 
 VulkanEyeAdaptation::~VulkanEyeAdaptation() {

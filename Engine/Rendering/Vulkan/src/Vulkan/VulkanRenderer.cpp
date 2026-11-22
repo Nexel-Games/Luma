@@ -6,6 +6,8 @@
 
 #include "Luma/Platform/Window.h"
 #include "Luma/RHI/VulkanRenderer.h"
+#include "Luma/Profiling/Profiler.h"
+#include "Vulkan/Profiling/VulkanGpuTimer.h"
 #include "Vulkan/VulkanMemory.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -61,11 +63,13 @@ VulkanRenderer::VulkanRenderer(Window& window, const RendererConfig& config)
 
     m_device = std::make_unique<VulkanDevice>(m_instance->Handle(), m_surface);
     m_swapchain = std::make_unique<VulkanSwapchain>(
-        *m_device, m_surface, window.Width(), window.Height(), config.vsync);
+        *m_device, m_surface, window.Width(), window.Height(), config.presentMode);
 
     CreateCommandResources();
     CreateFrameSync();
     CreateRenderFinishedSemaphores();
+    m_gpuTimer = std::make_unique<VulkanGpuTimer>(m_device->Physical(), m_device->Logical(),
+                                                  *m_device->Queues().graphics, kFramesInFlight, "UI");
 
 #if defined(LUMA_SHADER_DIR)
     m_uiPass = std::make_unique<VulkanUIPass>(
@@ -73,12 +77,15 @@ VulkanRenderer::VulkanRenderer(Window& window, const RendererConfig& config)
         m_device->GraphicsQueue(), m_swapchain->Format(), kFramesInFlight,
         LUMA_SHADER_DIR);
 
+    if (!config.enableSceneRendering) return;
+
     // Vulkan deferred renderer for the editor viewport. It renders into an
     // offscreen G-Buffer + light-accumulation image that is registered with
     // the UI pass so the viewport panel can display it.
     m_vulkanDeferredRenderer = std::make_unique<Rendering::VulkanDeferredRenderer>(
         m_device->Physical(), m_device->Logical(), m_device->GraphicsQueue(),
-        m_device->Queues().graphics.value(), *m_uiPass, LUMA_SHADER_DIR);
+        m_device->Queues().graphics.value(), *m_uiPass, LUMA_SHADER_DIR, false, "",
+        config.maxAnisotropy, config.textureMipBias);
 
     if (!m_vulkanDeferredRenderer->Initialize(1920, 1080)) {
         LUMA_LOG_ERROR("Vulkan", "Failed to initialize Vulkan deferred renderer");
@@ -95,10 +102,12 @@ VulkanRenderer::VulkanRenderer(Window& window, const RendererConfig& config)
             m_device->Physical(), m_device->Logical(),
             m_device->GraphicsQueue(), m_device->Queues().graphics.value(),
             *m_uiPass, LUMA_SHADER_DIR, /*useEnvironment=*/true,
-            std::string(LUMA_CONTENT_DIR) + "/skybox/DayEnvironmentHDRI089_4K_HDR.exr");
+            std::string(LUMA_CONTENT_DIR) + "/skybox/DayEnvironmentHDRI089_4K_HDR.exr",
+            config.maxAnisotropy, config.textureMipBias);
     // The material preview shows the HDRI (blurred) as its backdrop and lights
     // with it (Unreal's preview scene).
 
+    m_vulkanMaterialDeferredRenderer->SetProfileName("Preview");
     if (!m_vulkanMaterialDeferredRenderer->Initialize(512, 320)) {
         LUMA_LOG_ERROR("Vulkan",
                        "Failed to initialize material deferred renderer");
@@ -122,6 +131,7 @@ VulkanRenderer::~VulkanRenderer() {
     m_vulkanDeferredRenderer.reset();
 
     m_uiPass.reset();     // uses the device; destroy before it
+    m_gpuTimer.reset();
     
     DestroyRenderFinishedSemaphores();
     for (auto& sem : m_imageAvailable) {
@@ -192,6 +202,12 @@ void VulkanRenderer::OnResize(u32 width, u32 height) {
     m_resizePending = true;
 }
 
+void VulkanRenderer::SetPresentMode(PresentMode mode) {
+    if (mode == m_swapchain->RequestedPresentMode()) return;
+    m_swapchain->SetRequestedPresentMode(mode);
+    m_resizePending = true;  // rebuilt at the start of the next frame
+}
+
 void VulkanRenderer::RecreateSwapchain() {
     u32 width = m_window.Width();
     u32 height = m_window.Height();
@@ -225,6 +241,7 @@ bool VulkanRenderer::AcquireOrRecreate() {
 }
 
 bool VulkanRenderer::BeginFrame() {
+    LUMA_PROFILE_SCOPE("Frame Begin (fence + acquire)");
     vkWaitForFences(m_device->Logical(), 1, &m_inFlight[m_frame], VK_TRUE,
                     std::numeric_limits<u64>::max());
 
@@ -239,6 +256,8 @@ bool VulkanRenderer::BeginFrame() {
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cmd, &begin));
+    // The frame's fence was waited above: this slot's previous timings are ready.
+    m_gpuTimer->BeginFrame(cmd, m_frame);
 
     VkImage image = m_swapchain->Image(m_imageIndex);
     TransitionImage(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -276,7 +295,9 @@ bool VulkanRenderer::BeginFrame() {
 
 void VulkanRenderer::DrawUI(const UIDrawData& data) {
     if (!m_frameActive || !m_uiPass) return;
+    GpuScope scope(m_gpuTimer.get(), m_commandBuffers[m_frame], "Slate UI");
     m_uiPass->Record(m_commandBuffers[m_frame], m_frame, data);
+    Profiling::Global().Counters().drawCalls += data.commandCount;
 }
 
 TextureHandle VulkanRenderer::CreateTexture(u32 width, u32 height,
@@ -342,6 +363,7 @@ void VulkanRenderer::EndFrame() {
                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
     }
+    m_gpuTimer->EndFrame(cmd);
     VK_CHECK(vkEndCommandBuffer(cmd));
 
     VkSemaphore waitSem = m_imageAvailable[m_frame];
@@ -370,7 +392,11 @@ void VulkanRenderer::EndFrame() {
     present.pSwapchains = &swapchain;
     present.pImageIndices = &m_imageIndex;
 
-    VkResult result = vkQueuePresentKHR(m_device->PresentQueue(), &present);
+    VkResult result;
+    {
+        LUMA_PROFILE_SCOPE("Present");
+        result = vkQueuePresentKHR(m_device->PresentQueue(), &present);
+    }
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
         m_resizePending) {
         RecreateSwapchain();

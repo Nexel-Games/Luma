@@ -33,9 +33,25 @@ VulkanSelectionOutlinePass::~VulkanSelectionOutlinePass() {
     if (m_pool) vkDestroyDescriptorPool(m_device, m_pool, nullptr);
     if (m_setLayout) vkDestroyDescriptorSetLayout(m_device, m_setLayout, nullptr);
     if (m_sampler) vkDestroySampler(m_device, m_sampler, nullptr);
+    DestroyMask();
+}
+
+void VulkanSelectionOutlinePass::DestroyMask() {
     if (m_maskView) vkDestroyImageView(m_device, m_maskView, nullptr);
     if (m_mask) vkDestroyImage(m_device, m_mask, nullptr);
     if (m_maskMemory) vkFreeMemory(m_device, m_maskMemory, nullptr);
+    m_maskView = VK_NULL_HANDLE;
+    m_mask = VK_NULL_HANDLE;
+    m_maskMemory = VK_NULL_HANDLE;
+}
+
+bool VulkanSelectionOutlinePass::Resize(VkPhysicalDevice physical, u32 width, u32 height) {
+    DestroyMask();
+    m_width = width;
+    m_height = height;
+    if (!m_outlineSet || !CreateMask(physical)) return false;
+    UpdateMaskDescriptor();
+    return true;
 }
 
 bool VulkanSelectionOutlinePass::CreateMask(VkPhysicalDevice physical) {
@@ -97,6 +113,11 @@ bool VulkanSelectionOutlinePass::CreateDescriptors() {
     alloc.pSetLayouts = &m_setLayout;
     if (vkAllocateDescriptorSets(m_device, &alloc, &m_outlineSet) != VK_SUCCESS) return false;
 
+    UpdateMaskDescriptor();
+    return true;
+}
+
+void VulkanSelectionOutlinePass::UpdateMaskDescriptor() {
     VkDescriptorImageInfo maskInfo{m_sampler, m_maskView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     write.dstSet = m_outlineSet;
@@ -105,7 +126,6 @@ bool VulkanSelectionOutlinePass::CreateDescriptors() {
     write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     write.pImageInfo = &maskInfo;
     vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
-    return true;
 }
 
 bool VulkanSelectionOutlinePass::CreatePipelines(const std::string& shaderDir,

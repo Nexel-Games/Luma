@@ -1,3 +1,4 @@
+#include <tuple>
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Math/MathUtils.h"
 #include "Luma/Mesh/Mesh.h"
+#include "Luma/Profiling/Profiler.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Grid/VulkanGridPass.h"
 #include "Vulkan/Materials/VulkanMaterialLayout.h"
@@ -30,6 +32,7 @@
 #include "Vulkan/Selection/VulkanSelectionOutlinePass.h"
 #include "Vulkan/Textures/VulkanTextureCache.h"
 #include "Vulkan/Overlay/VulkanOverlayLinePass.h"
+#include "Vulkan/Profiling/VulkanGpuTimer.h"
 #include "Vulkan/EyeAdaptation/VulkanEyeAdaptation.h"
 #include "Vulkan/SkyLight/VulkanSkyLight.h"
 #include "Vulkan/UI/VulkanUIPass.h"
@@ -105,7 +108,7 @@ f32 HalfToFloat(u16 h) {
 VulkanDeferredRenderer::VulkanDeferredRenderer(
     VkPhysicalDevice physicalDevice, VkDevice device, VkQueue graphicsQueue,
     uint32_t graphicsQueueFamilyIndex, VulkanUIPass& uiPass,
-    const std::string& shaderDir, bool useEnvironment, std::string environmentPath)
+    const std::string& shaderDir, bool useEnvironment, std::string environmentPath, u32 anisotropy, f32 mipBias)
     : m_physicalDevice(physicalDevice)
     , m_device(device)
     , m_graphicsQueue(graphicsQueue)
@@ -119,10 +122,8 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
     , m_lightingLayout(VK_NULL_HANDLE)
     , m_lightingSetLayout(VK_NULL_HANDLE)
     , m_lightingPool(VK_NULL_HANDLE)
-    , m_lightingSet(VK_NULL_HANDLE)
     , m_commandPool(VK_NULL_HANDLE)
     , m_commandBuffer(VK_NULL_HANDLE)
-    , m_fence(VK_NULL_HANDLE)
 {
     m_gBuffer.width = 0;
     m_gBuffer.height = 0;
@@ -134,12 +135,14 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
     m_gBuffer.lightAccum = {};
 
     m_textures = std::make_unique<VulkanTextureCache>(physicalDevice, device, graphicsQueue,
-                                                      graphicsQueueFamilyIndex);
+                                                      graphicsQueueFamilyIndex, 4096, anisotropy, mipBias);
     m_meshes = std::make_unique<VulkanMeshCache>(physicalDevice, device, graphicsQueue,
                                                  graphicsQueueFamilyIndex);
     m_materialLayout = std::make_unique<VulkanMaterialLayout>(physicalDevice, device, m_textures->Layout());
     m_materialPipelines = std::make_unique<VulkanMaterialPipelines>(device, m_materialLayout->PipelineLayout());
     m_materials = std::make_unique<VulkanMaterialSystem>(*m_materialPipelines);
+    m_gpuTimer = std::make_unique<VulkanGpuTimer>(physicalDevice, device, graphicsQueueFamilyIndex, kFrameSlots,
+                                                  m_profileName);
     if (!m_textures->IsValid() || !m_materialLayout->IsValid()) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Scene content caches failed to initialize");
     }
@@ -149,6 +152,12 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
         // Reserved keys: the top bits mark built-in content.
         m_primitiveMeshes[i] = m_meshes->Upload(0xB1170000'00000000ull | i, BuildPrimitive(kinds[i]));
     }
+}
+
+void VulkanDeferredRenderer::SetProfileName(std::string name) {
+    m_profileName = std::move(name);
+    m_gpuTimer = std::make_unique<VulkanGpuTimer>(m_physicalDevice, m_device, m_graphicsQueueFamilyIndex, kFrameSlots,
+                                                  m_profileName);
 }
 
 VulkanDeferredRenderer::~VulkanDeferredRenderer() {
@@ -164,6 +173,7 @@ void VulkanDeferredRenderer::ReleaseMesh(MeshHandle mesh) {
     for (MeshHandle primitive : m_primitiveMeshes) {
         if (primitive == mesh) return;  // built-in shapes stay resident
     }
+    m_garbagePending = true;
     m_meshes->Release(mesh);
 }
 
@@ -172,6 +182,7 @@ GpuTextureHandle VulkanDeferredRenderer::UploadTexture(u64 key, const TextureUpl
 }
 
 void VulkanDeferredRenderer::ReleaseTexture(GpuTextureHandle texture) {
+    m_garbagePending = true;
     m_textures->Release(texture);
 }
 
@@ -304,6 +315,7 @@ void VulkanDeferredRenderer::RecordTranslucency(const SceneView& source, const M
     std::vector<Draw> draws;
     bool refraction = false;
     for (u32 i = 0; i < source.instanceCount; ++i) {
+        if (!m_visible[i]) continue;
         const SceneInstance& inst = source.instances[i];
         const GpuMesh* mesh = ResolveMesh(inst);
         if (!mesh) continue;
@@ -394,10 +406,13 @@ void VulkanDeferredRenderer::RecordTranslucency(const SceneView& source, const M
 }
 
 void VulkanDeferredRenderer::BindMaterialSets(u32 viewOffset) {
+    m_boundMesh = nullptr;
+    m_boundPipeline = VK_NULL_HANDLE;
     const VkDescriptorSet sets[3] = {m_materialLayout->FrameSet(m_frameSlot), m_textures->Set(),
                                      m_materialLayout->ParamSet(m_frameSlot)};
     vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_materialLayout->PipelineLayout(), 0, 3,
                             sets, 1, &viewOffset);
+    ++m_stats.descriptorBinds;
 }
 
 Math::Mat4 VulkanDeferredRenderer::NormalMatrix(const Math::Mat4& model) const {
@@ -408,6 +423,19 @@ Math::Mat4 VulkanDeferredRenderer::NormalMatrix(const Math::Mat4& model) const {
 void VulkanDeferredRenderer::DrawMaterialSections(const SceneInstance& inst, u32 objectId, GpuPass pass) {
     const GpuMesh* mesh = ResolveMesh(inst);
     if (!mesh) return;
+    for (u32 s = 0; s < mesh->sections.size(); ++s) {
+        const MaterialHandle handle = SectionMaterial(inst, s);
+        const CompiledMaterialGpu* material = m_materials->Drawable(handle);
+        if (!material) continue;
+        const VkPipeline pipeline = m_materialPipelines->Get(*material, pass);
+        if (!pipeline) continue;  // the material doesn't draw in this pass
+        DrawSection(inst, objectId, pass, mesh, s, handle, *material, pipeline);
+    }
+}
+
+void VulkanDeferredRenderer::DrawSection(const SceneInstance& inst, u32 objectId, GpuPass pass,
+                                        const GpuMesh* mesh, u32 sectionIndex, MaterialHandle handle,
+                                        const CompiledMaterialGpu& material, VkPipeline pipeline) {
     VulkanMaterialLayout::Push push{};
     push.model = inst.model;
     const Math::Mat4 inverse = NormalMatrix(inst.model);
@@ -418,26 +446,48 @@ void VulkanDeferredRenderer::DrawMaterialSections(const SceneInstance& inst, u32
     }
     push.objectId = objectId;
     const VkDeviceSize offset = 0;
-    bool bound = false;
-    for (u32 s = 0; s < mesh->sections.size(); ++s) {
-        const MaterialHandle handle = SectionMaterial(inst, s);
-        const CompiledMaterialGpu* material = m_materials->Drawable(handle);
-        if (!material) continue;
-        const VkPipeline pipeline = m_materialPipelines->Get(*material, pass);
-        if (!pipeline) continue;  // the material doesn't draw in this pass
-        if (!bound) {
-            vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
-            vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-            bound = true;
-        }
-        vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        push.paramOffset = m_materials->ParamOffset(handle);
-        push.opacityMaskClip = material->opacityMaskClip;
-        vkCmdPushConstants(m_commandBuffer, m_materialLayout->PipelineLayout(),
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
-        const MeshSection& section = mesh->sections[s];
-        vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
+    if (m_boundMesh != mesh) {
+        vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
+        vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+        m_boundMesh = mesh;
     }
+    if (m_boundPipeline != pipeline) {
+        vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        m_boundPipeline = pipeline;
+        ++m_stats.pipelineBinds;
+    }
+    push.paramOffset = m_materials->ParamOffset(handle);
+    push.opacityMaskClip = material.opacityMaskClip;
+    vkCmdPushConstants(m_commandBuffer, m_materialLayout->PipelineLayout(),
+                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+    const MeshSection& section = mesh->sections[sectionIndex];
+    vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
+    ++m_stats.drawCalls;
+    m_stats.triangles += section.indexCount / 3;
+    if (pass == GpuPass::DepthOnly) ++m_stats.shadowDraws;
+}
+
+// Gather actual drawable sections once, then group identical pipeline/material/mesh
+// state. The same depth list is reused across all cascade frusta.
+void VulkanDeferredRenderer::BuildDrawList(const SceneView& source, GpuPass pass, std::vector<DrawItem>& list) {
+    list.clear();
+    for (u32 i = 0; i < source.instanceCount; ++i) {
+        if (pass == GpuPass::GBuffer && !m_visible[i]) continue;
+        const SceneInstance& inst = source.instances[i];
+        const auto* mesh = ResolveMesh(inst);
+        if (!mesh) continue;
+        for (u32 section = 0; section < mesh->sections.size(); ++section) {
+            const auto handle = SectionMaterial(inst, section);
+            const auto* mat = m_materials->Drawable(handle);
+            if (!mat || !mat->HasPass(pass)) continue;
+            if (auto pipeline = m_materialPipelines->Get(*mat, pass))
+                list.push_back({pipeline, handle, mesh, mat, i, section});
+        }
+    }
+    std::sort(list.begin(), list.end(), [](const DrawItem& a, const DrawItem& b) {
+        return std::tie(a.pipeline, a.handle, a.mesh, a.instance, a.section) <
+               std::tie(b.pipeline, b.handle, b.mesh, b.instance, b.section);
+    });
 }
 
 void VulkanDeferredRenderer::ReleaseMaterial(MaterialHandle material) {
@@ -485,7 +535,7 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    if (vkCreateFence(m_device, &fenceInfo, nullptr, &m_fence) != VK_SUCCESS) {
+    for (auto& fence : m_fences) if (vkCreateFence(m_device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to create fence");
         return false;
     }
@@ -495,9 +545,9 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = m_commandPool;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
+    allocInfo.commandBufferCount = kFrameSlots;
     
-    if (vkAllocateCommandBuffers(m_device, &allocInfo, &m_commandBuffer) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(m_device, &allocInfo, m_commands.data()) != VK_SUCCESS) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to allocate command buffer");
         return false;
     }
@@ -542,6 +592,8 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
         m_bloomEnabled = false;
     }
 
+    PointFXAAAt(m_bloomEnabled ? m_bloomCompositeOutput.view : m_gBuffer.lightAccum.view);
+
     // Editor ground grid: 1-sample targets matching the deferred pass formats.
     m_gridPass = std::make_unique<VulkanGridPass>(
         m_physicalDevice, m_device, m_shaderDir, VK_SAMPLE_COUNT_1_BIT,
@@ -562,12 +614,12 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     // displays this instead of the raw light accumulation buffer).
     if (m_textureHandle == 0) {
         m_textureHandle = m_uiPass.RegisterExternalTexture(
-            m_fxaaResolved.view);
+            DisplayAttachment().view);
     } else {
         m_uiPass.UpdateExternalTexture(m_textureHandle,
-                                       m_fxaaResolved.view);
+                                       DisplayAttachment().view);
     }
-    m_registeredLightView = m_fxaaResolved.view;
+    m_registeredLightView = DisplayAttachment().view;
 
     m_initialized = true;
     LUMA_LOG_INFO("VulkanDeferredRenderer",
@@ -578,7 +630,7 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
 void VulkanDeferredRenderer::Cleanup() {
     if (!m_initialized && m_commandPool == VK_NULL_HANDLE) return;
 
-    if (m_fence != VK_NULL_HANDLE) {
+    if (m_commandPool) {
         vkDeviceWaitIdle(m_device);
     }
 
@@ -590,7 +642,7 @@ void VulkanDeferredRenderer::Cleanup() {
     m_eyeAdaptation.reset();
     DestroyFXAAPass();
     DestroyEnvironmentTexture();
-    DestroyBuffer(m_device, m_lightingUBO);
+    for (auto& ubo : m_lightingUBOs) DestroyBuffer(m_device, ubo);
     DestroyShadowResources();
 
     if (m_lightingPipeline)
@@ -607,42 +659,15 @@ void VulkanDeferredRenderer::Cleanup() {
     m_lightingPool = VK_NULL_HANDLE;
     m_lightingSetLayout = VK_NULL_HANDLE;
 
-    if (m_commandBuffer != VK_NULL_HANDLE) {
-        vkFreeCommandBuffers(m_device, m_commandPool, 1, &m_commandBuffer);
-        m_commandBuffer = VK_NULL_HANDLE;
-    }
-    if (m_fence != VK_NULL_HANDLE) {
-        vkDestroyFence(m_device, m_fence, nullptr);
-        m_fence = VK_NULL_HANDLE;
+    for (auto& fence : m_fences) {
+        if (fence) vkDestroyFence(m_device, fence, nullptr);
+        fence = VK_NULL_HANDLE;
     }
 
-    if (m_gBuffer.framebuffer != VK_NULL_HANDLE) {
-        vkDestroyFramebuffer(m_device, m_gBuffer.framebuffer, nullptr);
-        m_gBuffer.framebuffer = VK_NULL_HANDLE;
-    }
-    if (m_gBuffer.renderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(m_device, m_gBuffer.renderPass, nullptr);
-        m_gBuffer.renderPass = VK_NULL_HANDLE;
-    }
-    if (m_gBuffer.lightingFramebuffer != VK_NULL_HANDLE) {
-        vkDestroyFramebuffer(m_device, m_gBuffer.lightingFramebuffer, nullptr);
-        m_gBuffer.lightingFramebuffer = VK_NULL_HANDLE;
-    }
-    if (m_gBuffer.lightingRenderPass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(m_device, m_gBuffer.lightingRenderPass, nullptr);
-        m_gBuffer.lightingRenderPass = VK_NULL_HANDLE;
-    }
-
-    DestroyAttachment(m_gBuffer.lightAccum);
-    DestroyAttachment(m_gBuffer.depth);
-    DestroyAttachment(m_gBuffer.material);
-    DestroyAttachment(m_gBuffer.normal);
-    DestroyAttachment(m_gBuffer.albedo);
-    DestroyAttachment(m_gBuffer.emissive);
-    DestroyAttachment(m_gBuffer.custom);
-    DestroyAttachment(m_gBuffer.sceneColor);
-    DestroyAttachment(m_gBuffer.ppInput);
-
+    DestroyGBufferTargets();
+    if (m_gBuffer.renderPass) vkDestroyRenderPass(m_device, m_gBuffer.renderPass, nullptr);
+    if (m_gBuffer.lightingRenderPass) vkDestroyRenderPass(m_device, m_gBuffer.lightingRenderPass, nullptr);
+    m_gBuffer.renderPass = m_gBuffer.lightingRenderPass = VK_NULL_HANDLE;
     if (m_gBuffer.sampler)
         vkDestroySampler(m_device, m_gBuffer.sampler, nullptr);
     m_gBuffer.sampler = VK_NULL_HANDLE;
@@ -650,7 +675,6 @@ void VulkanDeferredRenderer::Cleanup() {
     if (m_commandPool)
         vkDestroyCommandPool(m_device, m_commandPool, nullptr);
     m_commandBuffer = VK_NULL_HANDLE;
-    m_fence = VK_NULL_HANDLE;
     m_commandPool = VK_NULL_HANDLE;
 
     m_initialized = false;
@@ -669,6 +693,29 @@ bool VulkanDeferredRenderer::CreateCommandPool() {
     }
 
     return true;
+}
+
+void VulkanDeferredRenderer::DestroyGBufferTargets() {
+    if (m_gBuffer.framebuffer != VK_NULL_HANDLE) {
+        vkDestroyFramebuffer(m_device, m_gBuffer.framebuffer, nullptr);
+        m_gBuffer.framebuffer = VK_NULL_HANDLE;
+    }
+    if (m_gBuffer.lightingFramebuffer != VK_NULL_HANDLE) {
+        vkDestroyFramebuffer(m_device, m_gBuffer.lightingFramebuffer, nullptr);
+        m_gBuffer.lightingFramebuffer = VK_NULL_HANDLE;
+    }
+
+    DestroyAttachment(m_gBuffer.lightAccum);
+    DestroyAttachment(m_gBuffer.depth);
+    DestroyAttachment(m_gBuffer.material);
+    DestroyAttachment(m_gBuffer.normal);
+    DestroyAttachment(m_gBuffer.albedo);
+    DestroyAttachment(m_gBuffer.emissive);
+    DestroyAttachment(m_gBuffer.custom);
+    DestroyAttachment(m_gBuffer.sceneColor);
+    DestroyAttachment(m_gBuffer.ppInput);
+
+    m_gBufferInitialized = false;
 }
 
 bool VulkanDeferredRenderer::CreateGBuffer(int32_t width, int32_t height) {
@@ -725,11 +772,11 @@ bool VulkanDeferredRenderer::CreateGBuffer(int32_t width, int32_t height) {
         return false;
     }
 
-    if (!CreateRenderPass()) return false;
+    if (!m_gBuffer.renderPass && !CreateRenderPass()) return false;
     if (!CreateFramebuffer()) return false;
-    if (!CreateLightingRenderPass()) return false;
+    if (!m_gBuffer.lightingRenderPass && !CreateLightingRenderPass()) return false;
     if (!CreateLightingFramebuffer()) return false;
-    if (!CreateSampler()) return false;
+    if (!m_gBuffer.sampler && !CreateSampler()) return false;
 
     return true;
 }
@@ -1179,7 +1226,7 @@ void VulkanDeferredRenderer::DestroyEnvironmentTexture() {
 // texture that is registered with the UI pass. FXAA smooths geometry edges
 // and texture seams without the cost of multi-sample rendering.
 
-bool VulkanDeferredRenderer::CreateFXAAPass() {
+bool VulkanDeferredRenderer::CreateFXAATarget() {
     // 1. Create the resolved output texture (same format/size as lightAccum)
     // Transfer source: ReadFinalImage copies it back (thumbnails, captures).
     if (!CreateAttachment(kLightFormat,
@@ -1190,6 +1237,24 @@ bool VulkanDeferredRenderer::CreateFXAAPass() {
         return false;
     }
 
+    // 3. Create the FXAA framebuffer (single output attachment)
+    VkFramebufferCreateInfo fboInfo{};
+    fboInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fboInfo.renderPass = m_fxaaRenderPass;
+    fboInfo.attachmentCount = 1;
+    fboInfo.pAttachments = &m_fxaaResolved.view;
+    fboInfo.width = static_cast<u32>(m_gBuffer.width);
+    fboInfo.height = static_cast<u32>(m_gBuffer.height);
+    fboInfo.layers = 1;
+    if (vkCreateFramebuffer(m_device, &fboInfo, nullptr, &m_fxaaFramebuffer) != VK_SUCCESS) {
+        LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to create FXAA framebuffer");
+        return false;
+    }
+
+    return true;
+}
+
+bool VulkanDeferredRenderer::CreateFXAAPass() {
     // 2. Create a simple single-attachment render pass (color output only)
     //    lightAccum is transitioned to SHADER_READ before this pass, then
     //    sampled as a combined image sampler (not a subpass input attachment).
@@ -1230,19 +1295,7 @@ bool VulkanDeferredRenderer::CreateFXAAPass() {
         return false;
     }
 
-    // 3. Create the FXAA framebuffer (single output attachment)
-    VkFramebufferCreateInfo fboInfo{};
-    fboInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fboInfo.renderPass = m_fxaaRenderPass;
-    fboInfo.attachmentCount = 1;
-    fboInfo.pAttachments = &m_fxaaResolved.view;
-    fboInfo.width = static_cast<u32>(m_gBuffer.width);
-    fboInfo.height = static_cast<u32>(m_gBuffer.height);
-    fboInfo.layers = 1;
-    if (vkCreateFramebuffer(m_device, &fboInfo, nullptr, &m_fxaaFramebuffer) != VK_SUCCESS) {
-        LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to create FXAA framebuffer");
-        return false;
-    }
+    if (!CreateFXAATarget()) return false;
 
     // 4. Descriptor set layout (combined image sampler + push constants)
     VkDescriptorSetLayoutBinding binding{};
@@ -1405,10 +1458,12 @@ void VulkanDeferredRenderer::PointFXAAAt(VkImageView sourceView) {
 }
 
 bool VulkanDeferredRenderer::CreateUBOs() {
-    m_lightingUBO = CreateBuffer(m_physicalDevice, m_device, sizeof(LightingUBO),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, true);
-    return m_lightingUBO.buffer != VK_NULL_HANDLE;
+    for (auto& ubo : m_lightingUBOs) {
+        ubo = CreateBuffer(m_physicalDevice, m_device, sizeof(LightingUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, true);
+        if (!ubo.mapped) return false;
+    }
+    return true;
 }
 
 bool VulkanDeferredRenderer::CreateLayouts() {
@@ -1437,29 +1492,40 @@ bool VulkanDeferredRenderer::CreateDescriptorSets() {
     VkDescriptorPoolSize sizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
                                      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9},
                                      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}};
-    VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = 1; pi.poolSizeCount = 3; pi.pPoolSizes = sizes;
+    for (auto& size : sizes) size.descriptorCount *= kFrameSlots;
+    VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = kFrameSlots; pi.poolSizeCount = 3; pi.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(m_device, &pi, nullptr, &m_lightingPool) != VK_SUCCESS) return false;
-    VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO}; ai.descriptorPool = m_lightingPool; ai.descriptorSetCount = 1;
-    ai.pSetLayouts = &m_lightingSetLayout;
-    if (vkAllocateDescriptorSets(m_device, &ai, &m_lightingSet) != VK_SUCCESS) return false;
-    VkDescriptorBufferInfo lb{m_lightingUBO.buffer, 0, sizeof(LightingUBO)};
+    for (u32 slot = 0; slot < kFrameSlots; ++slot) {
+        VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        ai.descriptorPool = m_lightingPool;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts = &m_lightingSetLayout;
+        if (vkAllocateDescriptorSets(m_device, &ai, &m_lightingSets[slot]) != VK_SUCCESS) return false;
+        UpdateLightingSet(slot);
+    }
+    return true;
+}
+
+void VulkanDeferredRenderer::UpdateLightingSet(u32 slot) {
+    const auto set = m_lightingSets[slot];
+    VkDescriptorBufferInfo lb{m_lightingUBOs[slot].buffer, 0, sizeof(LightingUBO)};
     VkDescriptorImageInfo shadow{m_shadowSampler, m_shadowArrayView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkDescriptorImageInfo environment{m_environmentSampler, m_environmentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkDescriptorImageInfo g[4] = {{m_gBuffer.sampler, m_gBuffer.albedo.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {m_gBuffer.sampler, m_gBuffer.normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {m_gBuffer.sampler, m_gBuffer.material.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}, {m_gBuffer.sampler, m_gBuffer.depth.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}};
     VkWriteDescriptorSet writes[7]{};
-    for (u32 i = 0; i < 4; ++i) { writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[i].dstSet = m_lightingSet; writes[i].dstBinding = i; writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[i].descriptorCount = 1; writes[i].pImageInfo = &g[i]; }
-    writes[4] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[4].dstSet = m_lightingSet; writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[4].descriptorCount = 1; writes[4].pBufferInfo = &lb;
-    writes[5] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[5].dstSet = m_lightingSet; writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[5].descriptorCount = 1; writes[5].pImageInfo = &shadow;
-    writes[6] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[6].dstSet = m_lightingSet; writes[6].dstBinding = 6; writes[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[6].descriptorCount = 1; writes[6].pImageInfo = &environment;
+    for (u32 i = 0; i < 4; ++i) { writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[i].dstSet = set; writes[i].dstBinding = i; writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[i].descriptorCount = 1; writes[i].pImageInfo = &g[i]; }
+    writes[4] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[4].dstSet = set; writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[4].descriptorCount = 1; writes[4].pBufferInfo = &lb;
+    writes[5] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[5].dstSet = set; writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[5].descriptorCount = 1; writes[5].pImageInfo = &shadow;
+    writes[6] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; writes[6].dstSet = set; writes[6].dstBinding = 6; writes[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[6].descriptorCount = 1; writes[6].pImageInfo = &environment;
     VkDescriptorImageInfo skyCube{m_skyLight->Sampler(), m_skyLight->FilteredCubeView(),
                                   VulkanSkyLight::kCubeLayout};
     VkDescriptorBufferInfo skySH{m_skyLight->SHBuffer(), 0, m_skyLight->SHBufferSize()};
     VkWriteDescriptorSet skyWrites[2]{};
-    skyWrites[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; skyWrites[0].dstSet = m_lightingSet; skyWrites[0].dstBinding = 7; skyWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; skyWrites[0].descriptorCount = 1; skyWrites[0].pImageInfo = &skyCube;
-    skyWrites[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; skyWrites[1].dstSet = m_lightingSet; skyWrites[1].dstBinding = 8; skyWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; skyWrites[1].descriptorCount = 1; skyWrites[1].pBufferInfo = &skySH;
+    skyWrites[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; skyWrites[0].dstSet = set; skyWrites[0].dstBinding = 7; skyWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; skyWrites[0].descriptorCount = 1; skyWrites[0].pImageInfo = &skyCube;
+    skyWrites[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; skyWrites[1].dstSet = set; skyWrites[1].dstBinding = 8; skyWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; skyWrites[1].descriptorCount = 1; skyWrites[1].pBufferInfo = &skySH;
     vkUpdateDescriptorSets(m_device, 7, writes, 0, nullptr);
     VkDescriptorImageInfo emissiveInfo{m_gBuffer.sampler, m_gBuffer.emissive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet emissiveWrite{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; emissiveWrite.dstSet = m_lightingSet; emissiveWrite.dstBinding = 9; emissiveWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; emissiveWrite.descriptorCount = 1; emissiveWrite.pImageInfo = &emissiveInfo;
+    VkWriteDescriptorSet emissiveWrite{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; emissiveWrite.dstSet = set; emissiveWrite.dstBinding = 9; emissiveWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; emissiveWrite.descriptorCount = 1; emissiveWrite.pImageInfo = &emissiveInfo;
     vkUpdateDescriptorSets(m_device, 1, &emissiveWrite, 0, nullptr);
     VkDescriptorImageInfo customInfo{m_gBuffer.sampler, m_gBuffer.custom.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet customWrite = emissiveWrite;
@@ -1467,7 +1533,6 @@ bool VulkanDeferredRenderer::CreateDescriptorSets() {
     customWrite.pImageInfo = &customInfo;
     vkUpdateDescriptorSets(m_device, 1, &customWrite, 0, nullptr);
     vkUpdateDescriptorSets(m_device, 2, skyWrites, 0, nullptr);
-    return true;
 }
 
 bool VulkanDeferredRenderer::CreatePipelines(const std::string& shaderDir) {
@@ -1496,10 +1561,10 @@ bool VulkanDeferredRenderer::CreatePipelines(const std::string& shaderDir) {
 }
 
 bool VulkanDeferredRenderer::CreateShadowResources() {
-    // Cascaded sun shadow map: one kShadowSize^2 depth layer per cascade.
+    // Cascaded sun shadow map: one m_quality.shadowMapSize^2 depth layer per cascade.
     VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     info.imageType = VK_IMAGE_TYPE_2D; info.format = kShadowFormat;
-    info.extent = {kShadowSize, kShadowSize, 1}; info.mipLevels = 1; info.arrayLayers = kCascades;
+    info.extent = {m_quality.shadowMapSize, m_quality.shadowMapSize, 1}; info.mipLevels = 1; info.arrayLayers = m_quality.maxCascades;
     info.samples = VK_SAMPLE_COUNT_1_BIT; info.tiling = VK_IMAGE_TILING_OPTIMAL;
     info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     if (vkCreateImage(m_device, &info, nullptr, &m_shadowImage) != VK_SUCCESS) return false;
@@ -1507,10 +1572,10 @@ bool VulkanDeferredRenderer::CreateShadowResources() {
     VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; alloc.allocationSize = req.size; alloc.memoryTypeIndex = FindMemoryType(m_physicalDevice, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     if (vkAllocateMemory(m_device, &alloc, nullptr, &m_shadowMem) != VK_SUCCESS) return false;
     vkBindImageMemory(m_device, m_shadowImage, m_shadowMem, 0);
-    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO}; view.image = m_shadowImage; view.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY; view.format = kShadowFormat; view.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, kCascades};
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO}; view.image = m_shadowImage; view.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY; view.format = kShadowFormat; view.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, m_quality.maxCascades};
     if (vkCreateImageView(m_device, &view, nullptr, &m_shadowArrayView) != VK_SUCCESS) return false;
     // Single-layer views: render targets for each cascade's depth pass.
-    for (u32 i = 0; i < kCascades; ++i) {
+    for (u32 i = 0; i < m_quality.maxCascades; ++i) {
         VkImageViewCreateInfo layer{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         layer.image = m_shadowImage;
         layer.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -1546,23 +1611,33 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
         b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.image = m_shadowImage;
-        b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, kCascades};
+        b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, m_quality.maxCascades};
         b.srcAccessMask = src; b.dstAccessMask = dst;
         vkCmdPipelineBarrier(m_commandBuffer, srcS, dstS, 0, 0, nullptr, 0, nullptr, 1, &b);
     };
 
+    if (!enabled) {
+        if (!m_shadowImageInitialized) {
+            layerBarrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         0, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            m_shadowImageInitialized = true;
+        }
+        return;
+    }
+    m_shadowImageInitialized = true;
     // Contents are fully rewritten every frame, so the old layout is discarded.
     layerBarrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
                  0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                  VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                  VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
 
-    const VkViewport viewport{0, 0, static_cast<f32>(kShadowSize),
-                              static_cast<f32>(kShadowSize), 0.0f, 1.0f};
-    const VkRect2D scissor{{0, 0}, {kShadowSize, kShadowSize}};
-    for (u32 c = 0; c < kCascades; ++c) {
-        // Every layer is cleared (far = no occluder) even when shadows are off
-        // or the cascade is unused, so sampling is always well-defined.
+    const VkViewport viewport{0, 0, static_cast<f32>(m_quality.shadowMapSize),
+                              static_cast<f32>(m_quality.shadowMapSize), 0.0f, 1.0f};
+    const VkRect2D scissor{{0, 0}, {m_quality.shadowMapSize, m_quality.shadowMapSize}};
+    BuildDrawList(source, GpuPass::DepthOnly, m_depthDraws);
+    for (u32 c = 0; c < cascades.count; ++c) {
+        const auto frustum = Renderer2::Frustum::FromViewProj(cascades.viewProj[c], true);
         VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         depth.imageView = m_shadowLayerViews[c];
         depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
@@ -1570,7 +1645,7 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
         depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         depth.clearValue.depthStencil = {1.0f, 0};
         VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        rendering.renderArea.extent = {kShadowSize, kShadowSize};
+        rendering.renderArea.extent = {m_quality.shadowMapSize, m_quality.shadowMapSize};
         rendering.layerCount = 1;
         rendering.pDepthAttachment = &depth;
         vkCmdBeginRendering(m_commandBuffer, &rendering);
@@ -1579,8 +1654,11 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
             vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
             vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
             BindMaterialSets(m_cascadeViewOffsets[c]);
-            for (u32 i = 0; i < source.instanceCount; ++i) {
-                DrawMaterialSections(source.instances[i], m_instanceObjects[i], GpuPass::DepthOnly);
+            for (const auto& item : m_depthDraws) {
+                const u32 i = item.instance;
+                if (m_quality.shadowCasterCulling && m_staticBounds[i] && !frustum.IntersectsAabb(m_worldBounds[i])) continue;
+                DrawSection(source.instances[i], m_instanceObjects[i], GpuPass::DepthOnly, item.mesh,
+                            item.section, item.handle, *item.material, item.pipeline);
             }
         }
         vkCmdEndRendering(m_commandBuffer);
@@ -1593,11 +1671,58 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
 }
 
 void VulkanDeferredRenderer::SetViewportDimensions(int32_t width, int32_t height) {
-    if (m_gBuffer.width != width || m_gBuffer.height != height) {
-        LUMA_LOG_INFO("VulkanDeferredRenderer", "Resizing G-buffer from {}x{} to {}x{}", 
-                     m_gBuffer.width, m_gBuffer.height, width, height);
+    if (width <= 0 || height <= 0) return;
+    if (!m_initialized) {
         Cleanup();
         Initialize(width, height);
+        return;
+    }
+    if (m_gBuffer.width == width && m_gBuffer.height == height) return;
+    vkDeviceWaitIdle(m_device);
+    DestroyBloomTargets();
+    vkDestroyFramebuffer(m_device, m_fxaaFramebuffer, nullptr);
+    m_fxaaFramebuffer = VK_NULL_HANDLE;
+    DestroyAttachment(m_fxaaResolved);
+    DestroyGBufferTargets();
+    if (!CreateGBuffer(width, height) || !CreateFXAATarget() ||
+        !(m_bloomCompositePipeline ? CreateBloomTargets() : CreateBloomResources()) ||
+        !m_selectionPass->Resize(m_physicalDevice, width, height)) {
+        LUMA_LOG_ERROR("VulkanDeferredRenderer", "Could not resize viewport to {}x{}", width, height);
+        Cleanup();
+        return;
+    }
+    m_eyeAdaptation->SetSource(m_gBuffer.lightAccum.view, m_gBuffer.sampler);
+    for (u32 slot = 0; slot < kFrameSlots; ++slot) UpdateLightingSet(slot);
+    PointFXAAAt(m_bloomCompositeOutput.view);
+    m_registeredLightView = DisplayAttachment().view;
+    m_uiPass.UpdateExternalTexture(m_textureHandle, m_registeredLightView);
+}
+
+const VulkanDeferredRenderer::Attachment& VulkanDeferredRenderer::DisplayAttachment() const {
+    if (m_quality.fxaa) return m_fxaaResolved;
+    return m_bloomEnabled ? m_bloomCompositeOutput : m_gBuffer.lightAccum;
+}
+
+void VulkanDeferredRenderer::SetQuality(const Renderer2::RenderQuality& quality) {
+    if (m_quality == quality) return;
+    const bool resizeShadow = m_quality.shadowMapSize != quality.shadowMapSize ||
+                              m_quality.maxCascades != quality.maxCascades;
+    const bool outputChanged = m_quality.fxaa != quality.fxaa;
+    m_quality = quality;
+    if (!m_initialized || (!resizeShadow && !outputChanged)) return;
+    vkDeviceWaitIdle(m_device);
+    if (resizeShadow) {
+        DestroyShadowResources();
+        if (!CreateShadowResources()) {
+            LUMA_LOG_ERROR("Vulkan", "Could not allocate the requested shadow maps");
+            Cleanup();
+            return;
+        }
+        for (u32 slot = 0; slot < kFrameSlots; ++slot) UpdateLightingSet(slot);
+    }
+    if (outputChanged) {
+        m_registeredLightView = DisplayAttachment().view;
+        m_uiPass.UpdateExternalTexture(m_textureHandle, m_registeredLightView);
     }
 }
 
@@ -1610,21 +1735,36 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Cannot render - not initialized");
         return;
     }
-    vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, std::numeric_limits<u64>::max());
-    vkResetFences(m_device, 1, &m_fence);
+    LUMA_PROFILE_SCOPE(m_profileName + " Render");
+    static_assert(kFrameSlots == VulkanMaterialLayout::kFramesInFlight);
+    m_frameSlot = (m_frameSlot + 1) % kFrameSlots;
+    m_commandBuffer = m_commands[m_frameSlot];
+    {
+        LUMA_PROFILE_SCOPE("Wait Frame Slot");
+        vkWaitForFences(m_device, 1, &m_fences[m_frameSlot], VK_TRUE, std::numeric_limits<u64>::max());
+    }
     vkResetCommandBuffer(m_commandBuffer, 0);
+    m_stats = Profiling::FrameCounters{};
 
     // The previous frame has finished: content released since is unused now,
     // and this frame's material table copy can be published.
-    m_meshes->CollectGarbage();
-    m_textures->CollectGarbage();
-    m_frameSlot = (m_frameSlot + 1) % VulkanMaterialLayout::kFramesInFlight;
+    if (m_garbagePending) {
+        // A released cache entry may still be referenced by the other slot.
+        vkWaitForFences(m_device, kFrameSlots, m_fences.data(), VK_TRUE, UINT64_MAX);
+        m_meshes->CollectGarbage();
+        m_textures->CollectGarbage();
+        m_garbagePending = false;
+    }
     m_materialPipelines->EndFrame();
     m_materialLayout->BeginFrame(m_frameSlot);
     m_materials->Flush(*m_materialLayout, *m_textures);
 
     const SceneView& source = *scene.sceneData;
     // Per-object data (bounds, world-to-local) for every instance.
+    const auto frustum = Renderer2::Frustum::FromViewProj(scene.viewProjectionMatrix);
+    m_worldBounds.resize(source.instanceCount);
+    m_staticBounds.assign(source.instanceCount, true);
+    m_visible.assign(source.instanceCount, true);
     m_instanceObjects.assign(source.instanceCount, 0u);
     m_instanceCenters.assign(source.instanceCount, Math::Vec3{0.0f, 0.0f, 0.0f});
     for (u32 i = 0; i < source.instanceCount; ++i) {
@@ -1634,6 +1774,15 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         if (const GpuMesh* mesh = ResolveMesh(inst)) {
             const Math::Vec3 center = (mesh->boundsMin + mesh->boundsMax) * 0.5f;
             const Math::Vec3 extent = (mesh->boundsMax - mesh->boundsMin) * 0.5f;
+            m_worldBounds[i] = Renderer2::TransformAabb(inst.model, mesh->boundsMin, mesh->boundsMax);
+            for (u32 section = 0; section < mesh->sections.size(); ++section) {
+                const auto* mat = m_materials->Drawable(SectionMaterial(inst, section));
+                if (mat && mat->usesWPO) { m_staticBounds[i] = false; break; }
+            }
+            if (m_quality.frustumCulling && m_staticBounds[i] && !frustum.IntersectsAabb(m_worldBounds[i])) {
+                m_visible[i] = false;
+                ++m_stats.culledInstances;
+            }
             const f32* m = inst.model.m;  // column-major
             const Math::Vec3 worldCenter{m[0] * center.x + m[4] * center.y + m[8] * center.z + m[12],
                                          m[1] * center.x + m[5] * center.y + m[9] * center.z + m[13],
@@ -1688,18 +1837,18 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     cascadeIn.aspect = static_cast<f32>(std::max(m_gBuffer.width, 1)) /
                        static_cast<f32>(std::max(m_gBuffer.height, 1));
     cascadeIn.nearZ = scene.nearPlane;
-    cascadeIn.farZ = std::min(scene.farPlane, params.shadowDistance);
+    cascadeIn.farZ = std::min({scene.farPlane, params.shadowDistance, m_quality.maxShadowDistance});
     cascadeIn.sunDirection = params.sunDirection;
-    cascadeIn.cascadeCount = std::min(params.cascadeCount, kCascades);
+    cascadeIn.cascadeCount = std::min(params.cascadeCount, m_quality.maxCascades);
     cascadeIn.splitLambda = params.cascadeSplitLambda;
-    cascadeIn.shadowMapSize = kShadowSize;
+    cascadeIn.shadowMapSize = m_quality.shadowMapSize;
     cascadeIn.casterDistance = std::max(params.shadowDistance, 50.0f);
     const Renderer2::SunCascades cascades = Renderer2::FitSunCascades(cascadeIn);
     // No shadows once the sun is below the horizon (the sky is dark anyway).
-    const bool sunShadows = params.sunShadows && cascades.count > 0 &&
+    const bool sunShadows = m_quality.shadows && params.sunShadows && cascades.count > 0 &&
                             Math::Normalize(params.sunDirection).y > -0.05f;
 
-    for (u32 c = 0; c < kCascades; ++c) {
+    for (u32 c = 0; c < m_quality.maxCascades; ++c) {
         // A shadow view: the sun's matrix; camera data stays the main view's
         // so World Position Offset matches what the camera sees.
         VulkanMaterialLayout::FrameData cascadeView = view;
@@ -1710,7 +1859,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     m_materialLayout->EndFrame();
 
     lighting.params[1] = sunShadows ? 1.0f : 0.0f;
-    lighting.params[2] = 1.0f / static_cast<f32>(kShadowSize);
+    lighting.params[2] = 1.0f / static_cast<f32>(m_quality.shadowMapSize);
     // w > 0.5: HDR environment on (background + IBL); w - 1 = background blur mip.
     {
         const f32 blur = m_environmentBlurLod >= 0.0f
@@ -1747,7 +1896,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         dst.spot[1] = src.cosOuter;
         dst.spot[2] = std::max(src.falloffExponent, 0.0f);
     }
-    std::memcpy(m_lightingUBO.mapped, &lighting, sizeof(lighting));
+    std::memcpy(m_lightingUBOs[m_frameSlot].mapped, &lighting, sizeof(lighting));
     {
         // Scene textures (material_frame.glsl order): scene-colour copy,
         // depth, G-buffer A/B/C, shading-model data, Post Process Input 0.
@@ -1756,7 +1905,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                                             m_gBuffer.material.view, m_gBuffer.custom.view, m_gBuffer.ppInput.view},
                                            m_gBuffer.sampler);
         VulkanMaterialLayout::Lighting l;
-        l.ubo = m_lightingUBO.buffer;
+        l.ubo = m_lightingUBOs[m_frameSlot].buffer;
         l.uboSize = sizeof(LightingUBO);
         l.shadowMap = m_shadowArrayView;
         l.shadowSampler = m_shadowSampler;
@@ -1780,7 +1929,18 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     // Sky light capture (compute; records nothing unless the sky changed).
     // Always called so the first frame initializes the cubes before lighting
     // samples them.
-    m_skyLight->Record(m_commandBuffer, lighting.atmo, scene.cameraPosition);
+    m_gpuTimer->BeginFrame(m_commandBuffer, m_frameSlot);
+    // All viewport targets, the adapted exposure, and the UI sampling the previous
+    // output share one graphics queue. Order their reuse without a CPU fence.
+    VkMemoryBarrier reuse{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    reuse.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+    reuse.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    vkCmdPipelineBarrier(m_commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &reuse, 0, nullptr, 0, nullptr);
+    {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Sky Light Capture");
+        m_skyLight->Record(m_commandBuffer, lighting.atmo, scene.cameraPosition);
+    }
     auto barrier = [&](VkImage image, VkImageAspectFlags aspect, VkImageLayout oldLayout, VkImageLayout newLayout, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
         VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
         b.oldLayout = oldLayout; b.newLayout = newLayout; b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; b.image = image; b.subresourceRange = {aspect, 0, 1, 0, 1}; b.srcAccessMask = srcAccess; b.dstAccessMask = dstAccess;
@@ -1812,23 +1972,34 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
     VkClearValue clears[6]{}; clears[0].color = {{0, 0, 0, 1}}; clears[1].color = {{0.5f, 0.5f, 1, 1}}; clears[2].color = {{0, 0.5f, 1, 0}}; clears[3].color = {{0, 0, 0, 0}}; clears[4].color = {{0, 0, 0, 0}}; clears[5].depthStencil = {1.0f, 0};
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO}; rp.renderPass = m_gBuffer.renderPass; rp.framebuffer = m_gBuffer.framebuffer; rp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}; rp.clearValueCount = 6; rp.pClearValues = clears;
+    const u32 gbufferScope = m_gpuTimer->Begin(m_commandBuffer, "G-Buffer");
     vkCmdBeginRenderPass(m_commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
     VkViewport viewport{0, 0, static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height), 0, 1}; VkRect2D scissor{{0, 0}, {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}}; vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
     BindMaterialSets(m_mainViewOffset);
-    for (u32 i = 0; i < source.instanceCount; ++i) {
-        DrawMaterialSections(source.instances[i], m_instanceObjects[i], GpuPass::GBuffer);
+    BuildDrawList(source, GpuPass::GBuffer, m_opaqueDraws);
+    for (const auto& item : m_opaqueDraws) {
+        DrawSection(source.instances[item.instance], m_instanceObjects[item.instance], GpuPass::GBuffer,
+                    item.mesh, item.section, item.handle, *item.material, item.pipeline);
     }
     vkCmdEndRenderPass(m_commandBuffer);
+    m_gpuTimer->End(m_commandBuffer, gbufferScope);
     barrier(m_gBuffer.depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     // The lighting pass clears the light buffer: its previous contents (last
     // frame's, or none on the first frame) are discarded.
     barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     // Sun cascade depth passes (always recorded so every layer is cleared and
     // in SHADER_READ_ONLY before the lighting pass samples it).
-    RecordSunShadows(source, cascades, sunShadows);
+    {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Sun Shadows");
+        RecordSunShadows(source, cascades, sunShadows);
+    }
     m_shadowImageInitialized = true;
-    VkClearValue lightClear{}; lightClear.color = {{0, 0, 0, 1}}; VkRenderPassBeginInfo lightRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO}; lightRp.renderPass = m_gBuffer.lightingRenderPass; lightRp.framebuffer = m_gBuffer.lightingFramebuffer; lightRp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}; lightRp.clearValueCount = 1; lightRp.pClearValues = &lightClear; vkCmdBeginRenderPass(m_commandBuffer, &lightRp, VK_SUBPASS_CONTENTS_INLINE); vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor); vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline); vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingLayout, 0, 1, &m_lightingSet, 0, nullptr); vkCmdDraw(m_commandBuffer, 3, 1, 0, 0); vkCmdEndRenderPass(m_commandBuffer);
+    const u32 lightingScope = m_gpuTimer->Begin(m_commandBuffer, "Lighting");
+    VkClearValue lightClear{}; lightClear.color = {{0, 0, 0, 1}}; VkRenderPassBeginInfo lightRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO}; lightRp.renderPass = m_gBuffer.lightingRenderPass; lightRp.framebuffer = m_gBuffer.lightingFramebuffer; lightRp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}; lightRp.clearValueCount = 1; lightRp.pClearValues = &lightClear; vkCmdBeginRenderPass(m_commandBuffer, &lightRp, VK_SUBPASS_CONTENTS_INLINE); vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor); vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline); vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingLayout, 0, 1, &m_lightingSets[m_frameSlot], 0, nullptr); vkCmdDraw(m_commandBuffer, 3, 1, 0, 0); vkCmdEndRenderPass(m_commandBuffer);
+    m_gpuTimer->End(m_commandBuffer, lightingScope);
+    ++m_stats.drawCalls;
     if (m_gridPass && source.grid.enabled) {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Grid");
         barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1864,7 +2035,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
         vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
         m_gridPass->Record(m_commandBuffer, source.grid, scene.viewMatrix,
-                           scene.viewProjectionMatrix);
+                           scene.viewProjectionMatrix, m_frameSlot);
         vkCmdEndRendering(m_commandBuffer);
         barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1883,7 +2054,11 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     }
 
     // --- Translucency: forward-lit, sorted, over the opaque scene (+ grid).
-    RecordTranslucency(source, scene.cameraPosition);
+    {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Translucency");
+        RecordTranslucency(source, scene.cameraPosition);
+    }
+    const u32 postScope = m_gpuTimer->Begin(m_commandBuffer, "Post Process");
     // --- Post-process materials placed before tone mapping (HDR scene).
     RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::BeforeTonemapping,
                                m_gBuffer.lightAccum.image, m_gBuffer.lightAccum.view);
@@ -1893,23 +2068,27 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     // falls back to the raw HDR buffer, which displays clamped/untonemapped.
     if (m_bloomEnabled && m_bloomCompositeFBO) {
         // Meter the final HDR scene (after lighting + grid) for auto exposure.
-        if (source.postProcess.autoExposure) {
+        if (m_quality.autoExposure && source.postProcess.autoExposure) {
             m_eyeAdaptation->Record(m_commandBuffer, static_cast<u32>(m_gBuffer.width),
                                     static_cast<u32>(m_gBuffer.height),
                                     source.postProcess, scene.deltaTime);
         }
-        RecordBloom(source.postProcess);
+        PostProcessParams post = source.postProcess;
+        post.bloomEnabled &= m_quality.bloom;
+        post.autoExposure &= m_quality.autoExposure;
+        RecordBloom(post);
         // --- Post-process materials placed after tone mapping (display image).
         RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::AfterTonemapping,
                                    m_bloomCompositeOutput.image, m_bloomCompositeOutput.view);
-        PointFXAAAt(m_bloomCompositeOutput.view);
     } else {
         RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::AfterTonemapping,
                                    m_gBuffer.lightAccum.image, m_gBuffer.lightAccum.view);
-        PointFXAAAt(m_gBuffer.lightAccum.view);
     }
 
+    m_gpuTimer->End(m_commandBuffer, postScope);
     if (m_fxaaRenderPass && m_fxaaPipeline) {
+        if (m_quality.fxaa) {
+        const u32 fxaaScope = m_gpuTimer->Begin(m_commandBuffer, "FXAA");
         VkClearValue fxaaClear{}; fxaaClear.color = {{0, 0, 0, 1}};
         VkRenderPassBeginInfo fxaaRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         fxaaRp.renderPass = m_fxaaRenderPass;
@@ -1926,13 +2105,17 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         vkCmdPushConstants(m_commandBuffer, m_fxaaLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(res), &res);
         vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
         vkCmdEndRenderPass(m_commandBuffer);
+        m_gpuTimer->End(m_commandBuffer, fxaaScope);
+        }
+        const Attachment& output = DisplayAttachment();
+        const u32 editorScope = m_gpuTimer->Begin(m_commandBuffer, "Editor Overlays");
 
         // Editor decorations on the final, display-encoded image: the
         // selection outline (Unreal-style), then the gizmo lines on top (no
         // depth test, so handles stay visible through geometry).
         bool anySelected = false;
         for (u32 i = 0; i < source.instanceCount; ++i) {
-            anySelected = anySelected || (source.instances[i].selected && ResolveMesh(source.instances[i]));
+            anySelected = anySelected || (m_visible[i] && source.instances[i].selected && ResolveMesh(source.instances[i]));
         }
         const bool outline = m_selectionPass && m_selectionPass->Valid() && anySelected;
         const bool overlay = m_overlayPass && m_overlayPass->Valid() && source.overlayLines &&
@@ -1943,7 +2126,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             m_selectionPass->RecordMask(m_commandBuffer, [&](VkCommandBuffer) {
                 BindMaterialSets(m_mainViewOffset);
                 for (u32 i = 0; i < source.instanceCount; ++i) {
-                    if (!source.instances[i].selected) continue;
+                    if (!m_visible[i] || !source.instances[i].selected) continue;
                     DrawMaterialSections(source.instances[i], m_instanceObjects[i], GpuPass::SelectionMask);
                 }
             });
@@ -1956,13 +2139,13 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             toColor.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             toColor.srcQueueFamilyIndex = toColor.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toColor.image = m_fxaaResolved.image;
+            toColor.image = output.image;
             toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
             vkCmdPipelineBarrier(m_commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr,
                                  0, nullptr, 1, &toColor);
             VkRenderingAttachmentInfo finalColor{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-            finalColor.imageView = m_fxaaResolved.view;
+            finalColor.imageView = output.view;
             finalColor.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             finalColor.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             finalColor.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1985,7 +2168,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                 vkCmdBeginRendering(m_commandBuffer, &depthRendering);
                 m_depthLinePass->Record(m_commandBuffer, source.lines, source.lineVertexCount,
                                         scene.viewProjectionMatrix, static_cast<u32>(m_gBuffer.width),
-                                        static_cast<u32>(m_gBuffer.height));
+                                        static_cast<u32>(m_gBuffer.height), 1.5f, m_frameSlot);
                 vkCmdEndRendering(m_commandBuffer);
             }
             vkCmdBeginRendering(m_commandBuffer, &finalRendering);
@@ -1994,7 +2177,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                 m_overlayPass->Record(m_commandBuffer, source.overlayLines,
                                       source.overlayLineVertexCount, scene.viewProjectionMatrix,
                                       static_cast<u32>(m_gBuffer.width),
-                                      static_cast<u32>(m_gBuffer.height));
+                                      static_cast<u32>(m_gBuffer.height), 1.5f, m_frameSlot);
             }
             vkCmdEndRendering(m_commandBuffer);
             VkImageMemoryBarrier toRead = toColor;
@@ -2006,19 +2189,30 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
                                  nullptr, 1, &toRead);
         }
+        m_gpuTimer->End(m_commandBuffer, editorScope);
     }
 
+    m_gpuTimer->EndFrame(m_commandBuffer);
+    m_stats.instances = source.instanceCount;
+    Profiling::Global().Counters() += m_stats;
     if (vkEndCommandBuffer(m_commandBuffer) != VK_SUCCESS) return;
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO}; submit.commandBufferCount = 1; submit.pCommandBuffers = &m_commandBuffer; vkQueueSubmit(m_graphicsQueue, 1, &submit, m_fence);
+    {
+        LUMA_PROFILE_SCOPE("Submit");
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &m_commandBuffer;
+        VK_CHECK(vkResetFences(m_device, 1, &m_fences[m_frameSlot]));
+        VK_CHECK(vkQueueSubmit(m_graphicsQueue, 1, &submit, m_fences[m_frameSlot]));
+    }
     m_gBufferInitialized = true;
 }
 
 bool VulkanDeferredRenderer::ReadFinalImage(std::vector<u8>& outRgba, u32& outWidth,
                                             u32& outHeight) {
-    if (!m_initialized || !m_gBufferInitialized || m_fxaaResolved.image == VK_NULL_HANDLE) {
+    if (!m_initialized || !m_gBufferInitialized || DisplayAttachment().image == VK_NULL_HANDLE) {
         return false;
     }
-    vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, std::numeric_limits<u64>::max());
+    vkWaitForFences(m_device, 1, &m_fences[m_frameSlot], VK_TRUE, std::numeric_limits<u64>::max());
     const u32 width = static_cast<u32>(m_gBuffer.width);
     const u32 height = static_cast<u32>(m_gBuffer.height);
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 8;  // RGBA16F
@@ -2036,7 +2230,7 @@ bool VulkanDeferredRenderer::ReadFinalImage(std::vector<u8>& outRgba, u32& outWi
     b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = m_fxaaResolved.image;
+    b.image = DisplayAttachment().image;
     b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     b.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
     b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -2045,7 +2239,7 @@ bool VulkanDeferredRenderer::ReadFinalImage(std::vector<u8>& outRgba, u32& outWi
     VkBufferImageCopy region{};
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.imageExtent = {width, height, 1};
-    vkCmdCopyImageToBuffer(cmd, m_fxaaResolved.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    vkCmdCopyImageToBuffer(cmd, DisplayAttachment().image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            staging.buffer, 1, &region);
     b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -2299,6 +2493,10 @@ bool VulkanDeferredRenderer::CreateBloomResources() {
     if (!createBloomPipeline(m_bloomUpsampleLayout, "bloom_upsample", m_bloomUpsamplePipeline, true)) return false;
     if (!createBloomPipeline(m_bloomCompositeLayout, "bloom_composite", m_bloomCompositePipeline, false)) return false;
 
+    return CreateBloomTargets();
+}
+
+bool VulkanDeferredRenderer::CreateBloomTargets() {
     // Calculate mip chain sizes (half each level, min 1x1)
     i32 mipW = m_gBuffer.width / 2;
     i32 mipH = m_gBuffer.height / 2;
@@ -2605,7 +2803,8 @@ void VulkanDeferredRenderer::RecordBloom(const PostProcessParams& pp) {
     vkCmdEndRenderPass(m_commandBuffer);
 }
 
-void VulkanDeferredRenderer::DestroyBloomResources() {
+void VulkanDeferredRenderer::DestroyBloomTargets() {
+    m_bloomChainPrimed = false;
     m_bloomEnabled = false;
 
     for (u32 i = 0; i < kBloomMips; ++i) {
@@ -2625,6 +2824,10 @@ void VulkanDeferredRenderer::DestroyBloomResources() {
     if (m_bloomPool) vkDestroyDescriptorPool(m_device, m_bloomPool, nullptr);
     m_bloomPool = VK_NULL_HANDLE;
 
+}
+
+void VulkanDeferredRenderer::DestroyBloomResources() {
+    DestroyBloomTargets();
     if (m_bloomDownsamplePipeline) vkDestroyPipeline(m_device, m_bloomDownsamplePipeline, nullptr);
     if (m_bloomUpsamplePipeline) vkDestroyPipeline(m_device, m_bloomUpsamplePipeline, nullptr);
     if (m_bloomCompositePipeline) vkDestroyPipeline(m_device, m_bloomCompositePipeline, nullptr);

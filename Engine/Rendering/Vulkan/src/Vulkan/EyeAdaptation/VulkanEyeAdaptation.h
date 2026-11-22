@@ -33,6 +33,7 @@ public:
                         const std::string& shaderDir, VkImageView sceneHDR,
                         VkSampler sampler);
     ~VulkanEyeAdaptation();
+    void SetSource(VkImageView sceneHDR, VkSampler sampler);
 
     VulkanEyeAdaptation(const VulkanEyeAdaptation&) = delete;
     VulkanEyeAdaptation& operator=(const VulkanEyeAdaptation&) = delete;

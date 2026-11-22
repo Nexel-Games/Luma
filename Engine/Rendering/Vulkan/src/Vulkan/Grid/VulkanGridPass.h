@@ -26,7 +26,7 @@ public:
     // Records the grid into an already-open render pass. Depth-tested + written
     // so scene geometry occludes it; alpha-blended over the sky.
     void Record(VkCommandBuffer cmd, const GridParams& grid,
-                const Math::Mat4& view, const Math::Mat4& viewProj);
+                const Math::Mat4& view, const Math::Mat4& viewProj, u32 slot = 0);
 
 private:
     VkDevice m_device;
@@ -36,6 +36,7 @@ private:
     VkDescriptorPool m_pool = VK_NULL_HANDLE;
     VkDescriptorSet m_set = VK_NULL_HANDLE;
     GpuBuffer m_ubo;
+    u32 m_stride = 0;
 };
 
 }  // namespace Luma

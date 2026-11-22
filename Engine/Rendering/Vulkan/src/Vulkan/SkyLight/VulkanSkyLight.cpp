@@ -46,7 +46,7 @@ VulkanSkyLight::VulkanSkyLight(VkPhysicalDevice physical, VkDevice device,
                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                               true);
     m_ubo = CreateBuffer(m_physical, m_device, sizeof(CaptureUBO),
-                         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                          true);
@@ -250,7 +250,12 @@ void VulkanSkyLight::Record(VkCommandBuffer cmd, const Rendering::AtmospherePara
     ubo.camPos[1] = altitude;
     ubo.camPos[2] = 0.0f;
     ubo.camPos[3] = 1.0f;
-    std::memcpy(m_ubo.mapped, &ubo, sizeof(ubo));
+    vkCmdUpdateBuffer(cmd, m_ubo.buffer, 0, sizeof(ubo), &ubo);
+    VkMemoryBarrier uploaded{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    uploaded.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    uploaded.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0, 1, &uploaded, 0, nullptr, 0, nullptr);
 
     auto computeBarrier = [&]() {
         VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};

@@ -36,7 +36,7 @@ struct RhiFixture {
         RendererConfig rc;
         rc.appName = "Luma RHI Test";
         rc.enableValidation = false;
-        rc.vsync = false;
+        rc.presentMode = Luma::PresentMode::Immediate;
         renderer = CreateVulkanRenderer(*window, rc);
     }
 };
