@@ -11,22 +11,12 @@ namespace Luma::Editor {
 
 Slate::Icon IconByName(std::string_view name) {
     using Slate::Icon;
+    // Generated from the icon set (IconSources.inc), so every packed icon
+    // is reachable by its role name without a second list to maintain.
     static constexpr std::pair<std::string_view, Icon> kIcons[] = {
-        {"ChevronRight", Icon::ChevronRight}, {"ChevronDown", Icon::ChevronDown},
-        {"ChevronUp", Icon::ChevronUp},       {"Search", Icon::Search},
-        {"Gear", Icon::Gear},                 {"Folder", Icon::Folder},
-        {"FolderOpen", Icon::FolderOpen},     {"Eye", Icon::Eye},
-        {"EyeOff", Icon::EyeOff},             {"Lock", Icon::Lock},
-        {"Plus", Icon::Plus},                 {"Close", Icon::Close},
-        {"Check", Icon::Check},               {"Save", Icon::Save},
-        {"Play", Icon::Play},                 {"Pause", Icon::Pause},
-        {"Stop", Icon::Stop},                 {"Grip", Icon::Grip},
-        {"Dot", Icon::Dot},                   {"Trash", Icon::Trash},
-        {"Camera", Icon::Camera},             {"Light", Icon::Light},
-        {"Cube", Icon::Cube},                 {"Sphere", Icon::Sphere},
-        {"Plane", Icon::Plane},               {"Cylinder", Icon::Cylinder},
-        {"Refresh", Icon::Refresh},           {"ArrowLeft", Icon::ArrowLeft},
-        {"StaticMesh", Icon::StaticMesh},       {"Reset", Icon::Reset},               {"Image", Icon::Image},
+#define LUMA_ICON(role, source) {#role, Icon::role},
+#include "Luma/Slate/IconSources.inc"
+#undef LUMA_ICON
     };
     for (const auto& [n, icon] : kIcons) {
         if (n == name) return icon;

@@ -381,6 +381,7 @@ TEST_CASE("A checked box draws its tick glyph", "[slate][widget]") {
     Context ctx;
     NullRenderer r;
     ctx.Init(r, TestTypography());
+    ctx.SetIconAtlas(1);
     auto vertices = [&](bool value) {
         ctx.BeginFrame(800, 600, 0.0166f);
         ctx.Checkbox(4, {10, 10, 16, 16}, {}, value);

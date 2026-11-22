@@ -21,21 +21,6 @@ constexpr f32 kHeaderH = 34.0f;
 constexpr f32 kRowH = 58.0f;
 constexpr f32 kFooterH = 26.0f;
 constexpr usize kMaxVisibleRows = 6;
-constexpr f32 kPi = 3.14159265f;
-
-// A rotating three-quarter arc (busy spinner).
-void DrawSpinner(Slate::Context& ui, Vec2 c, f32 r, Color color) {
-    const f32 start = ui.time() * 6.0f;
-    constexpr int kSegments = 12;
-    Vec2 prev{c.x + r * std::cos(start), c.y + r * std::sin(start)};
-    for (int i = 1; i <= kSegments; ++i) {
-        const f32 a = start + 1.5f * kPi * static_cast<f32>(i) / kSegments;
-        const Vec2 p{c.x + r * std::cos(a), c.y + r * std::sin(a)};
-        ui.drawList().AddLine(prev, p, color, 1.75f);
-        prev = p;
-    }
-}
-
 // Progress track; indeterminate tasks get a sliding segment.
 void DrawBar(Slate::Context& ui, const Rect& r, const TaskSnapshot& s, Color fill) {
     const Slate::Theme& t = ui.theme();
@@ -117,7 +102,7 @@ void BackgroundTasksPanel::DrawStatusIndicator(Slate::Context& ui, const Rect& s
     f32 x = m_indicator.x + 10.0f;
     const f32 cy = m_indicator.y + m_indicator.h * 0.5f;
     if (running > 0) {
-        DrawSpinner(ui, {x + 7.0f, cy}, 5.5f, t.accent);
+        Slate::DrawIcon(ui, {x, cy - 7, 14, 14}, Slate::Icon::Busy, t.accent, ui.time() * 6.0f);
     } else {
         Slate::DrawIcon(ui, {x, cy - 7.0f, 14.0f, 14.0f}, Slate::Icon::Close, t.error);
     }

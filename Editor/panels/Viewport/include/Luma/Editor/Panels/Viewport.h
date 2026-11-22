@@ -34,7 +34,7 @@ struct ViewportSettings {
 };
 
 // Toolbar textures from the editor icon pack (Content/Editor/Icons/ue).
-// Zero handles fall back to procedural glyphs.
+// Zero handles fall back to pack glyphs.
 struct ViewportIcons {
     TextureHandle translate = 0, rotate = 0, scale = 0;
     TextureHandle worldSpace = 0, localSpace = 0;

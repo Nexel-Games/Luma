@@ -160,6 +160,8 @@ public:
                  Color tint = Color::RGB(255, 255, 255));
     // The renderer owns the icon texture for the lifetime of this context.
     void SetBrandIcon(const Slate::Image& icon) { m_brandIcon = icon; }
+    void SetIconAtlas(TextureHandle texture) { m_iconAtlas = texture; }
+    TextureHandle IconAtlas() const { return m_iconAtlas; }
     void LogoMark(Vec2 center, f32 radius);
     void Label(Vec2 pos, std::string_view text, Color color);
     void LabelIn(const Rect& rect, std::string_view text, Color color,
@@ -255,7 +257,7 @@ public:
     bool SearchBox(u64 id, const Rect& rect, std::string& text,
                    std::string_view placeholder = "Search...");
     // Same as above, but uses the supplied texture as the leading icon
-    // instead of the procedural Search glyph. Falls back to the glyph
+    // instead of the pack Search glyph. Falls back to the glyph
     // when texture == 0.
     bool SearchBox(u64 id, const Rect& rect, std::string& text,
                    TextureHandle leadingIcon,
@@ -329,7 +331,7 @@ public:
     // `current` otherwise.
     int Combo(u64 id, const Rect& rect, const std::vector<std::string>& items,
               int current);
-    // Toolbar-style button: leading procedural icon (tinted `iconColor`)
+    // Toolbar-style button: leading pack icon (tinted `iconColor`)
     // plus a label. `active` draws the pressed/open state (e.g. while the
     // menu it opened is up). Returns true on click.
     bool IconTextButton(u64 id, const Rect& rect, Icon icon,
@@ -468,6 +470,7 @@ public:
 
 private:
     Slate::Image m_brandIcon;
+    TextureHandle m_iconAtlas = 0;
     // --- Text-field internals (EditableText, TextField, SearchBox) -------
     // Interaction + editing core (no chrome). `hitRect` is the interactive
     // region (SearchBox passes the whole bar so clicking the icon zone

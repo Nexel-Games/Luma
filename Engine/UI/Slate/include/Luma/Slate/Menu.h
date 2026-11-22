@@ -33,8 +33,8 @@ namespace Luma::Slate {
 class Context;
 struct Theme;
 
-// Leading glyph of a menu row: a procedural Icon, or a texture (drawn
-// tinted like the label) with an optional procedural fallback.
+// Leading glyph of a menu row: a pack Icon, or a texture (drawn
+// tinted like the label) with an optional pack fallback.
 struct MenuIcon {
     Icon glyph = Icon::None;
     TextureHandle texture = 0;

@@ -732,7 +732,10 @@ void MenuHost::DrawLevel(Context& ctx, int index) {
                 } else if (e.icon.texture) {
                     dl.AddImage(e.icon.texture, ib, {0.0f, 0.0f, 1.0f, 1.0f}, icon);
                 } else if (e.icon.glyph != Icon::None) {
-                    DrawIcon(ctx, ib, e.icon.glyph, icon);
+                    const bool preserveArtwork = e.icon.glyph == Icon::Browse || e.icon.glyph == Icon::Reset ||
+                                                 e.icon.glyph == Icon::UseSelected;
+                    DrawIcon(ctx, ib, e.icon.glyph,
+                             e.enabled && preserveArtwork ? Color::RGB(255, 255, 255) : icon);
                 }
                 const f32 labelX = rr.x + t.menu.padX + is + 6.0f;
                 dl.AddText(ui, {labelX, rr.y + (rr.h - ui.LineHeight()) * 0.5f},

@@ -48,7 +48,7 @@ public:
     // Loads the chrome PNGs the panel wants (sort up/down, search glass,
     // folder, reload, import, open-folder). Called once by EditorScreen
     // after the renderer is ready; missing files just leave the panel
-    // falling back to procedural glyphs. The panel does not own the
+    // falling back to pack glyphs. The panel does not own the
     // renderer or the textures.
     void SetIcons(Luma::TextureHandle sortUp, Luma::TextureHandle sortDown,
                   Luma::TextureHandle searchGlass,
@@ -154,7 +154,7 @@ private:
 
     // Loaded textures supplied by EditorScreen; 0 = not loaded. The sort
     // up/down PNGs are kept for API stability but the toolbar chevron is
-    // drawn with procedural icons (crisp at any DPI).
+    // drawn with pack icons.
     Luma::TextureHandle m_texSortUp = 0;
     Luma::TextureHandle m_texSortDown = 0;
     Luma::TextureHandle m_texSearchGlass = 0;

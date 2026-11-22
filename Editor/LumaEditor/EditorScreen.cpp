@@ -1361,7 +1361,7 @@ void EditorScreen::RegisterEditorUi() {
     }
     {
         MenuEntryDesc e = entry("File.ShowProject", "File", "Project", "Show Project in Explorer",
-                                "FolderOpen", 100, [this] {
+                                "Browse", 100, [this] {
                                     if (m_project) {
                                         RevealInExplorer(m_project->AssetsDir().parent_path());
                                     }
@@ -1404,7 +1404,7 @@ void EditorScreen::RegisterEditorUi() {
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
     {
-        MenuEntryDesc e = entry("Edit.Duplicate", "Edit", "Selection", "Duplicate", "Plus", 0,
+        MenuEntryDesc e = entry("Edit.Duplicate", "Edit", "Selection", "Duplicate", "Duplicate", 0,
                                 [this] { DuplicateEntity(m_selected); });
         e.shortcut = "Ctrl+D";
         e.isEnabled = [this] {
@@ -1420,14 +1420,14 @@ void EditorScreen::RegisterEditorUi() {
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
     {
-        MenuEntryDesc e = entry("Edit.Focus", "Edit", "Selection", "Focus in Viewport", "Eye", 20,
+        MenuEntryDesc e = entry("Edit.Focus", "Edit", "Selection", "Focus in Viewport", "Focus", 20,
                                 [this] { FocusEntity(m_selected); });
         e.shortcut = "F";
         e.isEnabled = hasSelection;
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
     {
-        MenuEntryDesc e = entry("Assets.Import", "Assets", "Content", "Import...", "Plus", 0,
+        MenuEntryDesc e = entry("Assets.Import", "Assets", "Content", "Import...", "Import", 0,
                                 [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); });
         e.tooltip = "Import files into the open Content Browser folder.";
         e.isEnabled = hasProject;
@@ -1492,7 +1492,7 @@ void EditorScreen::RegisterEditorUi() {
         reg.Add(menus.RegisterSection(std::move(s)));
     }
     {
-        MenuEntryDesc e = entry("Window.ResetLayout", "Window", "Layout", "Reset Layout", "Grip",
+        MenuEntryDesc e = entry("Window.ResetLayout", "Window", "Layout", "Reset Layout", "Reset",
                                 100, [this] {
                                     m_panelHost->ResetLayout();
                                     // Asset editor tabs survive a layout reset.
