@@ -30,7 +30,7 @@ Material graph & compiler (Material Editor project 1 —
 | [T-0003](T-0003-asset-import.md) | Asset import pipeline & Import window (models, audio, images) | Completed — review fixes done by the lead; waiting for the user's test | `Engine/Asset`, `Engine/Audio`, import UI |
 | [T-0004](T-0004-static-mesh-assignment.md) | Static mesh assignment: drag into the level, Inspector Static Mesh row, mesh material slots, rename fix-up | Completed — done by the lead; waiting for the user's test | Scene, Inspector, Viewport, Content Browser |
 | [T-0005](T-0005-core-extensibility.md) | Core extensibility: registries instead of hard-coded lists (plugin prerequisite) | Done | Scene, Project, Asset, Editor framework |
-| [T-0006](T-0006-plugin-framework.md) | Luma Plugin Framework (production) | Approved-ready | `Engine/Plugins`, `Plugins/`, Project Settings → Plugins |
+| [T-0006](T-0006-plugin-framework.md) | Luma Plugin Framework (production) | Approved | `Engine/Plugins`, `Plugins/`, Project Settings → Plugins |
 | T-0007 | NVIDIA PhysX physics plugin | Not written yet — after T-0006 is Accepted and the SDK decisions in [the assessment](PLUGIN_READINESS_ASSESSMENT.md) §4 are made | `Plugins/Luma.Physics.*` |
 
 Plugin work: read [PLUGIN_READINESS_ASSESSMENT.md](PLUGIN_READINESS_ASSESSMENT.md) first. Start with T-0000 (gate). T-0003 and T-0004 are done (lead). T-0001 and T-0002 become `Approved` when their plans are final.
