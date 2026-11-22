@@ -36,6 +36,7 @@ add_executable(LumaTests
     Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
+    Scene/HierarchyTests.cpp
     Math/MathTests.cpp
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp

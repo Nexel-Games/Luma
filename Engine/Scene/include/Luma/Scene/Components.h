@@ -16,6 +16,10 @@ struct NameComponent {
     std::string name;
 };
 
+// Editor-only viewport hide. Not written by the scene serializer, so a reload
+// shows the actor again.
+struct EditorHiddenComponent {};
+
 struct TransformComponent {
     Math::Vec3 position{0.0f, 0.0f, 0.0f};
     Math::Vec3 rotationEuler{0.0f, 0.0f, 0.0f};  // degrees

@@ -59,6 +59,38 @@ bool RenameAssetFile(const std::filesystem::path& from, const std::filesystem::p
     return true;
 }
 
+bool MoveAssetToFolder(const std::filesystem::path& from, const std::filesystem::path& folder,
+                       std::filesystem::path* movedTo, std::string* error) {
+    auto fail = [&](std::string text) {
+        if (error != nullptr) *error = std::move(text);
+        return false;
+    };
+    if (error != nullptr) error->clear();
+    if (movedTo != nullptr) movedTo->clear();
+    std::error_code io;
+    if (from.empty() || !std::filesystem::exists(from, io)) return fail("The asset is no longer on disk");
+    if (folder.empty() || !std::filesystem::is_directory(folder, io)) return fail("Drop onto a folder");
+
+    const std::filesystem::path src = std::filesystem::weakly_canonical(from, io);
+    io.clear();
+    const std::filesystem::path destDir = std::filesystem::weakly_canonical(folder, io);
+    if (src.empty() || destDir.empty()) return fail("Could not resolve that folder");
+    if (src.parent_path() == destDir) return false;
+
+    if (std::filesystem::is_directory(src, io)) {
+        const std::filesystem::path rel = destDir.lexically_relative(src);
+        const std::string relStr = rel.generic_string();
+        const bool inside = !relStr.empty() && relStr != "." && rel.is_relative() &&
+                            relStr.rfind("..", 0) != 0;
+        if (relStr == "." || inside) return fail("Can't move a folder into itself");
+    }
+
+    const std::filesystem::path dest = destDir / src.filename();
+    if (!RenameAssetFile(src, dest, error)) return false;
+    if (movedTo != nullptr) *movedTo = std::filesystem::weakly_canonical(dest);
+    return true;
+}
+
 std::string HashFile(const std::filesystem::path& file) {
     std::ifstream in(file, std::ios::binary);
     if (!in) {

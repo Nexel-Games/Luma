@@ -428,8 +428,12 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
         if (hover) ui.RequestCursor(Luma::CursorShape::Hand);
         if (hover && ui.mousePressed(0)) m_breadPressed = true;
         if (ui.mouseReleased(0)) {
-            if (m_breadPressed && hover) NavigateTo(target);
+            if (m_breadPressed && hover && !ui.IsDraggingAnything()) NavigateTo(target);
             m_breadPressed = false;
+        }
+        if (hover) m_importDropFolder = target;
+        if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, r)) {
+            MoveDropped(*drop, target, ctx);
         }
         // Center the text baseline within the segment band (kSegH) and
         // left-align to the cursor (no implicit padding).
@@ -540,21 +544,37 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
 
         bool selected = (m_selected == a->id);
 
-        // Materials and textures drag onto Inspector slots / the viewport;
-        // static meshes into the level or onto the Inspector's Static Mesh row.
-        if (!a->IsFolder() && ctx.virtualPathOf &&
-            (a->type == AssetType::Material || a->type == AssetType::MaterialInstance ||
-             a->type == AssetType::Texture || a->type == AssetType::Mesh)) {
+        // Materials, textures, and meshes still drag onto the Inspector and
+        // viewport. Every tile can also be dropped on a folder to move it.
+        {
             Slate::DragPayload payload;
-            payload.type = a->type == AssetType::Texture ? "asset/texture"
-                           : a->type == AssetType::Mesh  ? "asset/mesh"
-                                                         : "asset/material";
-            payload.data = ctx.virtualPathOf(a->packagePath);
+            payload.sourcePath = a->packagePath.string();
             payload.label = a->assetName;
+            if (a->IsFolder()) {
+                payload.type = "asset/folder";
+            } else if (a->type == AssetType::Texture) {
+                payload.type = "asset/texture";
+            } else if (a->type == AssetType::Mesh) {
+                payload.type = "asset/mesh";
+            } else if (a->type == AssetType::Material || a->type == AssetType::MaterialInstance) {
+                payload.type = "asset/material";
+            } else {
+                payload.type = "asset/file";
+            }
+            if (!a->IsFolder() && ctx.virtualPathOf) payload.data = ctx.virtualPathOf(a->packagePath);
+            if (payload.data.empty()) payload.data = payload.sourcePath;
             if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {
                 payload.icon = th->second;
             }
-            if (!payload.data.empty()) ui.BeginDrag(cardId ^ 0xD2A6ull, card, payload);
+            ui.BeginDrag(cardId ^ 0xD2A6ull, card, payload);
+        }
+        if (a->IsFolder()) {
+            if (card.Contains(ui.mouse()) && rect.Contains(ui.mouse())) {
+                m_importDropFolder = a->packagePath;
+            }
+            if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, card)) {
+                MoveDropped(*drop, a->packagePath, ctx);
+            }
         }
 
         // Card-body click: single-click selects the asset or enters
@@ -671,26 +691,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         Rect nameR{nameX, nameY, nameW, 14.0f};
         bool renamingThis = (m_renaming == a->id);
         if (renamingThis) {
-            std::string buf = m_renameBuf;
-            const u64 renameId = Slate::Context::ID(
-                (a->packagePath.string() + "|rename").c_str());
-            if (m_renameFocusPending) {
-                ui.FocusField(renameId, buf.size());
-                m_renameFocusPending = false;
-            }
-            if (ui.TextField(renameId, nameR, buf, "")) {
-                m_renameBuf = buf;
-            }
-            if (ui.enterPressed()) {
-                CommitRename(*a, ctx);
-                m_renaming = AssetId{};
-            } else if (ui.keyEscape()) {
-                CancelRename();
-                m_renaming = AssetId{};
-            } else if (ui.mouseReleased(0) && !nameR.Contains(ui.mouse())) {
-                CommitRename(*a, ctx);
-                m_renaming = AssetId{};
-            }
+            DrawRenameField(ui, nameR, *a, ctx);
         } else {
             ui.LabelIn(nameR, a->assetName, t.text, Align::Center);
         }
@@ -716,6 +717,24 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
                    static_cast<f32>(rows) * (kTileH + kTileGap);
     m_gridScroll = ui.VerticalScroll(Slate::Context::ID("cb.grid"), rect,
                                      contentH, m_gridScroll);
+
+    // Empty grid space (and gaps between tiles) drops into the open folder.
+    bool overFolderTile = false;
+    for (usize i = 0; i < entries.size(); ++i) {
+        if (!entries[i]->IsFolder()) continue;
+        const int row = static_cast<int>(i) / cols;
+        const int col = static_cast<int>(i) % cols;
+        Rect card{startX + col * colW, startY + row * (kTileH + kTileGap), kTileW, kTileH};
+        if (card.Contains(ui.mouse()) && rect.Contains(ui.mouse())) overFolderTile = true;
+    }
+    if (!overFolderTile && rect.Contains(ui.mouse())) {
+        m_importDropFolder = m_currentFolder.empty() && m_registry && !m_registry->Roots().empty()
+                                 ? m_registry->Roots().front()
+                                 : m_currentFolder;
+        if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, rect)) {
+            MoveDropped(*drop, m_importDropFolder, ctx);
+        }
+    }
 }
 
 u64 ContentBrowserPanel::GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer) {
@@ -831,6 +850,8 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     Rect gridPane{gridSplit.x + kTreeMargin, bodyTop,
                   gridSplit.w - kTreeMargin * 2.0f, bodyArea.h};
 
+    m_importDropFolder.clear();
+    if (body.Contains(ui.mouse())) m_importDropFolder = TargetFolder();
     DrawToolbar(ui, toolbar, ctx);
     // Reusable FileSystemTreePanel handles the dark inset folder list.
     // Keep its selection synced with our navigation state both ways.
@@ -840,7 +861,32 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     if (m_tree.SelectedFolder() != m_currentFolder) {
         m_currentFolder = m_tree.SelectedFolder();
     }
+    std::filesystem::path treeClick;
+    for (const FileSystemTreePanel::FolderRow& row : m_tree.Rows()) {
+        if (row.rightClicked) treeClick = row.path;
+        if (row.row.Contains(ui.mouse()) && treePane.Contains(ui.mouse())) {
+            m_importDropFolder = row.path;
+        }
+        if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, row.row)) {
+            MoveDropped(*drop, row.path, ctx);
+        }
+    }
     DrawGridPane(ui, gridPane, ctx);
+
+    if (m_renaming.IsValid()) {
+        const AssetData* renaming = m_registry->Lookup(m_renaming);
+        bool shownInGrid = false;
+        for (const AssetData* entry : CurrentEntries()) {
+            if (entry->id == m_renaming) shownInGrid = true;
+        }
+        if (renaming && !shownInGrid) {
+            for (const FileSystemTreePanel::FolderRow& row : m_tree.Rows()) {
+                if (row.path.lexically_normal() == renaming->packagePath.lexically_normal()) {
+                    DrawRenameField(ui, row.label, *renaming, ctx);
+                }
+            }
+        }
+    }
 
     // Right-click: the asset under the cursor gets its asset menu; empty
     // grid / tree space gets the folder ("Add") menu, like Unreal's Content
@@ -848,6 +894,7 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     if (ui.mousePressed(1) && bodyArea.Contains(ui.mouse())) {
         const AssetData* target =
             m_contextTarget.IsValid() ? m_registry->Lookup(m_contextTarget) : nullptr;
+        if (!target && !treeClick.empty()) target = m_registry->LookupByPath(treeClick);
         if (target) {
             ui.OpenMenu(Slate::Context::ID("cb.assetmenu"), ui.mouse(),
                         BuildAssetMenu(*target, ctx));
@@ -860,11 +907,15 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         }
     }
 
-    // F2 renames the selected asset while the pointer is over the browser.
+    // F2 renames the selected asset, or the open folder, while the pointer
+    // is over the browser. The content root has no registry row and stays put.
     if (ui.keyPressed(291) && body.Contains(ui.mouse()) && !ui.textFieldFocused() &&
-        m_selected.IsValid() && !m_renaming.IsValid()) {
-        if (const AssetData* sel = m_registry->Lookup(m_selected)) BeginRename(*sel);
+        !m_renaming.IsValid()) {
+        const AssetData* sel = m_selected.IsValid() ? m_registry->Lookup(m_selected) : nullptr;
+        if (!sel && !m_currentFolder.empty()) sel = m_registry->LookupByPath(m_currentFolder);
+        if (sel) BeginRename(*sel);
     }
+    FinishMutations(ctx);
 }
 
 std::filesystem::path ContentBrowserPanel::TargetFolder() const {
@@ -998,6 +1049,21 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext&
     }
 
     b.BeginSection("Folder");
+    {
+        const AssetData* here = m_registry ? m_registry->LookupByPath(folder) : nullptr;
+        const AssetId id = here ? here->id : AssetId{};
+        Slate::MenuEntryOptions o;
+        o.enabled = id.IsValid();
+        o.shortcut = "F2";
+        o.tooltip = id.IsValid() ? "Rename this folder." : "The content root stays named Assets.";
+        AssetRegistry* registry = m_registry;
+        b.AddEntry("Rename", Icon::None,
+                   [this, registry, id] {
+                       if (!registry || !id.IsValid()) return;
+                       if (const AssetData* asset = registry->Lookup(id)) BeginRename(*asset);
+                   },
+                   o);
+    }
     {
         Slate::MenuEntryOptions o;
         o.enabled = static_cast<bool>(ctx.onRevealInExplorer) && !folder.empty();
@@ -1138,39 +1204,100 @@ u64 ContentBrowserPanel::NowMs() noexcept {
 
 void ContentBrowserPanel::CommitRename(const AssetData& a, PanelContext& ctx) {
     std::string newName = m_renameBuf;
-    if (newName.empty() || newName == a.assetName) {
-        m_renaming = AssetId{};
+    m_renaming = AssetId{};
+    if (newName.empty() || newName == a.assetName) return;
+    if (newName == "." || newName == ".." ||
+        newName.find_first_of("\\/:*?\"<>|") != std::string::npos) {
+        LUMA_USER_ERROR("Content", "Can't rename '{}' to '{}'", a.assetName, newName);
         return;
     }
 
     namespace fs = std::filesystem;
-    fs::path newPackage = a.packagePath;
-    newPackage = a.packagePath.parent_path() /
-                 fs::path(newName + a.packagePath.extension().string());
-    fs::path oldParent = a.packagePath.parent_path();
+    const fs::path newPackage = a.packagePath.parent_path() /
+                                fs::path(newName + a.packagePath.extension().string());
+    const bool renamingOpenFolder = m_currentFolder == a.packagePath;
 
     // Virtual paths before the rename (the file must still exist to map).
     const std::string oldVirtual = ctx.virtualPathOf ? ctx.virtualPathOf(a.packagePath) : std::string{};
     std::string problem;
     if (!Import::RenameAssetFile(a.packagePath, newPackage, &problem)) {
         LUMA_USER_ERROR("Content", "Could not rename '{}' to '{}': {}", a.assetName, newName, problem);
-        m_renaming = AssetId{};
         return;
     }
     if (!problem.empty()) LUMA_USER_WARN("Content", "Renamed '{}', but {}", a.assetName, problem);
 
     LUMA_USER_INFO("Content", "Renamed '{}' to '{}'", a.assetName, newName);
-    // Scenes and editors that reference the old path follow it.
+    // Scenes and editors that reference the old path follow it. A folder
+    // rename retargets every reference under that path.
     if (ctx.onAssetRenamed && ctx.virtualPathOf && !oldVirtual.empty()) {
         const std::string newVirtual = ctx.virtualPathOf(newPackage);
         if (!newVirtual.empty()) ctx.onAssetRenamed(oldVirtual, newVirtual);
     }
-    if (m_registry) {
-        m_registry->RemoveUnder(oldParent);
-        m_registry->RefreshPath(newPackage);
-    }
     m_thumbnailCache.erase(a.id);
-    m_renaming = AssetId{};
+    m_rescan = true;
+    if (renamingOpenFolder) NavigateTo(newPackage);
+}
+
+void ContentBrowserPanel::DrawRenameField(Slate::Context& ui, const Slate::Rect& nameR,
+                                          const AssetData& asset, PanelContext& ctx) {
+    std::string buf = m_renameBuf;
+    const u64 renameId = Slate::Context::ID((asset.packagePath.string() + "|rename").c_str());
+    if (m_renameFocusPending) {
+        ui.FocusField(renameId, buf.size());
+        m_renameFocusPending = false;
+    }
+    if (ui.TextField(renameId, nameR, buf, "")) m_renameBuf = buf;
+    if (ui.enterPressed()) {
+        CommitRename(asset, ctx);
+    } else if (ui.keyEscape()) {
+        CancelRename();
+    } else if (ui.mouseReleased(0) && !nameR.Contains(ui.mouse())) {
+        CommitRename(asset, ctx);
+    }
+}
+
+const Slate::DragPayload* ContentBrowserPanel::AcceptAssetDrop(Slate::Context& ui,
+                                                               const Slate::Rect& target) const {
+    static constexpr const char* kTypes[] = {
+        "asset/material", "asset/texture", "asset/mesh", "asset/file", "asset/folder"};
+    const Slate::DragPayload* hit = nullptr;
+    for (const char* type : kTypes) {
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(target, type)) hit = drop;
+    }
+    return hit;
+}
+
+void ContentBrowserPanel::MoveDropped(const Slate::DragPayload& drop,
+                                      const std::filesystem::path& folder, PanelContext&) {
+    if (drop.sourcePath.empty() || folder.empty()) return;
+    m_pendingMoveSource = drop.sourcePath;
+    m_pendingMoveFolder = folder;
+}
+
+void ContentBrowserPanel::FinishMutations(PanelContext& ctx) {
+    if (!m_pendingMoveSource.empty()) {
+        const std::filesystem::path from(m_pendingMoveSource);
+        m_pendingMoveSource.clear();
+        const std::filesystem::path folder = m_pendingMoveFolder;
+        m_pendingMoveFolder.clear();
+        const std::string oldVirtual = ctx.virtualPathOf ? ctx.virtualPathOf(from) : std::string{};
+        std::filesystem::path movedTo;
+        std::string problem;
+        if (!Import::MoveAssetToFolder(from, folder, &movedTo, &problem)) {
+            if (!problem.empty()) LUMA_USER_ERROR("Content", "{}", problem);
+        } else {
+            LUMA_USER_INFO("Content", "Moved '{}' to '{}'", from.filename().string(),
+                           folder.filename().string());
+            if (ctx.onAssetRenamed && ctx.virtualPathOf && !oldVirtual.empty()) {
+                const std::string newVirtual = ctx.virtualPathOf(movedTo);
+                if (!newVirtual.empty()) ctx.onAssetRenamed(oldVirtual, newVirtual);
+            }
+            if (m_currentFolder == from) NavigateTo(movedTo);
+            m_rescan = true;
+        }
+    }
+    if (m_rescan && m_registry) m_registry->Scan();
+    m_rescan = false;
 }
 
 void ContentBrowserPanel::CancelRename() noexcept {

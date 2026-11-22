@@ -114,6 +114,22 @@ struct PanelContext {
     std::function<void(Entity)> onDuplicateEntity;
     std::function<void(Entity)> onDeleteEntity;
     std::function<void(Entity)> onFocusEntity;
+    std::function<void(Entity)> onCutEntities;
+    std::function<void(Entity)> onCopyEntities;
+    // `asChild` pastes under the actor; otherwise as a sibling (or at the root
+    // when `entity` is null, the empty-space menu).
+    std::function<void(Entity, bool asChild)> onPasteEntities;
+    std::function<bool()> canPasteEntities;
+    std::function<void(Entity)> onCreateChild;
+    std::function<void(Entity)> onSelectChildren;
+    std::function<void(Entity)> onMoveToRoot;
+    std::function<void(Entity)> onHideEntities;
+    std::function<void()> onShowAllActors;
+    std::function<bool(Entity)> isEntityHidden;
+    std::function<bool(Entity)> entityHasChildren;
+    std::function<bool(Entity)> entityIsRoot;
+    // Actors highlighted together. Null keeps the single `selected` entity.
+    std::vector<Entity>* selection = nullptr;
     // Viewport camera: back to the default orbit around the origin.
     std::function<void()> onResetCamera;
     // Viewport click-select: a world-space ray through the clicked pixel.
