@@ -1125,14 +1125,30 @@ SceneView EditorScreen::BuildSceneView() {
     scene.lights = m_lights.data();
     scene.lightCount = static_cast<u32>(m_lights.size());
 
+    // Overlay lines: the gizmo plus DebugDraw overlay shapes; depth-tested
+    // DebugDraw shapes go to SceneView::lines (editor tools and PIE systems).
+    m_overlayLines.clear();
     if (ActiveScene().IsValid(m_selected) &&
         ActiveScene().Registry().all_of<TransformComponent>(m_selected)) {
         const auto& tf = ActiveScene().Registry().get<TransformComponent>(m_selected);
         GizmoTransform gt{tf.position, tf.rotationEuler, tf.scale};
         const auto& lines = m_gizmo.BuildLines(gt, m_gizmoScale, m_view);
-        scene.overlayLines = lines.data();
-        scene.overlayLineVertexCount = static_cast<u32>(lines.size());
+        m_overlayLines.assign(lines.begin(), lines.end());
     }
+    const auto& debugOverlay = DebugDrawer().Lines(DebugDraw::Mode::Overlay);
+    m_overlayLines.insert(m_overlayLines.end(), debugOverlay.begin(), debugOverlay.end());
+    if (!m_overlayLines.empty()) {
+        scene.overlayLines = m_overlayLines.data();
+        scene.overlayLineVertexCount = static_cast<u32>(m_overlayLines.size());
+    }
+    const auto& debugLines = DebugDrawer().Lines(DebugDraw::Mode::DepthTested);
+    m_debugLines.assign(debugLines.begin(), debugLines.end());
+    if (!m_debugLines.empty()) {
+        scene.lines = m_debugLines.data();
+        scene.lineVertexCount = static_cast<u32>(m_debugLines.size());
+    }
+    // Shapes are per frame: everything added since the last view is in this one.
+    DebugDrawer().Clear();
     return scene;
 }
 

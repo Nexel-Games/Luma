@@ -99,6 +99,7 @@ add_executable(LumaTests
     Rendering/RHIAdapterTests.cpp
     Rendering/MeshGeometryTests.cpp
     Rendering/MaterialGpuDescTests.cpp
+    Rendering/DebugDrawTests.cpp
     Rendering/VulkanTextureCacheTests.cpp
     Rendering/VulkanUITextureTests.cpp
     Rendering/VulkanMaterialSystemTests.cpp

@@ -35,6 +35,7 @@
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Math/Math.h"
 #include "Luma/Project/Project.h"
+#include "Luma/RHI/DebugDraw.h"
 #include "Luma/RHI/Renderer.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Scene/Scene.h"
@@ -336,6 +337,8 @@ private:
     u64 m_importTotal = 0;
     Audio::AudioPreview* m_audioPreview = nullptr;
     Editor::MaterialSceneBridge m_bridge;
+    std::vector<LineVertex> m_overlayLines;  // gizmo + DebugDraw overlay, this frame
+    std::vector<LineVertex> m_debugLines;    // DebugDraw depth-tested lines, this frame
     VFS::FileWatcher m_assetWatcher;
     std::unordered_set<std::string> m_watchedFiles;
     usize m_watchedRegistrySize = 0;

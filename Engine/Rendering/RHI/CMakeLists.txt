@@ -11,4 +11,5 @@ target_link_libraries(LumaRHI PUBLIC Luma::Core Luma::Math)
 # Add source files for RHI implementation utilities
 target_sources(LumaRHI PRIVATE 
     src/RHI.cpp
+    src/DebugDraw.cpp
 )

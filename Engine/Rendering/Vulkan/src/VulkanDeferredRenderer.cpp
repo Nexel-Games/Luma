@@ -546,6 +546,9 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     // Editor overlay (transform gizmo), drawn onto the final display image.
     m_overlayPass = std::make_unique<VulkanOverlayLinePass>(
         m_physicalDevice, m_device, m_shaderDir, kLightFormat);
+    // Depth-tested world lines (SceneView::lines, e.g. DebugDraw).
+    m_depthLinePass = std::make_unique<VulkanOverlayLinePass>(
+        m_physicalDevice, m_device, m_shaderDir, kLightFormat, kDepthFormat);
     // Selection outline over the final image (sized to the viewport).
     m_selectionPass = std::make_unique<VulkanSelectionOutlinePass>(
         m_physicalDevice, m_device, m_shaderDir, static_cast<u32>(width),
@@ -1903,6 +1906,8 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         const bool outline = m_selectionPass && m_selectionPass->Valid() && anySelected;
         const bool overlay = m_overlayPass && m_overlayPass->Valid() && source.overlayLines &&
                              source.overlayLineVertexCount >= 2;
+        const bool depthLines = m_depthLinePass && m_depthLinePass->Valid() && source.lines &&
+                                source.lineVertexCount >= 2;
         if (outline) {
             m_selectionPass->RecordMask(m_commandBuffer, [&](VkCommandBuffer) {
                 BindMaterialSets(m_mainViewOffset);
@@ -1912,7 +1917,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                 }
             });
         }
-        if (outline || overlay) {
+        if (outline || overlay || depthLines) {
             VkImageMemoryBarrier toColor{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             toColor.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
             toColor.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
@@ -1936,6 +1941,22 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             finalRendering.layerCount = 1;
             finalRendering.colorAttachmentCount = 1;
             finalRendering.pColorAttachments = &finalColor;
+            if (depthLines) {
+                // World lines tested (not written) against the scene depth, in
+                // their own scope: its pipelines carry a depth format.
+                VkRenderingAttachmentInfo sceneDepth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+                sceneDepth.imageView = m_gBuffer.depth.view;
+                sceneDepth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                sceneDepth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                sceneDepth.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+                VkRenderingInfo depthRendering = finalRendering;
+                depthRendering.pDepthAttachment = &sceneDepth;
+                vkCmdBeginRendering(m_commandBuffer, &depthRendering);
+                m_depthLinePass->Record(m_commandBuffer, source.lines, source.lineVertexCount,
+                                        scene.viewProjectionMatrix, static_cast<u32>(m_gBuffer.width),
+                                        static_cast<u32>(m_gBuffer.height));
+                vkCmdEndRendering(m_commandBuffer);
+            }
             vkCmdBeginRendering(m_commandBuffer, &finalRendering);
             if (outline) m_selectionPass->RecordOutline(m_commandBuffer);
             if (overlay) {

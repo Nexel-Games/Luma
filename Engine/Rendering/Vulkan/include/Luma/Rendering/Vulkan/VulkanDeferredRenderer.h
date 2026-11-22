@@ -277,6 +277,7 @@ private:
     // Editor ground grid (created with 1-sample targets matching this pass)
     std::unique_ptr<VulkanGridPass> m_gridPass;
     std::unique_ptr<VulkanOverlayLinePass> m_overlayPass;  // editor gizmo lines
+    std::unique_ptr<VulkanOverlayLinePass> m_depthLinePass;  // depth-tested world lines (DebugDraw)
     // Selected-actor outline (its own module, Vulkan/Selection).
     std::unique_ptr<VulkanSelectionOutlinePass> m_selectionPass;
 

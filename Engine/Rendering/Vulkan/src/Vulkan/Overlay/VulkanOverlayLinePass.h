@@ -19,8 +19,11 @@ namespace Luma {
 // for anti-aliased edges.
 class VulkanOverlayLinePass {
 public:
+    // `depthFormat` set: lines are depth-tested (not written) against the
+    // scene depth bound in the rendering scope (DebugDraw depth-tested lines).
     VulkanOverlayLinePass(VkPhysicalDevice physical, VkDevice device,
-                          const std::string& shaderDir, VkFormat colorFormat);
+                          const std::string& shaderDir, VkFormat colorFormat,
+                          VkFormat depthFormat = VK_FORMAT_UNDEFINED);
     ~VulkanOverlayLinePass();
 
     VulkanOverlayLinePass(const VulkanOverlayLinePass&) = delete;

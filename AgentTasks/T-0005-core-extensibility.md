@@ -1,6 +1,6 @@
 # T-0005 — Core extensibility: registries instead of hard-coded lists
 
-**Status:** Done except step 11 (DebugDraw): BLOCKED until the material renderer work (Tasks 11–13) is merged into `dev` — it touches `Engine/Rendering/**`. Branch `agent/T-0005-core-extensibility` (local).
+**Status:** Done (steps 1–11). Branch `agent/T-0005-core-extensibility`; `dev` (with the material renderer) merged in.
 **Assigned to:** lead (B13 rendering) + owner
 **Created:** 2026-11-21 by lead
 **Area / files:** `Engine/Scene`, `Engine/Project`, `Engine/Asset`, `Engine/Core` (version), `Editor/LumaEditor`,
@@ -96,7 +96,10 @@ AssetTypeRegistry& AssetTypes();  // Find / FindByExtension / FindBuiltin / All;
 //   Inspector drawers: custom drawer by component id; default = reflection-driven rows.
 
 // RHI (lead): Engine/Rendering/RHI/include/Luma/RHI/DebugDraw.h
-class DebugDraw { public: void Line(...); void Box(...); void Sphere(...); void Capsule(...); /* depth-tested or overlay, cleared per frame */ };
+class DebugDraw { public: enum class Mode { DepthTested, Overlay };
+    void Line(...); void Box(...); void OrientedBox(...); void Sphere(...); void Capsule(...);
+    const std::vector<LineVertex>& Lines(Mode) const; void Clear(); };
+DebugDraw& DebugDrawer();  // process-wide; the editor feeds SceneView::lines / overlayLines and clears per frame
 ```
 
 ## Plan (each step test-first, suite green, separate commit)
@@ -120,7 +123,7 @@ class DebugDraw { public: void Line(...); void Box(...); void Sphere(...); void 
 - [x] Project Settings opens, saves to disk, reloads; `.luma` keeps unknown keys.
 - [x] Play → systems tick on a copy → Stop restores the authored scene exactly.
 - [x] Whole suite green; 0 Vulkan validation errors in a manual editor run.
-- [ ] Step 11 DebugDraw — BLOCKED (material renderer not yet in `dev`).
+- [x] Step 11 DebugDraw: `Luma/RHI/DebugDraw.h` (Line / Box / OrientedBox / Sphere / Capsule; depth-tested or overlay; `DebugDrawer()` cleared per frame by the editor). Depth-tested lines render through a depth-tested variant of the Vulkan overlay line pass (GPU test: hidden behind geometry, visible in front, overlay always on top).
 
 ## Out of scope
 

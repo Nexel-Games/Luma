@@ -29,7 +29,7 @@ Material graph & compiler (Material Editor project 1 —
 | [T-0002](T-0002-editor-undo-redo.md) | Editor-wide Undo / Redo (transactions) | Draft (being planned) | Editor, Scene |
 | [T-0003](T-0003-asset-import.md) | Asset import pipeline & Import window (models, audio, images) | Completed — review fixes done by the lead; waiting for the user's test | `Engine/Asset`, `Engine/Audio`, import UI |
 | [T-0004](T-0004-static-mesh-assignment.md) | Static mesh assignment: drag into the level, Inspector Static Mesh row, mesh material slots, rename fix-up | Completed — done by the lead; waiting for the user's test | Scene, Inspector, Viewport, Content Browser |
-| [T-0005](T-0005-core-extensibility.md) | Core extensibility: registries instead of hard-coded lists (plugin prerequisite) | Done — step 11 (DebugDraw) BLOCKED on the material renderer reaching `dev` | Scene, Project, Asset, Editor framework |
+| [T-0005](T-0005-core-extensibility.md) | Core extensibility: registries instead of hard-coded lists (plugin prerequisite) | Done | Scene, Project, Asset, Editor framework |
 | [T-0006](T-0006-plugin-framework.md) | Luma Plugin Framework (production) | Approved-ready | `Engine/Plugins`, `Plugins/`, Project Settings → Plugins |
 | T-0007 | NVIDIA PhysX physics plugin | Not written yet — after T-0006 is Accepted and the SDK decisions in [the assessment](PLUGIN_READINESS_ASSESSMENT.md) §4 are made | `Plugins/Luma.Physics.*` |
 
