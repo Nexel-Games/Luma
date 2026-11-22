@@ -29,6 +29,7 @@ layout(set = 0, binding = 1) uniform sampler2D gNormal;
 layout(set = 0, binding = 2) uniform sampler2D gMaterial;
 layout(set = 0, binding = 3) uniform sampler2D gDepth;
 layout(set = 0, binding = 9) uniform sampler2D gEmissive;
+layout(set = 0, binding = 10) uniform sampler2D gCustom;  // RT4: shading-model data
 
 const uint kShadingUnlit = 1u;
 
@@ -120,7 +121,10 @@ void main() {
     vec3 worldPos = ReconstructWorldPos(vUV, depth);
     vec3 V = normalize(lighting.camPos.xyz - worldPos);
 
-    vec3 lit = LumaSurfaceLighting(worldPos, N, V, albedo, metallic, specular, roughness, ao);
+    LumaShading shadingData;
+    shadingData.model = shading;
+    shadingData.custom = texture(gCustom, vUV);
+    vec3 lit = LumaSurfaceLighting(worldPos, N, V, albedo, metallic, specular, roughness, ao, shadingData);
 
 
     // ---- Compose ----

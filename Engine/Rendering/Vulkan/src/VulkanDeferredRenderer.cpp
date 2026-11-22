@@ -1180,7 +1180,7 @@ bool VulkanDeferredRenderer::CreateUBOs() {
 }
 
 bool VulkanDeferredRenderer::CreateLayouts() {
-    VkDescriptorSetLayoutBinding lb[10]{};
+    VkDescriptorSetLayoutBinding lb[11]{};
     for (u32 i = 0; i < 4; ++i) { lb[i].binding = i; lb[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[i].descriptorCount = 1; lb[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT; }
     lb[4].binding = 4; lb[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; lb[4].descriptorCount = 1; lb[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     lb[5].binding = 5; lb[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[5].descriptorCount = 1; lb[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1190,8 +1190,10 @@ bool VulkanDeferredRenderer::CreateLayouts() {
     lb[8].binding = 8; lb[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; lb[8].descriptorCount = 1; lb[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     // 9 = emissive G-buffer target (RT3).
     lb[9].binding = 9; lb[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[9].descriptorCount = 1; lb[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // 10 = shading-model data G-buffer target (RT4).
+    lb[10].binding = 10; lb[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; lb[10].descriptorCount = 1; lb[10].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    li.bindingCount = 10; li.pBindings = lb;
+    li.bindingCount = 11; li.pBindings = lb;
     if (vkCreateDescriptorSetLayout(m_device, &li, nullptr, &m_lightingSetLayout) != VK_SUCCESS) return false;
 
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -1201,7 +1203,7 @@ bool VulkanDeferredRenderer::CreateLayouts() {
 
 bool VulkanDeferredRenderer::CreateDescriptorSets() {
     VkDescriptorPoolSize sizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2},
-                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8},
+                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9},
                                      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}};
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; pi.maxSets = 1; pi.poolSizeCount = 3; pi.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(m_device, &pi, nullptr, &m_lightingPool) != VK_SUCCESS) return false;
@@ -1227,6 +1229,11 @@ bool VulkanDeferredRenderer::CreateDescriptorSets() {
     VkDescriptorImageInfo emissiveInfo{m_gBuffer.sampler, m_gBuffer.emissive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet emissiveWrite{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; emissiveWrite.dstSet = m_lightingSet; emissiveWrite.dstBinding = 9; emissiveWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; emissiveWrite.descriptorCount = 1; emissiveWrite.pImageInfo = &emissiveInfo;
     vkUpdateDescriptorSets(m_device, 1, &emissiveWrite, 0, nullptr);
+    VkDescriptorImageInfo customInfo{m_gBuffer.sampler, m_gBuffer.custom.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet customWrite = emissiveWrite;
+    customWrite.dstBinding = 10;
+    customWrite.pImageInfo = &customInfo;
+    vkUpdateDescriptorSets(m_device, 1, &customWrite, 0, nullptr);
     vkUpdateDescriptorSets(m_device, 2, skyWrites, 0, nullptr);
     return true;
 }

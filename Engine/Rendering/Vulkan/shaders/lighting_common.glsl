@@ -245,18 +245,28 @@ float sunShadow(vec3 worldPos, vec3 N, vec3 L) {
     return shadow;
 }
 
-// ---- Surface lighting ------------------------------------------------------
+// ---- Shading models ----------------------------------------------------------
 
-// Sun + punctual lights + ambient IBL for an opaque surface point (linear
-// HDR radiance; emissive is added by the caller).
-vec3 LumaSurfaceLighting(vec3 worldPos, vec3 N, vec3 V, vec3 albedo, float metallic, float specular,
-                         float roughness, float ao) {
-    // Fresnel F0 (Unreal convention): dielectrics reflect 0.08 * Specular
-    // (Specular 0.5 -> 4%), metals tint the reflection with the base color.
-    vec3 F0 = mix(vec3(0.08 * specular), albedo, metallic);
+// Shading-model ids (G-buffer RT0.a * 255, GpuShadingModel).
+const uint kLumaShadingDefaultLit = 0u;
+const uint kLumaShadingUnlit = 1u;
+const uint kLumaShadingSubsurface = 2u;
+const uint kLumaShadingClearCoat = 3u;
+const uint kLumaShadingTwoSidedFoliage = 4u;
 
-    // ---- Directional light (sun) ----
-    vec3 L = normalize(lighting.sunDir.xyz);
+// What a shading model adds to the base BRDF (G-buffer RT4 / forward pass):
+//   Subsurface, Two-Sided Foliage: rgb = subsurface colour, a = opacity
+//   Clear Coat: r = coat amount, g = coat roughness
+struct LumaShading {
+    uint model;
+    vec4 custom;
+};
+
+// One light's response, before its colour and attenuation. `front` is the
+// surface-facing part (shadowed by the caller); `back` is light transmitted
+// through the surface (not shadowed: the surface itself is the occluder).
+void LumaLightLobes(LumaShading s, vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness,
+                    vec3 F0, out vec3 front, out vec3 back) {
     vec3 H = normalize(V + L);
     float NdotL = max(dot(N, L), 0.0);
     float NdotV = max(dot(N, V), 0.001);
@@ -265,14 +275,58 @@ vec3 LumaSurfaceLighting(vec3 worldPos, vec3 N, vec3 V, vec3 albedo, float metal
 
     float D = DistributionGGX(NdotH, roughness);
     float G = GeometrySmith(NdotV, NdotL, roughness);
-    vec3  F = FresnelSchlick(HdotV, F0);
-
-    vec3 sunSpecular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
+    vec3 F = FresnelSchlick(HdotV, F0);
+    vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
     vec3 kD = (1.0 - F) * (1.0 - metallic);
     vec3 diffuse = kD * albedo / PI;
+    back = vec3(0.0);
 
-    vec3 sunContrib = (diffuse + sunSpecular) * lighting.sunColor.rgb * lighting.sunColor.w *
-                      NdotL * sunShadow(worldPos, N, L);
+    if (s.model == kLumaShadingSubsurface) {
+        // Wrap lighting: light reaches past the terminator, tinted by the
+        // subsurface colour; thinner (lower opacity) scatters further.
+        vec3 color = s.custom.rgb;
+        float opacity = clamp(s.custom.a, 0.0, 1.0);
+        float w = 1.0 - opacity;
+        float wrap = max((dot(N, L) + w) / (1.0 + w), 0.0);
+        front = specular * NdotL + diffuse * (NdotL + color * max(wrap - NdotL, 0.0));
+        // Back transmission towards the viewer.
+        back = pow(clamp(dot(V, -L), 0.0, 1.0), 4.0) * color * (1.0 - opacity) * albedo;
+        return;
+    }
+    if (s.model == kLumaShadingClearCoat) {
+        // A second, clear GGX layer (F0 4%) over an energy-attenuated base.
+        float coat = clamp(s.custom.r, 0.0, 1.0);
+        float coatRoughness = clamp(s.custom.g, 0.02, 1.0);
+        float Fc = FresnelSchlick(HdotV, vec3(0.04)).x * coat;
+        float Dc = DistributionGGX(NdotH, coatRoughness);
+        float Gc = GeometrySmith(NdotV, NdotL, coatRoughness);
+        float coatSpecular = (Dc * Gc * Fc) / (4.0 * NdotV * NdotL + 0.0001);
+        front = ((diffuse + specular) * (1.0 - Fc) + vec3(coatSpecular)) * NdotL;
+        return;
+    }
+    front = (diffuse + specular) * NdotL;
+    if (s.model == kLumaShadingTwoSidedFoliage) {
+        // Thin leaves: light through the back face, tinted.
+        back = clamp(dot(-N, L), 0.0, 1.0) * s.custom.rgb * albedo / PI;
+    }
+}
+
+// ---- Surface lighting ------------------------------------------------------
+
+// Sun + punctual lights + ambient IBL for an opaque surface point (linear
+// HDR radiance; emissive is added by the caller).
+vec3 LumaSurfaceLighting(vec3 worldPos, vec3 N, vec3 V, vec3 albedo, float metallic, float specular,
+                         float roughness, float ao, LumaShading shading) {
+    // Fresnel F0 (Unreal convention): dielectrics reflect 0.08 * Specular
+    // (Specular 0.5 -> 4%), metals tint the reflection with the base color.
+    vec3 F0 = mix(vec3(0.08 * specular), albedo, metallic);
+
+    // ---- Directional light (sun) ----
+    vec3 L = normalize(lighting.sunDir.xyz);
+    float NdotV = max(dot(N, V), 0.001);
+    vec3 sunFront, sunBack;
+    LumaLightLobes(shading, N, V, L, albedo, metallic, roughness, F0, sunFront, sunBack);
+    vec3 sunContrib = (sunFront * sunShadow(worldPos, N, L) + sunBack) * lighting.sunColor.rgb * lighting.sunColor.w;
 
     // ---- Punctual lights ----
     vec3 punctualContrib = vec3(0.0);
@@ -308,21 +362,9 @@ vec3 LumaSurfaceLighting(vec3 worldPos, vec3 N, vec3 V, vec3 albedo, float metal
             // Tube (type 3) behaves as a point light for now.
         }
 
-        vec3 lH = normalize(V + lDir);
-        float lNdotL = max(dot(N, lDir), 0.0);
-        float lNdotH = max(dot(N, lH), 0.0);
-        float lHdotV = max(dot(lH, V), 0.0);
-
-        float lD = DistributionGGX(lNdotH, roughness);
-        float lG = GeometrySmith(NdotV, lNdotL, roughness);
-        vec3  lF = FresnelSchlick(lHdotV, F0);
-
-        vec3 lSpec = (lD * lG * lF) / (4.0 * NdotV * lNdotL + 0.0001);
-        vec3 lkD = (1.0 - lF) * (1.0 - metallic);
-        vec3 lDiff = lkD * albedo / PI;
-
-        punctualContrib += (lDiff + lSpec) * light.color.rgb * light.color.w *
-                           lNdotL * attenuation;
+        vec3 lFront, lBack;
+        LumaLightLobes(shading, N, V, lDir, albedo, metallic, roughness, F0, lFront, lBack);
+        punctualContrib += (lFront + lBack) * light.color.rgb * light.color.w * attenuation;
     }
 
     // ---- Ambient / material environment ------------------------------------

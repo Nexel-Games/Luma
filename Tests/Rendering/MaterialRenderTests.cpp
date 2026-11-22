@@ -187,3 +187,86 @@ TEST_CASE("Materials without shaders yet draw nothing", "[vulkan][render]") {
     CHECK(px[0] < 5);
     CHECK(r.f.ValidationErrors().empty());
 }
+
+namespace {
+
+// A lit material: base colour (0.5), roughness, a shading model and its data.
+GraphMaterial LitMaterial(Material::ShadingModel model, f32 roughness) {
+    GraphMaterial m = TintMaterial({0.5f, 0.5f, 0.5f, 1.0f});
+    m.settings.shadingModel = model;
+    const NodeId rough = Node(m, "Constant");
+    m.graph.Find(rough)->properties["value"] = PropertyValue(static_cast<f64>(roughness));
+    Link(m, rough, 3);  // Roughness
+    return m;
+}
+
+void LinkConstant(GraphMaterial& m, u32 pin, f64 value) {
+    const NodeId n = Node(m, "Constant");
+    m.graph.Find(n)->properties["value"] = PropertyValue(value);
+    Link(m, n, pin);
+}
+
+// Direct sunlight only (no sky / IBL / shadows), from `toSun`.
+void SunOnly(RenderRig& r, Math::Vec3 toSun) {
+    r.view.viewMode = ViewMode::Lit;
+    r.view.lighting.sunDirection = toSun;
+    r.view.lighting.iblIntensity = 0.0f;
+    r.view.lighting.sunShadows = false;
+    r.view.sky.enabled = false;
+    // Fixed exposure, no bloom: pixels compare across renders.
+    r.view.postProcess.autoExposure = false;
+    r.view.postProcess.bloomEnabled = false;
+}
+
+u32 Brightness(const std::array<u8, 4>& px) { return px[0] + px[1] + px[2]; }
+
+constexpr u32 kSubsurfaceColor = 11;
+constexpr u32 kCustomData0 = 12;
+constexpr u32 kCustomData1 = 13;
+constexpr u32 kOpacity = 6;
+
+}  // namespace
+
+TEST_CASE("Subsurface transmits light from behind", "[vulkan][render][shading]") {
+    RenderRig r;
+    SunOnly(r, {0.0f, 0.0f, -1.0f});  // behind the cube, facing away from the camera
+    const auto lit = r.Build(LitMaterial(Material::ShadingModel::DefaultLit, 0.8f));
+    GraphMaterial ss = LitMaterial(Material::ShadingModel::Subsurface, 0.8f);
+    LinkConstant(ss, kSubsurfaceColor, 1.0);
+    LinkConstant(ss, kOpacity, 0.2);
+    const auto sub = r.Build(ss);
+    const u32 dark = Brightness(r.RenderCentre(r.renderer->UpdateMaterial(50, lit.gpu, lit.block)));
+    const u32 glow = Brightness(r.RenderCentre(r.renderer->UpdateMaterial(51, sub.gpu, sub.block)));
+    CHECK(glow > dark + 30);
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Clear coat adds a second highlight", "[vulkan][render][shading]") {
+    RenderRig r;
+    SunOnly(r, {0.0f, 0.0f, 1.0f});  // behind the camera: the highlight is centred
+    const auto base = r.Build(LitMaterial(Material::ShadingModel::DefaultLit, 0.9f));
+    GraphMaterial cc = LitMaterial(Material::ShadingModel::ClearCoat, 0.9f);
+    LinkConstant(cc, kCustomData0, 1.0);
+    LinkConstant(cc, kCustomData1, 0.3);
+    const auto coat = r.Build(cc);
+    const u32 matte = Brightness(r.RenderCentre(r.renderer->UpdateMaterial(52, base.gpu, base.block)));
+    const u32 glossy = Brightness(r.RenderCentre(r.renderer->UpdateMaterial(53, coat.gpu, coat.block)));
+    CHECK(glossy > matte + 30);
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Two-sided foliage shows its transmission colour from behind", "[vulkan][render][shading]") {
+    RenderRig r;
+    SunOnly(r, {0.0f, 0.0f, -1.0f});
+    const auto lit = r.Build(LitMaterial(Material::ShadingModel::DefaultLit, 0.8f));
+    GraphMaterial leaf = LitMaterial(Material::ShadingModel::TwoSidedFoliage, 0.8f);
+    const NodeId green = Node(leaf, "Constant3Vector");
+    leaf.graph.Find(green)->properties["value"] = PropertyValue(Math::Vec4{0.1f, 1.0f, 0.1f, 0.0f});
+    Link(leaf, green, kSubsurfaceColor);
+    const auto foliage = r.Build(leaf);
+    const auto dark = r.RenderCentre(r.renderer->UpdateMaterial(54, lit.gpu, lit.block));
+    const auto px = r.RenderCentre(r.renderer->UpdateMaterial(55, foliage.gpu, foliage.block));
+    CHECK(px[1] > dark[1] + 20);
+    CHECK(px[1] > px[0]);  // tinted by the transmission colour
+    CHECK(r.f.ValidationErrors().empty());
+}

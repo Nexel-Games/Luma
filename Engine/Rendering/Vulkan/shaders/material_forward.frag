@@ -21,9 +21,16 @@ void main() {
     vec3 color = m.emissive;
 #else
     vec3 V = P.cameraVector;
+    LumaShading shading;
+    shading.model = uint(LUMA_SHADING_MODEL);
+#if LUMA_SHADING_MODEL == 3
+    shading.custom = vec4(m.customData0, m.customData1, 0.0, 0.0);
+#else
+    shading.custom = vec4(m.subsurfaceColor, opacity);
+#endif
     vec3 lit = LumaSurfaceLighting(P.worldPos, P.pixelNormal, V, clamp(m.baseColor, 0.0, 1.0),
                                    clamp(m.metallic, 0.0, 1.0), clamp(m.specular, 0.0, 1.0),
-                                   clamp(m.roughness, 0.04, 1.0), clamp(m.ao, 0.0, 1.0));
+                                   clamp(m.roughness, 0.04, 1.0), clamp(m.ao, 0.0, 1.0), shading);
     vec3 color = lit + m.emissive;
 #endif
 
