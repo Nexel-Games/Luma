@@ -66,19 +66,23 @@ NodeGeometry LayoutNode(const NodeView& n, const NodeMetrics& m) {
     }
     auto len = [](const std::vector<PinView>& pins) {
         usize l = 0;
-        for (const PinView& p : pins) l = std::max(l, p.name.size());
+        for (const PinView& p : pins)
+            l = std::max(l, p.name.size() + (p.inlineValue.empty() ? 0 : p.inlineValue.size() + 3));
         return static_cast<f32>(l);
     };
-    const f32 titleW = static_cast<f32>(std::max(n.title.size(), n.subtitle.size())) * m.charWidth + 24.0f;
-    const f32 pinsW = (len(n.inputs) + len(n.outputs)) * m.charWidth + m.pinColumnGap + 24.0f;
+    // Header: title, plus a subtitle line; then an optional swatch block.
+    const f32 headerH = m.headerH + (n.subtitle.empty() ? 0.0f : m.subtitleH);
+    const f32 top = headerH + (n.hasPreview ? m.previewH : 0.0f);
+    const f32 titleW = static_cast<f32>(std::max(n.title.size(), n.subtitle.size())) * m.charWidth + 18.0f;
+    const f32 pinsW = (len(n.inputs) + len(n.outputs)) * m.charWidth + m.pinColumnGap + 16.0f;
     const f32 w = std::max({m.minWidth, titleW, pinsW});
     const usize rows = std::max(n.inputs.size(), n.outputs.size());
-    const f32 h = m.headerH + static_cast<f32>(rows) * m.pinRowH + m.padBottom;
+    const f32 h = top + static_cast<f32>(rows) * m.pinRowH + m.padBottom;
     g.body = {n.position.x, n.position.y, w, h};
     for (usize i = 0; i < n.inputs.size(); ++i)
-        g.inputs.push_back({n.position.x, n.position.y + m.headerH + (static_cast<f32>(i) + 0.5f) * m.pinRowH});
+        g.inputs.push_back({n.position.x, n.position.y + top + (static_cast<f32>(i) + 0.5f) * m.pinRowH});
     for (usize i = 0; i < n.outputs.size(); ++i)
-        g.outputs.push_back({n.position.x + w, n.position.y + m.headerH + (static_cast<f32>(i) + 0.5f) * m.pinRowH});
+        g.outputs.push_back({n.position.x + w, n.position.y + top + (static_cast<f32>(i) + 0.5f) * m.pinRowH});
     return g;
 }
 

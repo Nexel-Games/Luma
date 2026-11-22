@@ -205,7 +205,7 @@ void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
                                  IconAspect(m_services, EditorIcon::Details));
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
-    const f32 x = view.x + 4.0f, w = view.w - 14.0f;
+    const f32 x = view.x + 12.0f, w = view.w - 24.0f;  // left margin so rows never hug the edge
     f32 y = view.y + 4.0f - m_scroll;
 
     Section(ui, "mie.general." + m_model.Path(), "General", m_generalOpen, x, y, w);

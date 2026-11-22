@@ -46,6 +46,8 @@ struct MaterialEditorServices {
     // "LUMA MATERIAL" canvas watermark font (Content/Editor/Fonts/RubikIso,
     // ~64 px); null = the UI title font.
     const Slate::Font* watermarkFont = nullptr;
+    // The UI font at small sizes (e.g. 7-14 px) for zoomed-out graph nodes.
+    std::vector<const Slate::Font*> graphFonts;
 };
 
 // "/Game/Materials/MI_Red" -> "MI_Red".

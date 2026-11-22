@@ -52,6 +52,7 @@ MaterialGraphEditor::MaterialGraphEditor(std::string materialPath, Material::Mat
     m_palette.searchIcon = IconTexture(m_services, EditorIcon::Search);
     m_widget->PopupPalette().searchIcon = m_palette.searchIcon;
     m_widget->SetWatermark("LUMA MATERIAL", m_services.watermarkFont);
+    m_widget->SetFontLadder(m_services.graphFonts);
     Recompile();
 }
 
@@ -410,7 +411,7 @@ void MaterialGraphEditor::DrawDetails(Context& ui, const Rect& area) {
                                  IconAspect(m_services, EditorIcon::Details));
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
-    const f32 x = view.x + 4.0f, w = view.w - 14.0f;
+    const f32 x = view.x + 12.0f, w = view.w - 24.0f;  // left margin so rows never hug the edge
     f32 y = view.y + 4.0f - m_detailsScroll;
     const auto& sel = m_controller->Sel().Nodes();
     const bool oneNode = sel.size() == 1 && (*sel.begin() & kCommentBit) == 0 &&

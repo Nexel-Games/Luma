@@ -40,13 +40,15 @@ private:
 };
 
 struct NodeMetrics {
-    f32 headerH = 26.0f;
-    f32 pinRowH = 22.0f;
-    f32 minWidth = 110.0f;
+    f32 headerH = 22.0f;
+    f32 pinRowH = 20.0f;
+    f32 minWidth = 72.0f;
     f32 charWidth = 7.0f;   // layout estimate per character (font-independent)
-    f32 pinColumnGap = 24.0f;
-    f32 padBottom = 6.0f;
+    f32 pinColumnGap = 14.0f;
+    f32 padBottom = 4.0f;
     f32 rerouteSize = 16.0f;
+    f32 subtitleH = 13.0f;   // second header line ("Param (0.5)")
+    f32 previewH = 52.0f;    // colour swatch block
     f32 pinHitRadius = 9.0f;
 };
 

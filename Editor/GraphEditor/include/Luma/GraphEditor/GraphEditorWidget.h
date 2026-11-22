@@ -48,6 +48,9 @@ public:
         m_watermark = std::move(text);
         m_watermarkFont = font;
     }
+    // Extra font sizes for zoomed-out nodes (Slate bakes fonts at fixed
+    // sizes): the widget picks the one matching the zoomed text size.
+    void SetFontLadder(std::vector<const Slate::Font*> fonts) { m_fontLadder = std::move(fonts); }
     bool PaletteOpen() const { return m_paletteOpen; }
     GraphPalette& PopupPalette() { return m_popup; }
     void ClosePalette() { m_paletteOpen = false; }
@@ -111,6 +114,7 @@ private:
     std::string m_linkMessage;
     Slate::Rect m_exclusion{};
     std::string m_watermark;
+    std::vector<const Slate::Font*> m_fontLadder;
     const Slate::Font* m_watermarkFont = nullptr;
     // Right-click / drag-off palette popup.
     GraphPalette m_popup;

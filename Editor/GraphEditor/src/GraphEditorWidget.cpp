@@ -182,8 +182,10 @@ void GraphEditorWidget::Draw(Context& ui, const Rect& rect) {
         NodeMetrics m = m_controller.Metrics();
         if (cw > 0.0f && std::fabs(cw - m.charWidth) > 0.25f) {
             m.charWidth = cw;
-            m.headerH = std::max(m.headerH, ui.uiFont().LineHeight() + 8.0f);
-            m.pinRowH = std::max(m.pinRowH, ui.uiFont().LineHeight() + 4.0f);
+            // Compact: rows hug the text, the subtitle line is the small font.
+            m.headerH = ui.uiFont().LineHeight() + 5.0f;
+            m.pinRowH = ui.uiFont().LineHeight() + 3.0f;
+            if (ui.smallFont().Valid()) m.subtitleH = ui.smallFont().LineHeight() + 1.0f;
             m_controller.SetMetrics(m);
         }
     }
@@ -309,51 +311,114 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
     const f32 z = m_view.Zoom();
     const Rect r = m_view.RectToScreen(g.body, m_origin);
     const bool selected = m_controller.Sel().Has(n.id);
-    const bool text = z >= 0.5f;        // titles
-    const bool pinText = z >= 0.85f;    // pin labels (fonts do not scale with zoom)
-    const f32 pinR = std::max(4.5f * z, 2.0f);
+    const f32 pinR = std::max(5.0f * z, 2.0f);
+    const Color bodyFill = Color::RGBA(13, 13, 14, 242);
+    // Fonts are baked at fixed sizes: pick the one closest to the zoomed size.
+    auto fontFor = [&](f32 scale) -> const Slate::Font& {
+        const f32 target = ui.uiFont().LineHeight() * scale;
+        std::vector<const Slate::Font*> all{&ui.uiFont(), &ui.mediumFont(), &ui.smallFont(), &ui.font()};
+        all.insert(all.end(), m_fontLadder.begin(), m_fontLadder.end());
+        const Slate::Font* best = nullptr;   // largest that fits
+        const Slate::Font* tiniest = nullptr;
+        for (const Slate::Font* f : all) {
+            if (!f || !f->Valid()) continue;
+            if (!tiniest || f->LineHeight() < tiniest->LineHeight()) tiniest = f;
+            if (f->LineHeight() <= target * 1.08f && (!best || f->LineHeight() > best->LineHeight())) best = f;
+        }
+        return best ? *best : (tiniest ? *tiniest : ui.uiFont());
+    };
+    const Slate::Font& font = fontFor(z);
+    const Slate::Font& small = fontFor(z * 0.78f);
+    const bool text = z >= 0.3f;                                          // titles
+    const bool pinText = z >= 0.38f;  // pin labels / value boxes down to 38% zoom
 
+    // UE-style pin: a ring, filled once linked; faded when unused.
     auto drawPin = [&](Vec2 anchor, const PinView& pin, bool linked) {
         const Vec2 s = m_view.ToScreen(anchor, m_origin);
-        ui.drawList().AddCircleFilled(s, pinR, pin.color);
-        if (!linked) ui.drawList().AddCircleFilled(s, pinR * 0.55f, Color::RGB(24, 24, 24));
+        const Color c = pin.dimmed ? pin.color.WithAlpha(70) : pin.color;
+        ui.drawList().AddCircleFilled(s, pinR, c);
+        if (!linked) ui.drawList().AddCircleFilled(s, pinR * 0.58f, bodyFill);
+    };
+    // A dark rounded value box ("0.5") whose left edge is at x.
+    auto valueBox = [&](f32 x, f32 cy, const std::string& v, bool dim) {
+        const f32 bw = font.Measure(v).x + 10.0f, bh = std::min(m.pinRowH * z - 4.0f, font.LineHeight() + 2.0f);
+        const Rect box{x, cy - bh * 0.5f, bw, bh};
+        ui.PanelRoundedBordered(box, t.fieldBg, Color::RGB(70, 70, 72), 2.0f);
+        ui.drawList().AddText(font, {box.x + 5.0f, cy - font.LineHeight() * 0.5f}, v, dim ? t.textDisabled : t.text);
+        return bw;
     };
 
     if (n.kind == NodeKind::Reroute) {
         const Vec2 c{r.x + r.w * 0.5f, r.y + r.h * 0.5f};
         const Color col = n.outputs.empty() ? t.text : n.outputs[0].color;
-        ui.drawList().AddCircleFilled(c, r.w * 0.45f, selected ? t.accent : Color::RGB(20, 20, 20));
-        ui.drawList().AddCircleFilled(c, r.w * 0.32f, col);
+        ui.drawList().AddCircleFilled(c, r.w * 0.5f, selected ? t.accent : Color::RGB(10, 10, 10));
+        ui.drawList().AddCircleFilled(c, r.w * 0.34f, col);
         return;
     }
 
-    ui.drawList().AddRectShadow(r, 4.0f, 0.5f);
-    ui.PanelRounded(r, Color::RGBA(22, 22, 22, 235), 4.0f);
-    const Rect header{r.x, r.y, r.w, m.headerH * z};
-    ui.drawList().AddRectFilledGradientH(header, n.headerColor, Slate::Darken(n.headerColor, 0.6f));
+    const f32 radius = std::clamp(5.0f * z, 2.0f, 6.0f);
+    ui.drawList().AddRectShadow(r, radius + 4.0f, 0.75f);
+    ui.PanelRoundedBordered(r, bodyFill, Color::RGBA(70, 70, 74, 255), radius);
+
+    // Header: category gradient with a metallic sheen and a bright top edge.
+    const f32 headerH = (m.headerH + (n.subtitle.empty() ? 0.0f : m.subtitleH)) * z;
+    const Rect header{r.x + 1.0f, r.y + 1.0f, r.w - 2.0f, headerH - 1.0f};
+    ui.drawList().AddRectFilledGradientH(header, Slate::Lighten(n.headerColor, 0.06f), Slate::Darken(n.headerColor, 0.62f));
+    ui.drawList().AddRectFilledGradient({header.x, header.y, header.w, header.h * 0.5f},
+                                        Color::RGBA(255, 255, 255, 52), Color::RGBA(255, 255, 255, 10));
+    ui.drawList().AddRectFilledGradient({header.x, header.y + header.h * 0.5f, header.w, header.h * 0.5f},
+                                        Color::RGBA(0, 0, 0, 0), Color::RGBA(0, 0, 0, 70));
+    ui.Panel({header.x + 2.0f, header.y, header.w - 4.0f, 1.0f}, Color::RGBA(255, 255, 255, 90));
+    ui.Panel({r.x, header.Bottom(), r.w, 1.0f}, Color::RGBA(0, 0, 0, 200));
     if (text) {
-        ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, n.title, t.text);
-        const f32 room = header.w - 24.0f - ui.uiFont().Measure(n.title).x;
-        if (!n.subtitle.empty() && ui.uiFont().Measure(n.subtitle).x < room)
-            ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, n.subtitle, t.textDim, Align::Right);
+        const f32 tx = header.x + 9.0f;
+        const f32 ty = header.y + std::max((m.headerH * z - font.LineHeight()) * 0.5f, 1.0f);
+        ui.PushClip(header);
+        ui.drawList().AddText(font, {tx + 1.0f, ty + 1.0f}, n.title, Color::RGBA(0, 0, 0, 160));  // drop shadow
+        ui.drawList().AddText(font, {tx, ty}, n.title, Color::RGB(245, 245, 245));
+        if (!n.subtitle.empty())
+            ui.drawList().AddText(small, {tx, ty + font.LineHeight() - 2.0f}, n.subtitle, Color::RGBA(235, 235, 235, 160));
+        ui.PopClip();
     }
+    // Colour swatch (vector parameters).
+    if (n.hasPreview) {
+        const f32 s = (m.previewH - 12.0f) * z;
+        const Rect sw{r.x + 10.0f * z, header.Bottom() + 6.0f * z, std::min(s * 1.4f, r.w - 20.0f * z), s};
+        ui.PanelRoundedBordered(sw, n.preview.WithAlpha(255), Color::RGB(20, 20, 20), 2.0f);
+    }
+
     for (u32 i = 0; i < n.inputs.size(); ++i) {
-        drawPin(g.inputs[i], n.inputs[i], pins.count(i) != 0);
-        if (pinText && !n.inputs[i].name.empty()) {
-            const Vec2 s = m_view.ToScreen(g.inputs[i], m_origin);
-            ui.LabelIn({s.x + 10.0f, s.y - 9.0f, r.w * 0.5f, 18.0f}, n.inputs[i].name, t.textDim);
+        const PinView& p = n.inputs[i];
+        const bool linked = pins.count(i) != 0;
+        drawPin(g.inputs[i], p, linked);
+        if (!pinText) continue;
+        const Vec2 s = m_view.ToScreen(g.inputs[i], m_origin);
+        f32 x = s.x + 9.0f;
+        if (!p.name.empty()) {
+            ui.drawList().AddText(font, {x, s.y - font.LineHeight() * 0.5f}, p.name, p.dimmed ? t.textDisabled : t.text);
+            x += font.Measure(p.name).x + 6.0f;
         }
+        if (!linked && !p.inlineValue.empty()) valueBox(x, s.y, p.inlineValue, p.dimmed);
     }
     for (u32 i = 0; i < n.outputs.size(); ++i) {
-        drawPin(g.outputs[i], n.outputs[i], pins.count(1000 + i) != 0);
-        if (pinText && !n.outputs[i].name.empty()) {
-            const Vec2 s = m_view.ToScreen(g.outputs[i], m_origin);
-            ui.LabelIn({s.x - 10.0f - r.w * 0.5f, s.y - 9.0f, r.w * 0.5f, 18.0f}, n.outputs[i].name, t.textDim,
-                       Align::Right);
+        const PinView& p = n.outputs[i];
+        drawPin(g.outputs[i], p, pins.count(1000 + i) != 0);
+        if (!pinText) continue;
+        const Vec2 s = m_view.ToScreen(g.outputs[i], m_origin);
+        f32 right = s.x - 9.0f;
+        if (!p.inlineValue.empty()) {
+            const f32 bw = font.Measure(p.inlineValue).x + 10.0f;
+            valueBox(right - bw, s.y, p.inlineValue, p.dimmed);
+            right -= bw + 6.0f;
+        }
+        if (!p.name.empty()) {
+            const f32 lw = font.Measure(p.name).x;
+            ui.drawList().AddText(font, {right - lw, s.y - font.LineHeight() * 0.5f}, p.name,
+                                  p.dimmed ? t.textDisabled : t.text);
         }
     }
     if (!n.error.empty()) {
-        ui.drawList().AddRectOutlineRounded(r, t.error, 2.0f, 4.0f);
+        ui.drawList().AddRectOutlineRounded(r, t.error, 2.0f, radius);
         if (text) {
             const Rect badge{r.x, r.Bottom() + 2.0f, std::max(r.w, 60.0f), 18.0f};
             ui.PanelRounded(badge, t.error, 3.0f);
@@ -361,7 +426,7 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
             ui.Tooltip(Context::ID(m_id + ".err." + std::to_string(n.id)), badge, n.error);
         }
     } else if (selected) {
-        ui.drawList().AddRectOutlineRounded(r, t.accent, 2.0f, 4.0f);
+        ui.drawList().AddRectOutlineRounded(r.Inset(-1.0f, -1.0f), t.accent, 2.0f, radius + 1.0f);
     }
 }
 

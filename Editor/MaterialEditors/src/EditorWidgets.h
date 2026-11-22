@@ -107,7 +107,7 @@ inline Slate::Rect PanelTab(Slate::Context& ui, std::string_view id, const Slate
     constexpr f32 kPadX = 12.0f, kGap = 3.0f;  // text sits right beside the icon
     const f32 iconW = kIcon * iconAspect;  // the icon's true width: no empty padding before the text
     const f32 tabW = std::min(kPadX + (icon ? iconW + kGap : 0.0f) + textW + kPadX + 4.0f, area.w - 8.0f);
-    const Slate::Rect tab{well.x + 4.0f, well.y + 4.0f, tabW, well.h - 7.0f};
+    const Slate::Rect tab{well.x + 10.0f, well.y + 4.0f, tabW, well.h - 7.0f};
     ui.PanelRounded(tab, t.surface3, 4.0f);
     ui.drawList().AddRectOutlineRounded(tab, t.accent, 1.5f, 4.0f);
     f32 x = tab.x + kPadX;

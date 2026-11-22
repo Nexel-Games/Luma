@@ -33,15 +33,18 @@ struct WidgetFixture {
 
 TEST_CASE("Dragging from an output pin onto an input links them", "[grapheditor][widget]") {
     WidgetFixture f;
-    // Output anchor of `a`: (110, 26 + 11); input of `b`: (300, 37).
-    f.h.Drag(110, 37, 190, 0, f.Fn());
+    const auto nodes = f.model.Nodes();
+    const auto ga = LayoutNode(nodes[0], f.controller.Metrics());
+    const auto gb = LayoutNode(nodes[1], f.controller.Metrics());
+    const Vec2 from = ga.outputs[0], to = gb.inputs[0];
+    f.h.Drag(from.x, from.y, to.x - from.x, to.y - from.y, f.Fn());
     REQUIRE(f.model.links.size() == 1);
     CHECK(f.model.links[0].to.node == f.b);
 }
 
 TEST_CASE("Dragging a node moves it as one undo step", "[grapheditor][widget]") {
     WidgetFixture f;
-    f.h.Drag(50, 10, 20, 5, f.Fn());
+    f.h.Drag(30, 8, 20, 5, f.Fn());
     CHECK(f.model.nodes[f.a].view.position.x == 20);
     CHECK(f.controller.Sel().Has(f.a));
     CHECK(f.controller.History().Size() == 1);

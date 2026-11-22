@@ -33,6 +33,8 @@ struct PinView {
     std::string name;
     Color color = Color::RGB(200, 200, 200);  // type colour
     std::string tooltip;
+    std::string inlineValue;  // shown in a value box beside the pin ("0.5", "0, 0, 1")
+    bool dimmed = false;      // unused by the current settings (drawn faded)
 };
 
 enum class NodeKind : u8 { Node, Reroute, Comment };
@@ -48,6 +50,8 @@ struct NodeView {
     std::vector<PinView> inputs, outputs;
     bool removable = true;   // e.g. the material output node is not
     std::string error;       // compile error shown on the node
+    bool hasPreview = false; // a colour swatch under the header (vector parameters)
+    Color preview = Color::RGB(0, 0, 0);
 };
 
 struct LinkView {

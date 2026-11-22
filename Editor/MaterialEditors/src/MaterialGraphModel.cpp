@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cctype>
 #include <set>
 
 namespace Luma::MaterialEditors {
@@ -55,6 +56,59 @@ std::string ShortValue(const MaterialGraph::PropertyValue& v) {
         return buf;
     }
     return {};
+}
+
+// "BaseColor" -> "Base Color", "CustomData0" -> "Custom Data 0" (UE pin labels).
+std::string PrettyName(const std::string& s) {
+    std::string out;
+    for (usize i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (i > 0) {
+            const char prev = s[i - 1];
+            const bool upperAfterLower = std::isupper(static_cast<unsigned char>(c)) &&
+                                         std::islower(static_cast<unsigned char>(prev));
+            const bool digitAfterLetter = std::isdigit(static_cast<unsigned char>(c)) &&
+                                          std::isalpha(static_cast<unsigned char>(prev));
+            if (upperAfterLower || digitAfterLetter) out += ' ';
+        }
+        out += c;
+    }
+    return out;
+}
+
+std::string FormatValue(const MaterialGraph::PropertyValue& v, ValueType type) {
+    char buf[96];
+    if (type == ValueType::Float1 || v.IsFloat() || v.IsInt()) {
+        std::snprintf(buf, sizeof(buf), "%.3g", v.AsFloat());
+        return buf;
+    }
+    const Math::Vec4 x = v.AsVec4();
+    if (type == ValueType::Float2) std::snprintf(buf, sizeof(buf), "%.3g, %.3g", x.x, x.y);
+    else std::snprintf(buf, sizeof(buf), "%.3g, %.3g, %.3g", x.x, x.y, x.z);
+    return buf;
+}
+
+bool IsZero(const MaterialGraph::PropertyValue& v) {
+    const Math::Vec4 x = v.AsVec4();
+    return x.x == 0.0f && x.y == 0.0f && x.z == 0.0f;
+}
+
+// Material Output pins the current settings don't use (drawn faded, like UE).
+bool OutputPinUnused(const std::string& pin, const Material::MaterialSettings& s) {
+    using Material::BlendMode;
+    using Material::ShadingModel;
+    const bool translucent = s.blendMode == BlendMode::Translucent || s.blendMode == BlendMode::Additive ||
+                             s.blendMode == BlendMode::Modulate;
+    if (pin == "Opacity") return !translucent;
+    if (pin == "OpacityMask") return s.blendMode != BlendMode::Masked;
+    if (pin == "Refraction") return !translucent;
+    if (pin == "SubsurfaceColor")
+        return s.shadingModel != ShadingModel::Subsurface && s.shadingModel != ShadingModel::TwoSidedFoliage;
+    if (pin == "CustomData0" || pin == "CustomData1") return s.shadingModel != ShadingModel::ClearCoat;
+    if (s.shadingModel == ShadingModel::Unlit)
+        return pin == "BaseColor" || pin == "Metallic" || pin == "Specular" || pin == "Roughness" ||
+               pin == "Anisotropy" || pin == "Normal" || pin == "Tangent" || pin == "AmbientOcclusion";
+    return false;
 }
 
 }  // namespace
@@ -160,17 +214,40 @@ std::vector<NodeView> MaterialGraphModel::Nodes() const {
                                                  !it->second.AsString().empty() && !isOutput) {
             v.title = it->second.AsString();
             v.subtitle = d->displayName;
+            for (const MaterialGraph::PropertyDesc& pd : d->properties) {
+                if (pd.key != "default") continue;
+                const MaterialGraph::PropertyValue def = MaterialGraph::PropertyOrDefault(*d, n, "default");
+                const bool vec = pd.kind == MaterialGraph::PropertyDesc::Kind::Vec4;
+                v.subtitle = "Param (" + FormatValue(def, vec ? ValueType::Float3 : ValueType::Float1) + ")";
+                if (vec) {
+                    v.hasPreview = true;
+                    v.preview = ToColor(def.AsVec4());
+                }
+            }
         } else if (n.type.rfind("Constant", 0) == 0) {
             if (auto it2 = n.properties.find("value"); it2 != n.properties.end()) v.subtitle = ShortValue(it2->second);
         }
         for (u32 i = 0; i < d->inputs.size(); ++i) {
             const ValueType t = PinType({n.id, PinDir::Input, i});
-            v.inputs.push_back({d->inputs[i].name, TypeColor(t),
-                                std::string(TypeName(t)) + (d->inputs[i].tooltip.empty() ? "" : "\n" + d->inputs[i].tooltip)});
+            PinView pin{PrettyName(d->inputs[i].name), TypeColor(t),
+                        std::string(TypeName(t)) + (d->inputs[i].tooltip.empty() ? "" : "\n" + d->inputs[i].tooltip)};
+            // Unconnected value inputs show their value inline (UE: "Specular [0.5]").
+            if (t <= ValueType::Float4) {
+                const MaterialGraph::PropertyValue def = MaterialGraph::InputDefault(*d, n, i);
+                if (!IsZero(def)) pin.inlineValue = FormatValue(def, t);
+            }
+            pin.dimmed = isOutput && OutputPinUnused(d->inputs[i].name, m_material.settings);
+            v.inputs.push_back(std::move(pin));
         }
         for (u32 i = 0; i < d->outputs.size(); ++i) {
             const ValueType t = PinType({n.id, PinDir::Output, i});
-            v.outputs.push_back({d->outputs[i].name, TypeColor(t), TypeName(t)});
+            PinView pin{PrettyName(d->outputs[i].name), TypeColor(t), TypeName(t)};
+            // A scalar parameter's single output reads "Default Value [x]".
+            if (n.type == "ScalarParameter" && i == 0) {
+                pin.name = "Default Value";
+                pin.inlineValue = FormatValue(MaterialGraph::PropertyOrDefault(*d, n, "default"), ValueType::Float1);
+            }
+            v.outputs.push_back(std::move(pin));
         }
         if (auto it = m_errors.find(n.id); it != m_errors.end()) v.error = it->second;
         out.push_back(std::move(v));

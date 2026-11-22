@@ -156,6 +156,15 @@ int main(int argc, char** argv) {
                                    64.0f)) {
         services.watermarkFont = &watermarkFont;
     }
+    // Small sizes of the UI font for zoomed-out nodes.
+    std::vector<std::unique_ptr<Slate::Font>> ladder;
+    for (f32 px : {6.0f, 7.5f, 9.0f, 10.5f, 12.0f, 14.0f}) {
+        auto f = std::make_unique<Slate::Font>();
+        if (f->LoadFromFile(*renderer, body, px)) {
+            services.graphFonts.push_back(f.get());
+            ladder.push_back(std::move(f));
+        }
+    }
     // Reference adapter for the editor hookup: PreviewRequest -> MaterialPreview::Render.
     services.renderPreview = [&](const MaterialEditors::PreviewRequest& q) -> TextureHandle {
         if (!gpuPreview) return standIn;
