@@ -10,7 +10,10 @@ namespace Luma::Slate {
 namespace {
 constexpr u32 kSlots = static_cast<u32>(Icon::Count) - 1;
 
-constexpr bool IsFullColor(std::string_view source) { return source.starts_with("Luma_Icons/"); }
+// Luma icon packs: core ("Luma_Icons/") and utility ("Luma_Icons_V2/").
+constexpr bool IsFullColor(std::string_view source) {
+    return source.starts_with("Luma_Icons/") || source.starts_with("Luma_Icons_V2/");
+}
 
 // Per slot: true for Luma icon pack artwork (drawn in its own colours).
 constexpr bool kFullColor[] = {
@@ -47,8 +50,10 @@ bool IsFullColorTexture(TextureHandle texture) {
 }
 
 bool IsLumaIconPath(std::string_view path) {
-    return path.find("Luma_Icons/") != std::string_view::npos ||
-           path.find("Luma_Icons\\") != std::string_view::npos;
+    for (std::string_view pack : {"Luma_Icons/", "Luma_Icons\\", "Luma_Icons_V2/", "Luma_Icons_V2\\"}) {
+        if (path.find(pack) != std::string_view::npos) return true;
+    }
+    return false;
 }
 
 bool IconIsFullColor(Icon icon) {

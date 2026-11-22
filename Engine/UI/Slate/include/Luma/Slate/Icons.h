@@ -13,7 +13,7 @@ bool LoadIconAtlas(Context& ctx, Renderer& renderer, const std::string& path);
 void MarkFullColorTexture(TextureHandle texture);
 void UnmarkFullColorTexture(TextureHandle texture);
 bool IsFullColorTexture(TextureHandle texture);
-// True for a path inside the Luma icon pack (".../Luma_Icons/...").
+// True for a path inside a Luma icon pack (".../Luma_Icons/..." or ".../Luma_Icons_V2/...").
 bool IsLumaIconPath(std::string_view path);
 
 // True for slots drawn from the Luma icon pack (multi-colour): DrawIcon ignores

@@ -17,9 +17,10 @@ TEST_CASE("Luma icon pack slots draw in full colour, monochrome glyphs stay tint
     CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::MaterialInstance));
     CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::Image));
     CHECK(Slate::IconIsFullColor(Slate::Icon::Search));
-    // UI glyphs with no Luma counterpart keep their tint.
-    CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::Close));
-    CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::ChevronDown));
+    // Utility glyphs come from the V2 pack.
+    CHECK(Slate::IconIsFullColor(Slate::Icon::Close));
+    CHECK(Slate::IconIsFullColor(Slate::Icon::ChevronDown));
+    CHECK(Slate::IconIsFullColor(Slate::Icon::Eye));
     CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::None));
     CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::Count));
 }
@@ -39,6 +40,7 @@ TEST_CASE("Luma icon paths are recognised with either separator", "[slate][icons
     CHECK(Slate::IsLumaIconPath("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/001_play.png"));
     CHECK(Slate::IsLumaIconPath("D:/Luma/Content/Editor/Luma_Icons/PNG/16x16/x.png"));
     CHECK(Slate::IsLumaIconPath("C:\\Luma\\Content\\Editor\\Luma_Icons\\PNG\\x.png"));
+    CHECK(Slate::IsLumaIconPath("Luma_Icons_V2/PNG/32x32/005_close.png"));
     CHECK_FALSE(Slate::IsLumaIconPath("Icons/ue/icon_tab_Viewports_16x.png"));
 }
 

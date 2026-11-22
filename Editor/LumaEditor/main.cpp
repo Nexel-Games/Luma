@@ -391,22 +391,22 @@ int main(int argc, char** argv) {
     // Content Browser chrome icons (sort arrows + search glass + folder +
     // reload + import + open-folder). Folders use the Luma icon pack; the
     // other Content Browser icons keep their classic art for now.
-    TextureHandle cbSortUp = loadIcon("Icons/sort_up.png");
-    TextureHandle cbSortDown = loadIcon("Icons/sort_down.png");
+    TextureHandle cbSortUp = loadIcon("Luma_Icons_V2/PNG/32x32/016_sort_ascending.png");
+    TextureHandle cbSortDown = loadIcon("Luma_Icons_V2/PNG/32x32/017_sort_descending.png");
     TextureHandle cbSearchGlass = loadIcon("Icons/search_glass.png");
     TextureHandle cbFolder = loadIcon("Luma_Icons/PNG/128x128/04_Content_Browser_Assets/061_folder.png");
     TextureHandle cbReload = loadIcon("Icons/reload.png");
     TextureHandle cbImport = loadIcon("Icons/import.png");
-    TextureHandle cbOpenFolder = loadIcon("Luma_Icons/PNG/128x128/01_Main_Editor_Toolbar/007_open_project.png");
-    TextureHandle cbExpandArrow = loadIcon("Icons/SubmenuArrow.png");
-    TextureHandle cbRetractArrow = loadIcon("Icons/SortDownArrow.png");
+    TextureHandle cbOpenFolder = loadIcon("Luma_Icons_V2/PNG/128x128/024_open_folder.png");
+    TextureHandle cbExpandArrow = loadIcon("Luma_Icons_V2/PNG/32x32/001_chevron_right.png");
+    TextureHandle cbRetractArrow = loadIcon("Luma_Icons_V2/PNG/32x32/002_chevron_down.png");
 
     // World Outliner icons (Create-menu + actor-row textures).
     TextureHandle olCreateButton = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/017_add.png");
     TextureHandle olSearchGlass = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/016_search.png");
-    TextureHandle olCatGeometry = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/042_cube.png");
-    TextureHandle olCatLight = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/051_point_light.png");
-    TextureHandle olCatEnvironment = loadIcon("Luma_Icons/PNG/32x32/05_Rendering_Materials/095_environment_lighting.png");
+    TextureHandle olCatGeometry = loadIcon("Luma_Icons_V2/PNG/32x32/031_geometry_shapes.png");
+    TextureHandle olCatLight = loadIcon("Luma_Icons_V2/PNG/32x32/030_generic_light.png");
+    TextureHandle olCatEnvironment = loadIcon("Luma_Icons_V2/PNG/32x32/032_environment_sky.png");
     TextureHandle olActorCube = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/042_cube.png");
     TextureHandle olActorPlane = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/046_plane.png");
     TextureHandle olActorSphere = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/043_sphere.png");
@@ -420,10 +420,10 @@ int main(int argc, char** argv) {
 
     // Unreal icon pack (Content/Editor/Icons/ue).
     EditorScreen::IconSet ueIcons;
-    ueIcons.tabOutliner = loadIcon("Icons/ue/icon_tab_SceneOutliner_16x.png");
-    ueIcons.tabDetails = loadIcon("Icons/ue/icon_tab_SelectionDetails_16x.png");
-    ueIcons.tabViewport = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/031_perspective_view.png");
-    ueIcons.tabContent = loadIcon("Luma_Icons/PNG/32x32/04_Content_Browser_Assets/061_folder.png");
+    ueIcons.tabOutliner = loadIcon("Luma_Icons_V2/PNG/32x32/018_world_outliner_tab.png");
+    ueIcons.tabDetails = loadIcon("Luma_Icons_V2/PNG/32x32/019_details_inspector_tab.png");
+    ueIcons.tabViewport = loadIcon("Luma_Icons_V2/PNG/32x32/028_viewport_tab.png");
+    ueIcons.tabContent = loadIcon("Luma_Icons_V2/PNG/32x32/029_content_browser_tab.png");
     ueIcons.tabOutputLog = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/142_output_log.png");
     ueIcons.save = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/004_save.png");
     ueIcons.error = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/144_error.png");
@@ -438,7 +438,7 @@ int main(int argc, char** argv) {
     ueIcons.viewport.perspective = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/031_perspective_view.png");
     ueIcons.viewport.lit = loadIcon("Luma_Icons/PNG/32x32/05_Rendering_Materials/082_lit_view.png");
     ueIcons.viewport.unlit = loadIcon("Luma_Icons/PNG/32x32/05_Rendering_Materials/083_unlit_view.png");
-    ueIcons.viewport.show = loadIcon("Icons/ue/icon_levels_visible_16px.png");
+    ueIcons.viewport.show = loadIcon("Luma_Icons_V2/PNG/32x32/010_eye.png");
 
     SplashScreen splash;
 

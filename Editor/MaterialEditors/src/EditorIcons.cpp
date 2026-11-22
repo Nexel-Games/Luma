@@ -12,22 +12,21 @@ namespace Luma::MaterialEditors {
 
 const char* EditorIconFile(EditorIcon icon) {
     switch (icon) {
-        // Luma icon pack (full colour) where it has the icon; the material
-        // editor's own themed glyphs otherwise.
-        case EditorIcon::Apply: return "Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/145_success_check.png";
+        // Luma icon packs (full colour): core pack + V2 utility pack.
+        case EditorIcon::Apply: return "Luma_Icons_V2/PNG/32x32/025_apply_compile.png";
         case EditorIcon::Save: return "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/004_save.png";
-        case EditorIcon::Browse: return "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/061_folder.png";
-        case EditorIcon::Home: return "MaterialEditor/Icons/Home.png";
-        case EditorIcon::Palette: return "Luma_Icons/PNG/32x32/05_Rendering_Materials/085_shader_graph.png";
-        case EditorIcon::LiveUpdate: return "MaterialEditor/Icons/LiveUpdate.png";
+        case EditorIcon::Browse: return "Luma_Icons_V2/PNG/32x32/023_find_content_browser.png";
+        case EditorIcon::Home: return "Luma_Icons_V2/PNG/32x32/020_home.png";
+        case EditorIcon::Palette: return "Luma_Icons_V2/PNG/32x32/026_node_palette.png";
+        case EditorIcon::LiveUpdate: return "Luma_Icons_V2/PNG/32x32/021_live_update.png";
         case EditorIcon::Sphere: return "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/043_sphere.png";
         case EditorIcon::Cube: return "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/042_cube.png";
         case EditorIcon::Plane: return "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/046_plane.png";
         case EditorIcon::Cylinder: return "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/045_cylinder.png";
         case EditorIcon::Mesh: return "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/047_static_mesh.png";
-        case EditorIcon::Reset: return "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/010_undo.png";
+        case EditorIcon::Reset: return "Luma_Icons_V2/PNG/32x32/022_reset_to_default.png";
         case EditorIcon::Search: return "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/016_search.png";
-        case EditorIcon::Details: return "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/015_settings.png";
+        case EditorIcon::Details: return "Luma_Icons_V2/PNG/32x32/027_details_panel.png";
         case EditorIcon::Stats: return "Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/146_profiler.png";
         case EditorIcon::Count: break;
     }
@@ -36,7 +35,7 @@ const char* EditorIconFile(EditorIcon icon) {
 
 bool EditorIconKeepsColor(EditorIcon icon) {
     // Luma icon pack artwork is multi-colour metallic: never re-themed.
-    return std::string_view(EditorIconFile(icon)).starts_with("Luma_Icons/");
+    return Slate::IsLumaIconPath(EditorIconFile(icon));
 }
 
 u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directory, Slate::Color top,
