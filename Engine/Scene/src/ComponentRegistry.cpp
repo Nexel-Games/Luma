@@ -116,6 +116,47 @@ std::vector<const ComponentDesc*> ComponentsOf(const Scene& scene, Entity entity
     return out;
 }
 
+usize ResolveUnresolvedComponents(Scene& scene, const ComponentRegistry& registry) {
+    usize resolved = 0;
+    entt::registry& reg = scene.Registry();
+    std::vector<Entity> emptied;
+    for (auto [e, unresolved] : reg.view<UnresolvedComponents>().each()) {
+        auto& payloads = unresolved.payloads;
+        for (auto it = payloads.begin(); it != payloads.end();) {
+            const ComponentDesc* desc = registry.Find(it->id);
+            if (!desc) {
+                ++it;
+                continue;
+            }
+            desc->read(scene, e, it->payload);
+            it = payloads.erase(it);
+            ++resolved;
+        }
+        if (payloads.empty()) emptied.push_back(e);
+    }
+    for (Entity e : emptied) reg.remove<UnresolvedComponents>(e);
+    return resolved;
+}
+
+usize UnresolveComponents(Scene& scene, const ComponentDesc& desc) {
+    entt::registry& reg = scene.Registry();
+    std::vector<Entity> holders;
+    for (Entity e : reg.view<entt::entity>()) {
+        if (desc.has(scene, e)) holders.push_back(e);
+    }
+    for (Entity e : holders) {
+        UnresolvedComponent preserved;
+        preserved.id = desc.id;
+        preserved.owner = desc.owner;
+        desc.write(scene, e, preserved.payload);
+        desc.remove(scene, e);
+        auto& unresolved = reg.get_or_emplace<UnresolvedComponents>(e);
+        unresolved.Remove(desc.id);
+        unresolved.payloads.push_back(std::move(preserved));
+    }
+    return holders.size();
+}
+
 // --- Built-in components ---------------------------------------------------------
 
 namespace {

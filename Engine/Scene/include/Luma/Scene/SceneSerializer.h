@@ -10,19 +10,24 @@
 
 // Saves/loads a Scene to Luma's JSON scene format. The document is:
 //
-//   { "version": 2,
+//   { "version": 3,
+//     "componentOwners": { "RigidBody": "Luma.Physics.PhysX" },   // only if any
 //     "entities": [ { "components": { "Name": {...}, "Transform": {...}, ... } } ] }
 //
 // Only entities carrying a NameComponent (the canonical scene objects) are
-// written. Loading clears the target scene first, then reconstructs entities and
-// their components; unknown component keys are ignored so files stay forward- and
-// backward-compatible as components evolve.
-
+// written. Components are written and read through the runtime ComponentRegistry
+// (Components()), so plugin components serialize exactly like built-ins.
 //
-// Version 1 stored a constant color per Mesh Renderer (albedo / metallic /
-// roughness). Version 2 stores material slots instead; loading a version-1
-// Mesh Renderer reports its inline values through `outLegacy` so the caller
-// can migrate them (see MaterialMigration.h).
+// A component key with no registered type (its plugin is missing or disabled) is
+// kept verbatim in UnresolvedComponents on the entity and written back on save,
+// in its original position, so the file round-trips byte for byte and no data is
+// lost. Registering the type later and calling ResolveUnresolvedComponents turns
+// the payloads into live components.
+//
+// Versions: 1 stored a constant color per Mesh Renderer (albedo / metallic /
+// roughness); loading one reports the inline values through `outLegacy` so the
+// caller can migrate them (see MaterialMigration.h). 2 stores material slots.
+// 3 adds "componentOwners". Files newer than kVersion are rejected.
 
 namespace Luma {
 
@@ -36,7 +41,7 @@ using LegacyMaterialList = std::vector<std::pair<Entity, LegacyMaterialValues>>;
 
 class SceneSerializer {
 public:
-    static constexpr int kVersion = 2;
+    static constexpr int kVersion = 3;
 
     static std::string SaveToString(const Scene& scene, bool pretty = true);
     static bool LoadFromString(Scene& scene, std::string_view json,

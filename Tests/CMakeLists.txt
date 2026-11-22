@@ -25,6 +25,7 @@ add_executable(LumaTests
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
     Scene/ComponentRegistryTests.cpp
+    Scene/UnresolvedComponentTests.cpp
     Math/MathTests.cpp
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp

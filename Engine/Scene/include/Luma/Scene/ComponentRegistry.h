@@ -108,6 +108,50 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry);
 std::vector<const ComponentDesc*> ComponentsOf(const Scene& scene, Entity entity,
                                                const ComponentRegistry& registry = Components());
 
+// --- Components whose type is not registered ------------------------------------
+
+// One preserved component: the payload of a component whose type is not registered
+// (its plugin is missing or disabled). Kept exactly as loaded and written back on
+// save, so opening a scene without a plugin never destroys the plugin's data.
+struct UnresolvedComponent {
+    std::string id;      // the component key in the scene file
+    std::string owner;   // the plugin that provides it (from the file), may be empty
+    SerialValue payload; // the component's JSON value, untouched
+};
+
+// ECS component attached to entities that carry preserved payloads. `keyOrder`
+// is the order of the entity's component keys in the file it came from; saving
+// follows it so the written file matches the loaded one byte for byte.
+struct UnresolvedComponents {
+    std::vector<UnresolvedComponent> payloads;
+    std::vector<std::string> keyOrder;
+
+    const UnresolvedComponent* Find(std::string_view id) const {
+        for (const UnresolvedComponent& p : payloads) {
+            if (p.id == id) return &p;
+        }
+        return nullptr;
+    }
+    bool Remove(std::string_view id) {
+        for (auto it = payloads.begin(); it != payloads.end(); ++it) {
+            if (it->id == id) {
+                payloads.erase(it);
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+// Turns preserved payloads whose type is now registered into live components
+// (e.g. after a plugin started). Returns the number of components resolved.
+usize ResolveUnresolvedComponents(Scene& scene, const ComponentRegistry& registry = Components());
+
+// Converts every live `desc` component in the scene into a preserved payload and
+// removes the live component (used before a component type is unregistered while a
+// scene still holds it). Returns the number of components demoted.
+usize UnresolveComponents(Scene& scene, const ComponentDesc& desc);
+
 // --- Register<T> ---------------------------------------------------------------
 
 template <typename T>
