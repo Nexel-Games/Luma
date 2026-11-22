@@ -174,7 +174,7 @@ void DrawStaticMeshRow(InspectorRows& rows, MeshRendererComponent& mr) {
         ui.LabelIn({kindX, btn.y, pick.Right() - kindX, kButton}, hasMesh ? "Static Mesh" : "Primitive",
                    t.textDisabled);
     }
-    if (ui.IconTextButton(Slate::Context::ID(key + ".use"), btn, Slate::Icon::ArrowLeft, {}, t.textDim) &&
+    if (ui.IconTextButton(Slate::Context::ID(key + ".use"), btn, Slate::Icon::UseSelected, {}, Slate::Color::RGB(255, 255, 255)) &&
         ctx.selectedAsset) {
         const std::string selected = ctx.selectedAsset();
         auto isMesh = [&ctx](const std::string& path) {
@@ -191,8 +191,8 @@ void DrawStaticMeshRow(InspectorRows& rows, MeshRendererComponent& mr) {
     ui.Tooltip(Slate::Context::ID(key + ".use.tip"), btn,
                "Use Selected Asset\nAssign the static mesh selected in the Content Browser.");
     btn.x += kButton + kGap;
-    if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::FolderOpen, {},
-                          hasMesh ? t.textDim : t.textDisabled) &&
+    if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::Browse, {},
+                          hasMesh ? Slate::Color::RGB(255, 255, 255) : t.textDisabled) &&
         hasMesh && ctx.onBrowseToAsset) {
         ctx.onBrowseToAsset(mr.mesh);
     }
@@ -200,7 +200,7 @@ void DrawStaticMeshRow(InspectorRows& rows, MeshRendererComponent& mr) {
                "Browse to Asset\nShow the static mesh in the Content Browser.");
     btn.x += kButton + kGap;
     if (ui.IconTextButton(Slate::Context::ID(key + ".reset"), btn, Slate::Icon::Reset, {},
-                          hasMesh ? t.textDim : t.textDisabled) &&
+                          hasMesh ? Slate::Color::RGB(255, 255, 255) : t.textDisabled) &&
         hasMesh) {
         AssignStaticMesh(mr, {});
     }
@@ -373,8 +373,8 @@ void DrawMaterialSlots(InspectorRows& rows, MeshRendererComponent& mr) {
         if (ui.font().Measure(kind).x <= pick.Right() - kindX) {  // only when it fits
             ui.LabelIn({kindX, btn.y, pick.Right() - kindX, kButton}, kind, t.textDisabled);
         }
-        if (ui.IconTextButton(Slate::Context::ID(key + ".use"), btn, Slate::Icon::ArrowLeft, {},
-                              t.textDim) &&
+        if (ui.IconTextButton(Slate::Context::ID(key + ".use"), btn, Slate::Icon::UseSelected, {},
+                              Slate::Color::RGB(255, 255, 255)) &&
             ctx.selectedAsset && ctx.materials) {
             const std::string selected = ctx.selectedAsset();
             if (UseSelectedAssetForSlot(mr, slot, selected, *ctx.materials)) {
@@ -388,8 +388,8 @@ void DrawMaterialSlots(InspectorRows& rows, MeshRendererComponent& mr) {
         ui.Tooltip(Slate::Context::ID(key + ".use.tip"), btn,
                    "Use Selected Asset\nAssign the material selected in the Content Browser.");
         btn.x += kButton + kGap;
-        if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::FolderOpen, {},
-                              t.textDim) &&
+        if (ui.IconTextButton(Slate::Context::ID(key + ".browse"), btn, Slate::Icon::Browse, {},
+                              Slate::Color::RGB(255, 255, 255)) &&
             ctx.onBrowseToAsset) {
             ctx.onBrowseToAsset(shown);
         }
@@ -397,7 +397,7 @@ void DrawMaterialSlots(InspectorRows& rows, MeshRendererComponent& mr) {
                    "Browse to Asset\nShow the material in the Content Browser.");
         btn.x += kButton + kGap;
         if (ui.IconTextButton(Slate::Context::ID(key + ".reset"), btn, Slate::Icon::Reset, {},
-                              isDefault ? t.textDisabled : t.textDim) &&
+                              isDefault ? t.textDisabled : Slate::Color::RGB(255, 255, 255)) &&
             !isDefault) {
             AssignMaterialSlot(mr, slot, {});
         }
@@ -707,7 +707,7 @@ std::vector<Slate::MenuEntry> InspectorPanel::BuildComponentMenu(Scene* scene, E
     b.BeginSection("Component");
     Slate::MenuEntryOptions reset;
     reset.tooltip = "Restore every property of this component to its default.";
-    b.AddEntry("Reset to Defaults", Icon::Refresh,
+    b.AddEntry("Reset to Defaults", Icon::Reset,
                [this, apply] {
                    ClosePopups();
                    apply(false);

@@ -52,8 +52,8 @@ Slate::Icon KindIcon(Import::NodeKind kind) {
         case Import::NodeKind::Mesh: return Slate::Icon::StaticMesh;
         case Import::NodeKind::Material: return Slate::Icon::Sphere;
         case Import::NodeKind::Texture: return Slate::Icon::Image;
-        case Import::NodeKind::Sound: return Slate::Icon::Play;
-        case Import::NodeKind::File: return Slate::Icon::Folder;
+        case Import::NodeKind::Sound: return Slate::Icon::Sound;
+        case Import::NodeKind::File: return Slate::Icon::File;
     }
     return Slate::Icon::None;
 }
@@ -421,7 +421,7 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
         } else {
             bool open = Expanded(row.expandKey);
             ui.TreeNode(Slate::Context::ID("import.expand." + row.expandKey), nodeRect, row.label,
-                        row.kind == Row::Kind::File ? Slate::Icon::Folder : KindIcon(row.group), open, 0, false);
+                        row.kind == Row::Kind::File ? Slate::Icon::File : KindIcon(row.group), open, 0, false);
             SetExpanded(row.expandKey, open);
         }
     }
@@ -534,7 +534,8 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
     ui.drawList().PopClip();
 
     const f32 footerY = content.Bottom() + theme.space.lg;
-    if (ui.Button(Slate::Context::ID("import.reset"), {content.x, footerY, 150.0f, kButtonH}, "Reset to Defaults")) {
+    if (ui.IconTextButton(Slate::Context::ID("import.reset"), {content.x, footerY, 150.0f, kButtonH},
+                          Slate::Icon::Reset, "Reset to Defaults", Slate::Color::RGB(255, 255, 255))) {
         for (Import::SettingsBlock* block : m_session->Settings().Blocks()) block->ResetToDefaults();
         m_presetIndex = 0;
     }

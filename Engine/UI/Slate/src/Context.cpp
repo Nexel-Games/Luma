@@ -1049,15 +1049,9 @@ bool Context::Checkbox(u64 id, const Rect& box, std::string_view label,
                                 r);
     m_draw.AddRectFilledRounded(box.Inset(m_theme.border.hairline, m_theme.border.hairline), fill,
                                 std::max(0.0f, r - m_theme.border.hairline));
-    const f32 w = m_theme.checkGlyphWidth;
-    if (state == CheckState::Checked) {
-        auto p = [&box](f32 fx, f32 fy) { return Vec2{box.x + box.w * fx, box.y + box.h * fy}; };
-        m_draw.AddLine(p(0.24f, 0.52f), p(0.43f, 0.71f), m_theme.checkGlyph, w);
-        m_draw.AddLine(p(0.43f, 0.71f), p(0.78f, 0.30f), m_theme.checkGlyph, w);
-    } else if (state == CheckState::Undetermined) {
-        const f32 cy = box.y + box.h * 0.5f;
-        m_draw.AddRectFilled({box.x + box.w * 0.25f, cy - w * 0.5f, box.w * 0.5f, w},
-                             m_theme.checkGlyph);
+    if (filled) {
+        DrawIcon(*this, box.Inset(1, 1), state == CheckState::Checked ? Icon::Check : Icon::Minus,
+                 m_theme.checkGlyph);
     }
     if (focused) {
         const f32 t = m_theme.border.thick;
@@ -1304,17 +1298,8 @@ bool Context::CollapsingHeader(u64 id, const Rect& rect, std::string_view label,
         m_draw.AddRectFilledRounded(rect, m_theme.surface3,
                                     m_theme.radius.md);
     }
-    // Chevron disclosure (token-aligned geometry).
-    f32 cy = rect.y + rect.h * 0.5f;
-    f32 cx = rect.x + m_theme.space.lg + 2.0f;
-    Color chevron = open ? m_theme.text : m_theme.textDim;
-    if (open) {
-        m_draw.AddTriangle({cx - 4, cy - 2}, {cx + 4, cy - 2}, {cx, cy + 4},
-                           chevron);
-    } else {
-        m_draw.AddTriangle({cx - 2, cy - 4}, {cx + 4, cy}, {cx - 2, cy + 4},
-                           chevron);
-    }
+    DrawIcon(*this, {rect.x + m_theme.space.lg - 4, rect.y + (rect.h - 12) * 0.5f, 12, 12},
+             open ? Icon::ChevronDown : Icon::ChevronRight, open ? m_theme.text : m_theme.textDim);
     m_draw.AddText(
         m_uiFont,
         {rect.x + m_theme.space.lg + 14.0f,
@@ -1666,7 +1651,7 @@ bool Context::SearchBox(u64 id, const Rect& rect, std::string& text,
     DrawFieldChrome(rect, focused);
 
     // Leading icon drawn on the field background at the bar's left edge: the
-    // supplied texture (e.g. a PNG search-glass) or the procedural glyph.
+    // supplied texture (e.g. a PNG search-glass) or the pack glyph.
     if (leadingIcon) {
         Rect padR{rect.x + (iconSide - 16.0f) * 0.5f,
                   rect.y + (rect.h - 16.0f) * 0.5f, 16.0f, 16.0f};

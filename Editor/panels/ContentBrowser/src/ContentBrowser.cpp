@@ -308,7 +308,7 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
     ui.Panel(sepR, t.separator);
 
     // Filter toggle button — click toggles the type-filter drop-down.
-    // Uses procedural chevron icons (crisp at DPI) tinted with textDim at
+    // Uses pack chevron icons tinted with textDim at
     // rest, brighter on hover.
     bool toggleHover = toggleR.Contains(ui.mouse());
     if (toggleHover) {
@@ -963,7 +963,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext&
         o.tooltip = "Copy files from disk into this folder.";
         auto import = ctx.onImportAssets;
         b.AddEntry("Import to Current Folder...",
-                   Slate::MenuIcon::Texture(m_texImport, Icon::Plus),
+                   Slate::MenuIcon::Texture(m_texImport, Icon::Import),
                    [import, folder] {
                        if (import) import(folder);
                    },
@@ -982,7 +982,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext&
         o.enabled = static_cast<bool>(ctx.onCreateScene) && !folder.empty();
         o.tooltip = "Create an empty scene asset (.lscene) in this folder.";
         auto create = ctx.onCreateScene;
-        b.AddEntry("Scene", Icon::Plane,
+        b.AddEntry("Scene", Icon::Scene,
                    [create, folder] {
                        if (create) create(folder);
                    },
@@ -1014,7 +1014,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext&
         o.tooltip = parent.empty() ? "Select a Material first: the instance inherits from it."
                                    : "Create a Material Instance of '" + parent + "' here.";
         auto create = ctx.onCreateMaterialInstance;
-        b.AddEntry("Material Instance", Icon::Sphere,
+        b.AddEntry("Material Instance", Icon::MaterialInstance,
                    [create, parent, folder] {
                        if (create) create(parent, folder);
                    },
@@ -1042,7 +1042,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFolderMenu(PanelContext&
         o.enabled = static_cast<bool>(ctx.onRevealInExplorer) && !folder.empty();
         o.tooltip = "Open this folder in the system file browser.";
         auto reveal = ctx.onRevealInExplorer;
-        b.AddEntry("Show in Explorer", Icon::FolderOpen,
+        b.AddEntry("Show in Explorer", Icon::Browse,
                    [reveal, folder] {
                        if (reveal) reveal(folder);
                    },
@@ -1072,7 +1072,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
 
     b.BeginSection(isFolder ? "Folder" : "Asset");
     if (isFolder) {
-        b.AddEntry("Open", Icon::FolderOpen, [this, path] { NavigateTo(path); });
+        b.AddEntry("Open", Icon::Browse, [this, path] { NavigateTo(path); });
     }
     const bool isMaterial =
         asset.type == AssetType::Material || asset.type == AssetType::MaterialInstance;
@@ -1095,7 +1095,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
         oi.enabled = static_cast<bool>(create);
         oi.tooltip = "Create a Material Instance that inherits from this material.";
         const std::filesystem::path folder = path.parent_path();
-        b.AddEntry("Create Material Instance", Icon::Sphere,
+        b.AddEntry("Create Material Instance", Icon::MaterialInstance,
                    [create, virtualPath, folder] {
                        if (create) create(virtualPath, folder);
                    },
@@ -1161,7 +1161,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
         o.enabled = static_cast<bool>(ctx.onRevealInExplorer);
         o.tooltip = "Show this item in the system file browser.";
         auto reveal = ctx.onRevealInExplorer;
-        b.AddEntry("Show in Explorer", Icon::FolderOpen,
+        b.AddEntry("Show in Explorer", Icon::Browse,
                    [reveal, path] {
                        if (reveal) reveal(path);
                    },

@@ -1,0 +1,48 @@
+{
+  "name": "GridBox Default",
+  "type": "procedural_material",
+  "version": 1,
+  "textures": {
+    "baseColor": "Textures/GridBox_Default_BaseColor.png",
+    "normal": "Textures/GridBox_Default_Normal.png",
+    "roughness": "Textures/GridBox_Default_Roughness.png",
+    "metallic": "Textures/GridBox_Default_Metallic.png",
+    "height": "Textures/GridBox_Default_Height.png",
+    "ao": "Textures/GridBox_Default_AO.png"
+  },
+  "parameters": {
+    "gridSize": 8,
+    "tileWidth": 1.0,
+    "tileHeight": 1.0,
+    "lineThickness": 0.006,
+    "lineSoftness": 0.001,
+    "offsetX": 0.0,
+    "offsetY": 0.02,
+    "baseColor": [
+      0.529411792755127,
+      0.529411792755127,
+      0.529411792755127
+    ],
+    "baseColor2": [
+      0.1921568661928177,
+      0.1921568661928177,
+      0.1921568661928177
+    ],
+    "lineColor": [
+      0.25,
+      0.25,
+      0.25
+    ],
+    "roughness": 0.4,
+    "metallic": 0.0,
+    "normalStrength": 0.324,
+    "heightStrength": 0.005,
+    "noiseAmount": 0.14,
+    "noiseScale": 7.0,
+    "roughnessVariation": 0.0,
+    "colorVariation": 0.0,
+    "edgeWear": 0.0,
+    "dirtAmount": 0.0,
+    "seed": 1337
+  }
+}

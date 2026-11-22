@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "Luma/Slate/Icons.h"
+
 namespace Luma::Slate {
 namespace {
 constexpr f32 kTabBarH = 26.0f;
@@ -275,7 +277,7 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
                              kCloseW, kCloseW};
             const bool overClose = close.Contains(ctx.mouse());
             if (overClose) ctx.PanelRounded(close, t.surface3, t.radius.sm);
-            ctx.LabelIn(close, "x", overClose ? t.text : t.textDim, Align::Center);
+            DrawIcon(ctx, close.Inset(2, 2), Icon::Close, overClose ? t.text : t.textDim);
             ctx.Tooltip(Context::ID(("dock.close." + id).c_str()), close, "Close Tab");
             if (overClose && ctx.mousePressed(0)) {
                 closeClicked = true;

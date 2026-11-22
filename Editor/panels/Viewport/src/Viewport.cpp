@@ -150,7 +150,7 @@ std::vector<Slate::MenuEntry> ViewportPanel::BuildCameraMenu(PanelContext& ctx) 
         o.tooltip = "Frame the selected actor.";
         auto focus = ctx.onFocusEntity;
         const Entity sel = *ctx.selected;
-        b.AddEntry("Frame Selected", Icon::Eye,
+        b.AddEntry("Frame Selected", Icon::Focus,
                    [focus, sel] {
                        if (focus) focus(sel);
                    },
@@ -161,7 +161,7 @@ std::vector<Slate::MenuEntry> ViewportPanel::BuildCameraMenu(PanelContext& ctx) 
         o.enabled = static_cast<bool>(ctx.onResetCamera);
         o.tooltip = "Return the camera to its default orbit around the origin.";
         auto reset = ctx.onResetCamera;
-        b.AddEntry("Reset Camera", Icon::Refresh,
+        b.AddEntry("Reset Camera", Icon::Reset,
                    [reset] {
                        if (reset) reset();
                    },

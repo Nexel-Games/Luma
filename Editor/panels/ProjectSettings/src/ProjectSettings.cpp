@@ -4,6 +4,8 @@
 
 #include "Luma/Core/Log.h"
 
+#include "Luma/Slate/Icons.h"
+
 namespace Luma::Editor::Panels {
 
 using Slate::Rect;

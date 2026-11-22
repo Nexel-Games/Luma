@@ -155,19 +155,19 @@ public:
 
 
     // Forwards the Create-menu header button icon to the outliner panel.
-    // A zero handle falls back to a procedural plus glyph.
+    // A zero handle falls back to a pack plus glyph.
     void SetCreateButtonIcon(TextureHandle icon) {
         m_outlinerPanel.SetCreateButtonIcon(icon);
     }
 
     // Forwards the Create-menu search-glass texture (from the ThirdParty
-    // Unreal icon pack). A zero handle falls back to the procedural glyph.
+    // Unreal icon pack). A zero handle falls back to the pack glyph.
     void SetSearchGlassIcon(TextureHandle icon) {
         m_outlinerPanel.SetSearchGlassIcon(icon);
     }
 
     // Forwards Content Browser chrome icons to the panel. Missing textures
-    // (any zero handle) fall back to procedural glyphs.
+    // (any zero handle) fall back to pack glyphs.
     void SetContentBrowserIcons(TextureHandle sortUp, TextureHandle sortDown,
                                 TextureHandle searchGlass,
                                 TextureHandle folder, TextureHandle reload,

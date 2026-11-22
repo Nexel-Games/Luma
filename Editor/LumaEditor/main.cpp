@@ -23,6 +23,7 @@
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Image.h"
+#include "Luma/Slate/Icons.h"
 #include "Luma/VFS/Path.h"
 #include "Luma/VFS/VFS.h"
 #include "Luma/Audio/AudioPreview.h"
@@ -253,6 +254,9 @@ int main(int argc, char** argv) {
         Log::Flush();
         return 1;
     }
+    if (!Slate::LoadIconAtlas(ui, *renderer, FindEditorAsset("Icons/SlateIcons.png"))) {
+        LUMA_USER_ERROR("Editor", "Missing or invalid editor icon pack: Icons/SlateIcons.png");
+    }
     // Window icon from the engine icon asset.
     {
         std::string iconPath = FindEditorAsset("luma_icon.png");
@@ -400,7 +404,7 @@ int main(int argc, char** argv) {
                                        cbRetractArrow);
         // World Outliner icons: Create-menu header button + search glass +
         // category rows + primitive rows + actor-row icons beside entity
-        // names. Zero handles fall back to procedural glyphs.
+        // names. Zero handles fall back to pack glyphs.
         editor->SetCreateButtonIcon(olCreateButton);
         editor->SetSearchGlassIcon(olSearchGlass);
         // Actor / category images by name (registries refer to icons by name;
