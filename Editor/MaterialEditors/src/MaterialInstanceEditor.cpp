@@ -267,7 +267,8 @@ void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
         }
         for (const ParameterGroup& g : groups) {
             auto [it, _] = m_groupOpen.try_emplace(g.name, true);
-            Section(ui, "mie.group." + m_model.Path() + "." + g.name, g.name, it->second, x + 8.0f, y, w - 8.0f);
+            Section(ui, "mie.group." + m_model.Path() + "." + g.name, g.name, it->second, x + 8.0f, y, w - 8.0f,
+                    /*nested=*/true);
             if (!it->second) continue;
             for (const InstanceParameter& p : g.parameters) y += DrawParameter(ui, p, x + 8.0f, y, w - 8.0f);
         }

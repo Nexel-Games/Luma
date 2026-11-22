@@ -92,3 +92,18 @@ TEST_CASE("Material editor draws its UE layout", "[materialeditors][grapheditor-
     CHECK(last.width > 200);
     CHECK(last.width < 400);  // left column
 }
+
+TEST_CASE("The Stats panel hides and shows from its edge handle", "[materialeditors][grapheditor-panel]") {
+    Fixture f;
+    MaterialEditors::MaterialGraphEditor editor("/Game/Materials/M_Test", *f.lib, {});
+    Slate::Test::Harness h;
+    auto draw = [&] { editor.Draw(h.ctx, {0, 0, 800, 600}); };
+    h.Frame(draw);
+    REQUIRE(editor.StatsVisible());
+    // Handle: centre column x 242..785, y = 34 + 566 - 120 - 12 = 468 (12 px tall).
+    h.Click(513, 474, draw);
+    CHECK_FALSE(editor.StatsVisible());
+    // Collapsed: the handle moves to the bottom edge (y = 34 + 566 - 12 = 588).
+    h.Click(513, 594, draw);
+    CHECK(editor.StatsVisible());
+}

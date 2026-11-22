@@ -82,6 +82,7 @@ void GraphPalette::Draw(Slate::Context& ui, const Slate::Rect& rect, const std::
     for (const PaletteGroup& g : groups) {
         auto it = m_open.try_emplace(g.category, m_categoriesOpen).first;
         bool open = searching || it->second;
+        ui.Panel({view.x, y, view.w, rowH + 1.0f}, t.surface3);  // header band, apart from the entries
         if (ui.CollapsingHeader(Context::ID(m_id + ".cat." + g.category), {view.x + 2.0f, y, view.w - 12.0f, rowH},
                                 g.category, open) &&
             !searching) {

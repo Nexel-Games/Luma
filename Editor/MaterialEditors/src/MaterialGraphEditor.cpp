@@ -137,9 +137,12 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     const Rect tab{rect.Right() - kTabW, top, kTabW, h};
     const Rect left{rect.x, top, leftW, h};
     const Rect centre{left.Right() + 2.0f, top, tab.x - left.Right() - 3.0f, h};
-    const f32 statsH = std::min(m_statsH, centre.h * 0.4f);
-    const Rect graph{centre.x, centre.y, centre.w, centre.h - statsH - 2.0f};
-    const Rect stats{centre.x, graph.Bottom() + 2.0f, centre.w, statsH};
+    // Stats collapses behind a slim horizontal edge handle (like the palette's).
+    constexpr f32 kStatsHandleH = 12.0f;
+    const f32 statsH = m_statsVisible ? std::min(m_statsH, centre.h * 0.4f) : 0.0f;
+    const Rect graph{centre.x, centre.y, centre.w, centre.h - statsH - kStatsHandleH};
+    const Rect statsHandle{centre.x, graph.Bottom(), centre.w, kStatsHandleH};
+    const Rect stats{centre.x, statsHandle.Bottom(), centre.w, statsH};
 
     Rect preview, details;
     ui.SplitterH(Context::ID("mge.lsplit." + m_path), left, m_previewSplit, preview, details, 2.0f);
@@ -149,7 +152,23 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     const Rect drawer{tab.x - drawerW, graph.y, drawerW, graph.h};
     if (m_paletteVisible) m_widget->SetInputExclusion(drawer);
     m_widget->Draw(ui, graph);
-    DrawStats(ui, stats);
+    if (m_statsVisible) DrawStats(ui, stats);
+    {
+        // Edge handle: a horizontal grip pill with chevrons pointing where Stats goes.
+        const bool hover = statsHandle.Contains(ui.mouse()) && !ui.inputBlocked() && !ui.AnyMenuOpen() &&
+                           !m_widget->PaletteOpen();
+        ui.Panel(statsHandle, hover ? t.surface2 : t.panelBg);
+        if (hover && ui.mousePressed(0)) m_statsVisible = !m_statsVisible;
+        const f32 cx = statsHandle.x + statsHandle.w * 0.5f, cy = statsHandle.y + statsHandle.h * 0.5f;
+        ui.PanelRounded({cx - 34.0f, cy - 3.0f, 68.0f, 6.0f}, hover ? t.accent : t.surface4, 3.0f);
+        const f32 dir = m_statsVisible ? 1.0f : -1.0f;  // v hides, ^ shows
+        const Slate::Color chev = hover ? t.text : t.textDim;
+        for (f32 ox : {-48.0f, 48.0f}) {
+            ui.drawList().AddLine({cx + ox - 4.0f, cy - 2.5f * dir}, {cx + ox, cy + 2.5f * dir}, chev, 1.5f);
+            ui.drawList().AddLine({cx + ox, cy + 2.5f * dir}, {cx + ox + 4.0f, cy - 2.5f * dir}, chev, 1.5f);
+        }
+        ui.Tooltip(Context::ID("mge.stats.handle.tip"), statsHandle, m_statsVisible ? "Hide Stats" : "Show Stats");
+    }
     if (m_paletteVisible) {
         ui.drawList().AddRectShadow(drawer, 2.0f, 0.7f);
         m_palette.Draw(ui, drawer, m_model->Actions(nullptr));
@@ -177,7 +196,8 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     VDivider(ui, (left.Right() + centre.x) * 0.5f, top, h);
     VDivider(ui, (centre.Right() + tab.x) * 0.5f, top, h);
     HDivider(ui, left.x, (preview.Bottom() + details.y) * 0.5f, left.w);
-    HDivider(ui, centre.x, (graph.Bottom() + stats.y) * 0.5f, centre.w);
+    HDivider(ui, centre.x, statsHandle.y, centre.w);
+    if (m_statsVisible) HDivider(ui, centre.x, statsHandle.Bottom(), centre.w);
 
     m_widget->DrawOverlays(ui);  // right-click palette above every panel
 

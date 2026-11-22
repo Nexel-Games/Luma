@@ -25,9 +25,13 @@ inline void HDivider(Slate::Context& ui, f32 x, f32 y, f32 w) {
     ui.Panel({x, y - kDividerW * 0.5f, w, kDividerW}, kDividerColor);
 }
 
-// A Details section header (full width), advancing y.
+// A Details section header (full width), advancing y. Headers sit on their
+// own lighter band so they read apart from the property rows; nested
+// headers (indented) use a slightly darker band than top-level ones.
 inline bool Section(Slate::Context& ui, std::string_view id, std::string_view label, bool& open, f32 x,
-                    f32& y, f32 w) {
+                    f32& y, f32 w, bool nested = false) {
+    const Slate::Theme& t = ui.theme();
+    ui.Panel({x, y, w, kHeaderH - 1.0f}, nested ? t.surface2 : t.surface3);
     const bool clicked = ui.CollapsingHeader(Slate::Context::ID(id), {x, y, w, kHeaderH - 2.0f}, label, open);
     ui.Panel({x, y + kHeaderH - 1.0f, w, 1.0f}, kDividerColor);  // line under the header
     y += kHeaderH;
