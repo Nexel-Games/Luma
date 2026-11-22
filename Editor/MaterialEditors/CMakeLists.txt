@@ -5,13 +5,14 @@
 
 add_library(LumaMaterialEditors STATIC
     src/InstanceParameters.cpp
-    src/MaterialInstanceEditor.cpp)
+    src/MaterialInstanceEditor.cpp
+    src/MaterialGraphModel.cpp)
 
 add_library(Luma::MaterialEditors ALIAS LumaMaterialEditors)
 
 target_include_directories(LumaMaterialEditors PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 target_link_libraries(LumaMaterialEditors
-    PUBLIC Luma::Core Luma::Math Luma::Slate Luma::Material Luma::MaterialGraph Luma::MaterialCompiler)
+    PUBLIC Luma::Core Luma::Math Luma::Slate Luma::Material Luma::MaterialGraph Luma::MaterialCompiler Luma::GraphEditor)
 
 set_target_properties(LumaMaterialEditors PROPERTIES FOLDER "Editor")

@@ -83,6 +83,7 @@ add_executable(LumaTests
     Editor/TransformGizmoTests.cpp
     Editor/BackgroundTasksTests.cpp
     Editor/InstanceParametersTests.cpp
+    Editor/MaterialGraphModelTests.cpp
     GraphEditor/GraphEditorCoreTests.cpp
     GraphEditor/GraphControllerTests.cpp
     GraphEditor/GraphEditorWidgetTests.cpp
