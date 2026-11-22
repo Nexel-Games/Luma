@@ -238,7 +238,7 @@ _(engine agent)_
 
 ## Result
 
-_(engine agent)_
+P1 is **PARTIAL**. Manifest parsing, semver ranges, and discovery are implemented and covered by `Tests/Plugins/ManifestTests.cpp` and `DiscoveryTests.cpp` (187 assertions, 16 cases, all passed). Those tests were compiled with Development `/WX` flags because the full CMake tree cannot configure on this machine: `shaderc_combined` is required and `D:/VulkanSDK/1.4.341.1` is not present, so `ctest` / `LumaTests` was not run. Details and the exact command output are in `AgentTasks/Luma_Plugins_and_Physics_Agent_Tasks/outputs/P1_Manifests_and_Discovery.md`. P2 has not started.
 
 ## Review
 
