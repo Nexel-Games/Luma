@@ -170,3 +170,31 @@ TEST_CASE("Instance editor draws a 70% preview and the details", "[materialedito
     CHECK(last.width < 600);
     CHECK(editor.Title() == "MI_B*");  // in-memory fixture asset = unsaved
 }
+
+TEST_CASE("On a base material the model edits its parameters' defaults", "[materialeditors][instance]") {
+    Fixture f;
+    InstanceParameterModel model("/Game/Materials/M_Base", *f.lib);
+    REQUIRE(model.Valid());
+    CHECK(model.IsMaterial());
+    CHECK(model.Parent().empty());
+    CHECK(model.RootMaterial() == "/Game/Materials/M_Base");
+    const auto rough = FindParam(model.Groups(), "Roughness");
+    REQUIRE(rough);
+    CHECK(rough->value.scalar == 0.25f);
+
+    ParameterOverride v = rough->value;
+    v.scalar = 0.9f;
+    model.SetValue(v);
+    CHECK(FindParam(model.Groups(), "Roughness")->value.scalar == 0.9f);
+    // Instances that don't override it inherit the new default.
+    InstanceParameterModel child("/Game/Materials/MI_B", *f.lib);
+    CHECK(FindParam(child.Groups(), "Roughness")->value.scalar == 0.8f);  // MI_A overrides it
+    ParameterOverride tint;
+    tint.name = "Tint";
+    tint.kind = ParameterOverride::Kind::Vector;
+    tint.vector = {0, 0, 1, 1};
+    model.SetValue(tint);
+    CHECK(FindParam(child.Groups(), "Tint")->value.vector.z == 1.0f);
+    std::string err;
+    CHECK_FALSE(model.SetParent("/Game/Materials/MI_A", &err));  // materials have no parent
+}
