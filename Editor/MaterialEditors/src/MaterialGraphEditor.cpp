@@ -142,6 +142,12 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     m_widget->Draw(ui, graph);
     DrawStats(ui, stats);
     m_palette.Draw(ui, right, m_model->Actions(nullptr));
+    // Black dividers between every panel.
+    HDivider(ui, rect.x, top, rect.w);
+    VDivider(ui, (left.Right() + centre.x) * 0.5f, top, h);
+    VDivider(ui, (centre.Right() + right.x) * 0.5f, top, h);
+    HDivider(ui, left.x, (preview.Bottom() + details.y) * 0.5f, left.w);
+    HDivider(ui, centre.x, (graph.Bottom() + stats.y) * 0.5f, centre.w);
 
     // Close a property-edit gesture (one undo step per drag / edit).
     if (m_pendingEdit && !ui.isMouseDown(0) && !ui.textFieldFocused()) {

@@ -49,6 +49,16 @@ inline std::string PickString(Slate::Context& ui, u64 id, const Slate::Rect& rec
     return {};
 }
 
+// Unreal-style black panel dividers.
+inline const Slate::Color kDividerColor = Slate::Color::RGB(8, 8, 8);
+constexpr f32 kDividerW = 2.0f;
+inline void VDivider(Slate::Context& ui, f32 x, f32 y, f32 h) {
+    ui.Panel({x - kDividerW * 0.5f, y, kDividerW, h}, kDividerColor);
+}
+inline void HDivider(Slate::Context& ui, f32 x, f32 y, f32 w) {
+    ui.Panel({x, y - kDividerW * 0.5f, w, kDividerW}, kDividerColor);
+}
+
 // Toolbar strip background.
 inline void ToolbarBackground(Slate::Context& ui, const Slate::Rect& bar) {
     const Slate::Theme& t = ui.theme();

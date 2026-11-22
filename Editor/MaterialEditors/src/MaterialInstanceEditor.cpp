@@ -56,6 +56,8 @@ void MaterialInstanceEditor::Draw(Context& ui, const Rect& rect) {
     ui.SplitterV(Context::ID("mie.split." + m_model.Path()), body, m_split, preview, details, 2.0f);
     DrawPreview(ui, preview);
     DrawDetails(ui, details);
+    HDivider(ui, rect.x, body.y, rect.w);
+    VDivider(ui, (preview.Right() + details.x) * 0.5f, body.y, body.h);
 }
 
 void MaterialInstanceEditor::DrawToolbar(Context& ui, const Rect& bar) {
