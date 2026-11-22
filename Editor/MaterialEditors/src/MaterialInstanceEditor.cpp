@@ -65,15 +65,16 @@ void MaterialInstanceEditor::DrawToolbar(Context& ui, const Rect& bar) {
     ToolbarBackground(ui, bar);
     f32 x = bar.x + 6.0f;
     const f32 y = bar.y + 4.0f, h = bar.h - 8.0f;
-    const Rect save{x, y, 74.0f, h};
-    if (ui.IconTextButton(Context::ID("mie.save." + m_model.Path()), save, Slate::Icon::Save, "Save", t.text)) {
+    const Rect save{x, y, 76.0f, h};
+    if (ToolButton(ui, Context::ID("mie.save." + m_model.Path()), save, IconTexture(m_services, EditorIcon::Save),
+                   Slate::Icon::Save, "Save", t.text)) {
         SaveWithMessage();
     }
     ui.Tooltip(Context::ID("mie.save.tip"), save, "Save (Ctrl+S)\nWrite this instance to disk.");
     x += save.w + 4.0f;
     const Rect browse{x, y, 92.0f, h};
-    if (ui.IconTextButton(Context::ID("mie.browse." + m_model.Path()), browse, Slate::Icon::FolderOpen, "Browse",
-                          t.text) &&
+    if (ToolButton(ui, Context::ID("mie.browse." + m_model.Path()), browse, IconTexture(m_services, EditorIcon::Browse),
+                   Slate::Icon::FolderOpen, "Browse", t.text) &&
         m_services.browseToAsset) {
         m_services.browseToAsset(m_model.Path());
     }
@@ -187,7 +188,11 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
     if (p.overridden) {
         const Rect reset{x + w - 22.0f, y + 3.0f, 20.0f, 20.0f};
         if (ui.Button(Context::ID(key + ".reset"), reset, {})) m_model.Reset(p.info.name);
-        Slate::DrawIcon(ui, reset.Inset(2.0f, 2.0f), Slate::Icon::Reset, t.warning);
+        if (const TextureHandle arrow = IconTexture(m_services, EditorIcon::Reset)) {
+            ui.Image(arrow, reset.Inset(4.0f, 4.0f));  // UE's yellow "differs from default" arrow
+        } else {
+            Slate::DrawIcon(ui, reset.Inset(2.0f, 2.0f), Slate::Icon::Reset, t.warning);
+        }
         ui.Tooltip(Context::ID(key + ".reset.tip"), reset, "Reset to the parent's value");
     }
     return kRowH;

@@ -49,6 +49,8 @@ MaterialGraphEditor::MaterialGraphEditor(std::string materialPath, Material::Mat
         m_controller->SpawnAction(id, {v.offset.x + 200.0f / v.Zoom(), v.offset.y + 150.0f / v.Zoom()});
     };
     m_preview.materialPath = m_path;
+    m_palette.searchIcon = IconTexture(m_services, EditorIcon::Search);
+    m_widget->PopupPalette().searchIcon = m_palette.searchIcon;
     Recompile();
 }
 
@@ -190,31 +192,32 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
     ToolbarBackground(ui, bar);
     f32 x = bar.x + 6.0f;
     const f32 y = bar.y + 4.0f, h = bar.h - 8.0f;
-    auto button = [&](const char* key, f32 w, Slate::Icon icon, const char* label, const char* tip, bool active) {
+    auto button = [&](const char* key, f32 w, EditorIcon png, Slate::Icon icon, const char* label, const char* tip,
+                      bool active) {
         const Rect r{x, y, w, h};
-        const bool clicked = ui.IconTextButton(Context::ID(std::string("mge.") + key + m_path), r, icon, label,
-                                               active ? t.accent : t.text, active);
+        const bool clicked = ToolButton(ui, Context::ID(std::string("mge.") + key + m_path), r,
+                                        IconTexture(m_services, png), icon, label, active ? t.accent : t.text, active);
         ui.Tooltip(Context::ID(std::string("mge.tip.") + key), r, tip);
         x += w + 4.0f;
         return clicked;
     };
-    if (button("apply", 76.0f, Slate::Icon::Check, "Apply", "Apply\nCompile the graph and update the material.",
+    if (button("apply", 82.0f, EditorIcon::Apply, Slate::Icon::Check, "Apply", "Apply\nCompile the graph and update the material.",
                m_unapplied))
         Apply();
-    if (button("save", 70.0f, Slate::Icon::Save, "Save", "Save (Ctrl+S)\nApply, then write the asset.", false)) {
+    if (button("save", 76.0f, EditorIcon::Save, Slate::Icon::Save, "Save", "Save (Ctrl+S)\nApply, then write the asset.", false)) {
         std::string error;
         if (Save(&error)) LUMA_USER_INFO("Materials", "Saved '{}'", m_path);
         else LUMA_USER_ERROR("Materials", "Failed to save '{}': {}", m_path, error);
     }
-    if (button("browse", 86.0f, Slate::Icon::FolderOpen, "Browse", "Browse to Asset", false) &&
+    if (button("browse", 90.0f, EditorIcon::Browse, Slate::Icon::FolderOpen, "Browse", "Browse to Asset", false) &&
         m_services.browseToAsset)
         m_services.browseToAsset(m_path);
-    if (button("home", 70.0f, Slate::Icon::Refresh, "Home", "Frame the whole graph (F frames the selection)", false))
+    if (button("home", 76.0f, EditorIcon::Home, Slate::Icon::Refresh, "Home", "Frame the whole graph (F frames the selection)", false))
         m_widget->RequestFrame();
-    if (button("palette", 86.0f, Slate::Icon::Search, "Palette", "Palette\nShow or hide the expression palette.",
+    if (button("palette", 90.0f, EditorIcon::Palette, Slate::Icon::Search, "Palette", "Palette\nShow or hide the expression palette.",
                m_paletteVisible))
         m_paletteVisible = !m_paletteVisible;
-    if (button("live", 106.0f, Slate::Icon::Play, "Live Update", "Apply every change as you edit.", liveUpdate)) {
+    if (button("live", 112.0f, EditorIcon::LiveUpdate, Slate::Icon::Play, "Live Update", "Apply every change as you edit.", liveUpdate)) {
         liveUpdate = !liveUpdate;
         if (liveUpdate && m_unapplied) Apply();
     }
@@ -244,14 +247,17 @@ void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& area) {
     else ui.LabelIn(area, "Preview unavailable", t.textDisabled, Align::Center);
     // Preview shape buttons along the bottom (UE's viewport toolbar).
     const Slate::Icon icons[] = {Slate::Icon::Sphere, Slate::Icon::Cube, Slate::Icon::Plane, Slate::Icon::Cylinder};
+    const EditorIcon pngs[] = {EditorIcon::Sphere, EditorIcon::Cube, EditorIcon::Plane, EditorIcon::Cylinder};
+    const char* names[] = {"Sphere", "Cube", "Plane", "Cylinder"};
     f32 bx = area.x + 6.0f;
     for (int i = 0; i < 4; ++i) {
-        const Rect b{bx, area.Bottom() - 28.0f, 24.0f, 22.0f};
+        const Rect b{bx, area.Bottom() - 32.0f, 28.0f, 26.0f};
         const bool active = static_cast<int>(m_preview.shape) == i;
-        if (ui.IconTextButton(Context::ID("mge.shape." + std::to_string(i) + m_path), b, icons[i], "",
-                              active ? t.accent : t.text, active))
+        if (ToolButton(ui, Context::ID("mge.shape." + std::to_string(i) + m_path), b, IconTexture(m_services, pngs[i]),
+                       icons[i], "", active ? t.accent : t.text, active))
             m_preview.shape = static_cast<PreviewShape>(i);
-        bx += 26.0f;
+        ui.Tooltip(Context::ID(std::string("mge.shape.tip.") + names[i]), b, std::string("Preview on a ") + names[i]);
+        bx += 30.0f;
     }
 }
 

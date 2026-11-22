@@ -135,7 +135,10 @@ int main(int argc, char** argv) {
         gpuPreview = std::make_unique<MaterialPreview>(*static_cast<Rendering::VulkanDeferredRenderer*>(r), library);
     }
 
+    MaterialEditors::EditorIconSet icons;
+    icons.Load(*renderer, fs::path(LUMA_SOURCE_DIR) / "Content" / "Editor" / "MaterialEditor" / "Icons");
     MaterialEditors::MaterialEditorServices services;
+    services.icons = &icons;
     // Reference adapter for the editor hookup: PreviewRequest -> MaterialPreview::Render.
     services.renderPreview = [&](const MaterialEditors::PreviewRequest& q) -> TextureHandle {
         if (!gpuPreview) return standIn;

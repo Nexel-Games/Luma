@@ -63,6 +63,24 @@ inline std::string PickString(Slate::Context& ui, u64 id, const Slate::Rect& rec
     return {};
 }
 
+inline TextureHandle IconTexture(const MaterialEditorServices& s, EditorIcon icon) {
+    return s.icons ? s.icons->Get(icon) : TextureHandle{0};
+}
+
+// A toolbar button with an icon-pack PNG in Slate's icon slot (falls back
+// to the procedural `fallback` glyph when the PNG is missing).
+inline bool ToolButton(Slate::Context& ui, u64 id, const Slate::Rect& r, TextureHandle texture, Slate::Icon fallback,
+                       std::string_view label, Slate::Color tint, bool active = false) {
+    if (texture == 0) return ui.IconTextButton(id, r, fallback, label, tint, active);
+    const bool clicked = ui.IconTextButton(id, r, Slate::Icon::None, label, tint.WithAlpha(0), active);
+    constexpr f32 kSlot = 14.0f;  // IconTextButton's icon slot
+    constexpr f32 kSize = 20.0f;
+    const f32 total = kSlot + (label.empty() ? 0.0f : 6.0f + ui.uiFont().Measure(label).x);
+    const f32 cx = r.x + (r.w - total) * 0.5f + kSlot * 0.5f;
+    ui.Image(texture, {cx - kSize * 0.5f, r.y + (r.h - kSize) * 0.5f, kSize, kSize});
+    return clicked;
+}
+
 // Toolbar strip background.
 inline void ToolbarBackground(Slate::Context& ui, const Slate::Rect& bar) {
     const Slate::Theme& t = ui.theme();

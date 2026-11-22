@@ -67,7 +67,7 @@ void GraphPalette::Draw(Slate::Context& ui, const Slate::Rect& rect, const std::
             std::erase_if(groups, [&](const PaletteGroup& g) { return g.category != m_category; });
     }
     ui.SearchBox(Context::ID(m_id + ".search"), {rect.x + 4.0f, rect.y + 30.0f, rect.w - 8.0f, 24.0f}, m_query,
-                 "Search");
+                 searchIcon, "Search");
     const Rect view{rect.x, rect.y + 58.0f, rect.w, rect.h - 58.0f};
     const Slate::Color divider = Slate::Color::RGB(8, 8, 8);
     ui.Panel({rect.x, view.y - 2.0f, rect.w, 2.0f}, divider);  // under filter + search

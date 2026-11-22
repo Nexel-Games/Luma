@@ -43,6 +43,7 @@ public:
     // host has drawn everything else.
     void DrawOverlays(Slate::Context& ui);
     bool PaletteOpen() const { return m_paletteOpen; }
+    GraphPalette& PopupPalette() { return m_popup; }
     void ClosePalette() { m_paletteOpen = false; }
     // A host panel drawn over the canvas (e.g. a palette drawer): the
     // canvas ignores the pointer there. Set every frame before Draw.

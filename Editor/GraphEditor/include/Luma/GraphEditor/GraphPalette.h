@@ -30,6 +30,7 @@ public:
     // first match while searching.
     void Draw(Slate::Context& ui, const Slate::Rect& rect, const std::vector<GraphAction>& actions);
     std::function<void(const std::string& actionId)> onPick;
+    TextureHandle searchIcon = 0;  // leading icon of the search box (0 = glyph)
     std::string& Query() { return m_query; }
     // Puts the caret in the search box (popup palettes).
     void FocusSearch(Slate::Context& ui);

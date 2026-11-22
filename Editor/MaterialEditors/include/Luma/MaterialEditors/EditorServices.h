@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "Luma/Core/Types.h"
+#include "Luma/MaterialEditors/EditorIcons.h"
 #include "Luma/RHI/Renderer.h"
 
 // What the material editors need from the host editor, as callbacks, so the
@@ -39,6 +40,8 @@ struct MaterialEditorServices {
     // Compile status (MaterialSceneBridge::Errors / PendingCompiles).
     std::function<std::string(std::string_view)> compileErrors;
     std::function<u32()> pendingCompiles;
+    // Toolbar / preview / details icons (null: Slate's procedural glyphs).
+    const EditorIconSet* icons = nullptr;
 };
 
 // "/Game/Materials/MI_Red" -> "MI_Red".
