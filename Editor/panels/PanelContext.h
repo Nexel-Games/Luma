@@ -49,6 +49,7 @@ struct PanelContext {
 
     // Scene + ECS the panels drive.
     Scene* scene = nullptr;
+    bool canSave = true;
     Entity* selected = nullptr;        // outliner sets, inspector + gizmo read
 
     // Orbit camera (viewport + inspector preview).

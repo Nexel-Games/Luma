@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Luma/Scene/SceneSystems.h"
+
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -75,5 +77,7 @@ std::filesystem::path EditorStartupScenePath(const Project& project,
 RegistrationToken RegisterMapsAndModesPage(SettingsPageRegistry& pages,
                                            MapsAndModesSettings& settings,
                                            std::function<std::vector<std::string>()> listScenes);
+
+RegistrationToken RegisterSimulationPage(SettingsPageRegistry& pages, SimulationSettings& settings);
 
 }  // namespace Luma::Editor::Panels

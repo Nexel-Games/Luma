@@ -66,6 +66,7 @@ public:
 
     // Builds the scene view (camera + grid + entity instances + gizmo overlay).
     SceneView BuildSceneView();
+    void TickSimulation(f64 seconds) { m_runner.Tick(seconds); }
 
     void Draw(Slate::Context& ui, f32 width, f32 height);
 
@@ -263,7 +264,17 @@ private:
     std::optional<Project> m_project;
     std::string m_title;
 
-    Scene m_scene;
+    Scene m_authoringScene;
+    SceneRunner m_runner;
+    SimulationSettings m_simulation;
+    Scene& ActiveScene() { return m_runner.PlayScene() ? *m_runner.PlayScene() : m_authoringScene; }
+    const Scene& ActiveScene() const { return m_runner.PlayScene() ? *m_runner.PlayScene() : m_authoringScene; }
+    void BeginPlay();
+    void StopPlay();
+    Entity m_authoringSelected = kNullEntity;
+    std::vector<Entity> m_authoringSelection;
+    ActorClipboard m_authoringClipboard;
+    int m_authoringNextNumber = 1;
     Entity m_selected = kNullEntity;
     std::vector<Entity> m_selection;
     ActorClipboard m_clipboard;

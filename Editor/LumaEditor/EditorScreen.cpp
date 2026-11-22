@@ -121,7 +121,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
         m_scenePath = Editor::Panels::EditorStartupScenePath(*m_project, m_mapsAndModes);
     }
     if (!LoadScene()) {
-        EnsureAutoCreatedEntities(m_scene);
+        EnsureAutoCreatedEntities(ActiveScene());
         // New projects already declare a startup scene path. Materialize the
         // default environment scene on first open so the editor and runtime
         // operate on the same persisted scene instead of an in-memory fallback.
@@ -152,6 +152,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
 }
 
 EditorScreen::~EditorScreen() {
+    StopPlay();
     m_preferences.SaveChanges();
     // Unsaved Project Settings edits are written on the way out.
     if (m_projectSettings.IsOpen()) m_projectSettings.Close();
@@ -199,7 +200,7 @@ bool EditorScreen::LoadScene() {
     if (path.empty() || !std::filesystem::exists(path, ec)) return false;
     std::string err;
     LegacyMaterialList legacy;
-    if (!SceneSerializer::LoadFromFile(m_scene, path, &err, &legacy)) {
+    if (!SceneSerializer::LoadFromFile(ActiveScene(), path, &err, &legacy)) {
         LUMA_USER_ERROR("Scene", "Failed to load scene '{}': {}", ProjectRelative(path),
                        err);
         return false;
@@ -210,12 +211,12 @@ bool EditorScreen::LoadScene() {
     m_outlinerPanel.ClearSelection();
     m_inspectorPanel.ClosePopups();
     // Scene setup: every auto-created template (e.g. the sky) the scene lacks.
-    EnsureAutoCreatedEntities(m_scene);
+    EnsureAutoCreatedEntities(ActiveScene());
     LUMA_USER_INFO("Scene", "Loaded scene '{}'", ProjectRelative(path));
     ReportMissingComponentPlugins();
     // Version-1 scenes carried a color per mesh; move those onto material
     // assets (in memory until the scene is saved).
-    if (!legacy.empty()) MigrateLegacyMaterials(m_scene, legacy, *m_materials);
+    if (!legacy.empty()) MigrateLegacyMaterials(ActiveScene(), legacy, *m_materials);
     return true;
 }
 
@@ -239,7 +240,7 @@ bool EditorScreen::CapturePreview(const std::string& materialPath,
 }
 
 bool EditorScreen::SelectEntityByName(const std::string& name) {
-    auto view = m_scene.Registry().view<const NameComponent>();
+    auto view = ActiveScene().Registry().view<const NameComponent>();
     for (Entity e : view) {
         if (view.get<const NameComponent>(e).name == name) {
             SelectOnly(e);
@@ -254,6 +255,7 @@ std::vector<std::string> EditorScreen::UnsavedAssets() const {
 }
 
 void EditorScreen::RequestClose() {
+    StopPlay();
     if (UnsavedAssets().empty()) {
         m_closeConfirmed = true;
     } else {
@@ -337,6 +339,10 @@ void EditorScreen::DockMaterialEditor(Editor::Panels::MaterialEditorPanel* raw) 
     // Asset editors open as tabs beside the viewport (the dock root panel).
     m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
     m_dock.SetCloseHandler(id, [this, assetPath, raw] {
+        if (raw->IsDirty() && m_runner.PlayScene()) {
+            LUMA_USER_WARN("Materials", "Stop play before closing a modified material");
+            return false;
+        }
         if (raw->IsDirty()) {
             m_closingEditor = assetPath;  // ask Save / Don't Save / Cancel
             return false;
@@ -490,7 +496,7 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
 std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math::Vec3& origin,
                                                                      const Math::Vec3& dir) const {
     using namespace Math;
-    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto& reg = const_cast<Scene&>(ActiveScene()).Registry();
     auto transformPoint = [](const Mat4& m, const Vec3& p) {
         return Vec3(m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
                     m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
@@ -579,10 +585,10 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
         in.boundsMax = {0.5f, 0.5f, 0.5f};
         position = Editor::Panels::ComputeMeshPlacement(in);
     }
-    const std::string name = UniqueEntityName(m_scene, Editor::Panels::AssetNameOf(mesh));
-    const Entity e = m_scene.CreateEntity(name);
-    m_scene.Registry().get<TransformComponent>(e).position = position;
-    auto& mr = m_scene.Registry().emplace<MeshRendererComponent>(e);
+    const std::string name = UniqueEntityName(ActiveScene(), Editor::Panels::AssetNameOf(mesh));
+    const Entity e = ActiveScene().CreateEntity(name);
+    ActiveScene().Registry().get<TransformComponent>(e).position = position;
+    auto& mr = ActiveScene().Registry().emplace<MeshRendererComponent>(e);
     Editor::Panels::AssignStaticMesh(mr, mesh);
     SelectOnly(e);
     LUMA_USER_INFO("Level", "Placed '{}'", name);
@@ -591,7 +597,7 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
 void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) {
     const Entity e = PickEntity(origin, dir);
-    auto* mesh = m_scene.IsValid(e) ? m_scene.Registry().try_get<MeshRendererComponent>(e)
+    auto* mesh = ActiveScene().IsValid(e) ? ActiveScene().Registry().try_get<MeshRendererComponent>(e)
                                     : nullptr;
     if (!mesh) {
         LUMA_USER_WARN("Materials", "Drop '{}' onto a mesh actor to assign it", path);
@@ -600,7 +606,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
     Editor::Panels::AssignMaterialSlot(*mesh, 0, path);
     SelectOnly(e);
     LUMA_USER_INFO("Materials", "Assigned '{}' to '{}'", path,
-                   m_scene.Registry().get<NameComponent>(e).name);
+                   ActiveScene().Registry().get<NameComponent>(e).name);
 }
 
 TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
@@ -694,6 +700,10 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
 }
 
 void EditorScreen::SaveScene() {
+    if (m_runner.PlayScene()) {
+        LUMA_USER_WARN("Scene", "Stop play before saving the scene");
+        return;
+    }
     if (!m_project) return;
     if (!SaveMaterialAssets()) {
         // The scene may reference unsaved instances (e.g. migrated colors):
@@ -706,7 +716,7 @@ void EditorScreen::SaveScene() {
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     std::string err;
-    if (SceneSerializer::SaveToFile(m_scene, path, &err)) {
+    if (SceneSerializer::SaveToFile(ActiveScene(), path, &err)) {
         LUMA_USER_INFO("Scene", "Saved scene '{}'", ProjectRelative(path));
     } else {
         LUMA_USER_ERROR("Scene", "Failed to save scene '{}': {}", ProjectRelative(path),
@@ -774,14 +784,14 @@ void EditorScreen::CreateActor(const std::string& templateId) {
         LUMA_USER_ERROR("Scene", "Cannot create '{}': no such entity template", templateId);
         return;
     }
-    SelectOnly(Instantiate(m_scene, *t, {m_nextNumber++}));
+    SelectOnly(Instantiate(ActiveScene(), *t, {m_nextNumber++}));
 }
 
 void EditorScreen::ReportMissingComponentPlugins() {
     // Components kept for plugins that are not loaded: tell the user once per
     // load which plugins the scene needs (their data stays in the scene).
     std::map<std::string, usize> byOwner;
-    for (auto [e, kept] : m_scene.Registry().view<UnresolvedComponents>().each()) {
+    for (auto [e, kept] : ActiveScene().Registry().view<UnresolvedComponents>().each()) {
         for (const UnresolvedComponent& c : kept.payloads) {
             ++byOwner[c.owner.empty() ? std::string("an unknown plugin") : c.owner];
         }
@@ -798,7 +808,8 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     Editor::Panels::PanelContext ctx;
     ctx.renderer = m_renderer;
     ctx.assetRegistry = &m_assetRegistry;
-    ctx.scene = &m_scene;
+    ctx.scene = &ActiveScene();
+    ctx.canSave = !m_runner.PlayScene();
     ctx.selected = &m_selected;
     ctx.camYaw = &m_camYaw;
     ctx.camPitch = &m_camPitch;
@@ -842,8 +853,8 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onHideEntities = [this](Entity e) { HideEntities(e); };
     ctx.onShowAllActors = [this] { ShowAllActors(); };
     ctx.isEntityHidden = [this](Entity e) { return IsHidden(e); };
-    ctx.entityHasChildren = [this](Entity e) { return !ChildrenOf(m_scene, e).empty(); };
-    ctx.entityIsRoot = [this](Entity e) { return ParentOf(m_scene, e) == kNullEntity; };
+    ctx.entityHasChildren = [this](Entity e) { return !ChildrenOf(ActiveScene(), e).empty(); };
+    ctx.entityIsRoot = [this](Entity e) { return ParentOf(ActiveScene(), e) == kNullEntity; };
     ctx.selection = &m_selection;
     ctx.onPickRay = [this](const Math::Vec3& origin, const Math::Vec3& dir) {
         SelectOnly(PickEntity(origin, dir));
@@ -852,7 +863,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.jobs = m_jobs;
     ctx.tasks = m_tasks;
     ctx.sectionCount = [this](Entity e) -> u32 {
-        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        const auto* mesh = ActiveScene().Registry().try_get<MeshRendererComponent>(e);
         return mesh ? m_bridge.SectionCount(*mesh) : 1u;
     };
     ctx.renderMaterialPreview = [this](const std::string& path, int shape, f32 yaw, f32 pitch,
@@ -874,7 +885,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     };
     ctx.meshSections = [this](Entity e) {
         std::vector<Editor::Panels::MeshSlotInfo> out;
-        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        const auto* mesh = ActiveScene().Registry().try_get<MeshRendererComponent>(e);
         if (!mesh || !mesh->UsesMeshAsset()) return out;
         if (const auto* sections = m_bridge.Sections(mesh->mesh)) {
             for (const Editor::MeshSectionInfo& s : *sections) out.push_back({s.slotName, s.defaultMaterial});
@@ -905,7 +916,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onAssetRenamed = [this](const std::string& oldPath, const std::string& newPath) {
         // Unreal leaves a redirector; Luma fixes the open scene up directly.
         // Scenes that are not open keep the old path (see GOAL.md 5.6).
-        const u32 changed = RetargetAssetReferences(m_scene, oldPath, newPath);
+        const u32 changed = RetargetAssetReferences(ActiveScene(), oldPath, newPath);
         m_bridge.OnMeshFileChanged(oldPath);
         if (m_preview) m_preview->OnMeshFileChanged(oldPath);
         if (changed > 0) {
@@ -948,9 +959,9 @@ SceneView EditorScreen::BuildSceneView() {
     // the field of view.
     {
         f32 dist = m_camDistance;
-        if (m_scene.IsValid(m_selected) &&
-            m_scene.Registry().all_of<TransformComponent>(m_selected)) {
-            const Vec3 d = m_scene.Registry().get<TransformComponent>(m_selected).position - eye;
+        if (ActiveScene().IsValid(m_selected) &&
+            ActiveScene().Registry().all_of<TransformComponent>(m_selected)) {
+            const Vec3 d = ActiveScene().Registry().get<TransformComponent>(m_selected).position - eye;
             dist = std::sqrt(Dot(d, d));
         }
         const f32 fovScale = std::tan(m_viewportPanel.Settings().fovYRadians * 0.5f) /
@@ -962,9 +973,9 @@ SceneView EditorScreen::BuildSceneView() {
     // through the renderer's SceneRenderer; the selection draws normally
     // (the selection outline marks it).
     if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
-        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials);
+        m_bridge.Sync(ActiveScene(), *sceneRenderer, *m_materials);
     }
-    m_bridge.BuildInstances(m_scene, m_selected, m_instances);
+    m_bridge.BuildInstances(ActiveScene(), m_selected, m_instances);
 
     // The first directional light is the scene's sun: it drives the sky
     // atmosphere, the sun disk, cascaded shadows and the directional term in
@@ -975,9 +986,9 @@ SceneView EditorScreen::BuildSceneView() {
     bool hasSun = false;
     SceneLight sun;
     auto lightView =
-        m_scene.Registry().view<TransformComponent, LightComponent>();
+        ActiveScene().Registry().view<TransformComponent, LightComponent>();
     for (Entity e : lightView) {
-        if (m_scene.Registry().all_of<EditorHiddenComponent>(e)) continue;
+        if (ActiveScene().Registry().all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = lightView.get<TransformComponent>(e);
         const auto& lc = lightView.get<LightComponent>(e);
         Mat4 mtx = tf.Matrix();
@@ -1014,7 +1025,7 @@ SceneView EditorScreen::BuildSceneView() {
     }
 
     SceneView scene;
-    auto envView = m_scene.Registry().view<const EnvironmentComponent>();
+    auto envView = ActiveScene().Registry().view<const EnvironmentComponent>();
     for (Entity e : envView) {
         const auto& env = envView.get<const EnvironmentComponent>(e);
         // --- Sky (physical atmosphere) ---
@@ -1067,7 +1078,7 @@ SceneView EditorScreen::BuildSceneView() {
     // applied globally (like Unreal's "Infinite Extent (Unbound)" volumes).
     {
         const PostProcessComponent* active = nullptr;
-        auto ppView = m_scene.Registry().view<const PostProcessComponent>();
+        auto ppView = ActiveScene().Registry().view<const PostProcessComponent>();
         for (Entity e : ppView) {
             const auto& pp = ppView.get<const PostProcessComponent>(e);
             if (pp.enabled && (!active || pp.priority > active->priority)) active = &pp;
@@ -1114,9 +1125,9 @@ SceneView EditorScreen::BuildSceneView() {
     scene.lights = m_lights.data();
     scene.lightCount = static_cast<u32>(m_lights.size());
 
-    if (m_scene.IsValid(m_selected) &&
-        m_scene.Registry().all_of<TransformComponent>(m_selected)) {
-        const auto& tf = m_scene.Registry().get<TransformComponent>(m_selected);
+    if (ActiveScene().IsValid(m_selected) &&
+        ActiveScene().Registry().all_of<TransformComponent>(m_selected)) {
+        const auto& tf = ActiveScene().Registry().get<TransformComponent>(m_selected);
         GizmoTransform gt{tf.position, tf.rotationEuler, tf.scale};
         const auto& lines = m_gizmo.BuildLines(gt, m_gizmoScale, m_view);
         scene.overlayLines = lines.data();
@@ -1139,6 +1150,43 @@ void EditorScreen::SetEditorIcons(const IconSet& icons) {
         m_uiRegistrations.Add(
             Editor::EditorImages().Register(name, texture, Slate::Icon::None, "Engine"));
     }
+}
+
+void EditorScreen::BeginPlay() {
+    if (m_runner.PlayScene()) {
+        m_runner.SetPaused(false);
+        return;
+    }
+    std::string error;
+    if (!m_runner.Begin(m_authoringScene, m_simulation, &error)) {
+        LUMA_USER_ERROR("Scene", "Cannot start Play in Editor: {}", error);
+        return;
+    }
+    m_authoringSelected = m_selected;
+    m_authoringSelection = m_selection;
+    m_authoringClipboard = std::move(m_clipboard);
+    m_authoringNextNumber = m_nextNumber;
+    m_clipboard.Clear();
+    std::erase_if(m_selection, [this](Entity e) { return !ActiveScene().IsValid(e); });
+    if (!ActiveScene().IsValid(m_selected)) m_selected = kNullEntity;
+    m_inspectorPanel.ClosePopups();
+    m_outlinerPanel.ClearSelection();
+    m_bridge.ClearPlacementPreview();
+    LUMA_LOG_INFO("Scene", "Started Play in Editor");
+}
+
+void EditorScreen::StopPlay() {
+    if (!m_runner.PlayScene()) return;
+    m_inspectorPanel.ClosePopups();
+    m_outlinerPanel.ClearSelection();
+    m_bridge.ClearPlacementPreview();
+    m_runner.End();
+    m_selection = std::move(m_authoringSelection);
+    std::erase_if(m_selection, [this](Entity e) { return !m_authoringScene.IsValid(e); });
+    m_selected = m_authoringScene.IsValid(m_authoringSelected) ? m_authoringSelected : kNullEntity;
+    m_clipboard = std::move(m_authoringClipboard);
+    m_nextNumber = m_authoringNextNumber;
+    LUMA_LOG_INFO("Scene", "Stopped Play in Editor");
 }
 
 void EditorScreen::RegisterEditorUi() {
@@ -1169,14 +1217,14 @@ void EditorScreen::RegisterEditorUi() {
         return e;
     };
     auto hasProject = [this] { return m_project.has_value(); };
-    auto hasSelection = [this] { return m_scene.IsValid(m_selected); };
+    auto hasSelection = [this] { return ActiveScene().IsValid(m_selected); };
 
     {
         MenuEntryDesc e = entry("File.SaveScene", "File", "Scene", "Save Scene", "Save", 0,
                                 [this] { SaveScene(); });
         e.tooltip = "Write the open scene to disk.";
         e.shortcut = "Ctrl+S";
-        e.isEnabled = hasProject;
+        e.isEnabled = [this] { return m_project.has_value() && !m_runner.PlayScene(); };
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
     {
@@ -1191,7 +1239,7 @@ void EditorScreen::RegisterEditorUi() {
     }
     // Cut / Copy keep one-per-scene holders (e.g. the Environment) in the scene.
     auto canCopySelection = [this] {
-        return m_scene.IsValid(m_selected) && !OnePerSceneComponentOf(m_scene, m_selected);
+        return ActiveScene().IsValid(m_selected) && !OnePerSceneComponentOf(ActiveScene(), m_selected);
     };
     {
         MenuEntryDesc e = entry("Edit.Cut", "Edit", "Selection", "Cut", "", -30,
@@ -1209,7 +1257,7 @@ void EditorScreen::RegisterEditorUi() {
     }
     {
         MenuEntryDesc e = entry("Edit.Paste", "Edit", "Selection", "Paste", "", -10, [this] {
-            PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+            PasteEntities(ActiveScene().IsValid(m_selected) ? m_selected : kNullEntity, false);
         });
         e.shortcut = "Ctrl+V";
         e.tooltip = "Paste as a sibling of the selection, or at the scene root.";
@@ -1228,7 +1276,7 @@ void EditorScreen::RegisterEditorUi() {
                                 [this] { DuplicateEntity(m_selected); });
         e.shortcut = "Ctrl+D";
         e.isEnabled = [this] {
-            return m_scene.IsValid(m_selected) && !OnePerSceneComponentOf(m_scene, m_selected);
+            return ActiveScene().IsValid(m_selected) && !OnePerSceneComponentOf(ActiveScene(), m_selected);
         };
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
@@ -1270,6 +1318,20 @@ void EditorScreen::RegisterEditorUi() {
         e.isEnabled = hasProject;
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
+    auto play = entry("Tools.Play", "Tools", "Simulation", "Play", "Play", 0, [this] { BeginPlay(); });
+    play.isEnabled = [this] { return !m_runner.PlayScene() || m_runner.Paused(); };
+    reg.Add(menus.RegisterEntry(std::move(play)));
+    auto pause = entry("Tools.Pause", "Tools", "Simulation", "Pause / Resume", "Pause", 1,
+                       [this] { m_runner.SetPaused(!m_runner.Paused()); });
+    pause.isEnabled = [this] { return m_runner.PlayScene() != nullptr; };
+    reg.Add(menus.RegisterEntry(std::move(pause)));
+    auto step = entry("Tools.Step", "Tools", "Simulation", "Single Step", "Play", 2, [this] { m_runner.Step(); });
+    step.isEnabled = [this] { return m_runner.Paused(); };
+    reg.Add(menus.RegisterEntry(std::move(step)));
+    auto stop = entry("Tools.Stop", "Tools", "Simulation", "Stop", "Stop", 3, [this] { StopPlay(); });
+    stop.isEnabled = [this] { return m_runner.PlayScene() != nullptr; };
+    reg.Add(menus.RegisterEntry(std::move(stop)));
+    reg.Add(Editor::Panels::RegisterSimulationPage(Editor::SettingsPages(), m_simulation));
     reg.Add(Editor::Panels::RegisterMapsAndModesPage(
         Editor::SettingsPages(), m_mapsAndModes, [this] {
             // Every scene file under Assets/, as a project-relative path.
@@ -1820,15 +1882,20 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     const Rect playR{width / 2 - 46, 35, 30, 28};
     const Rect pauseR{width / 2 - 14, 35, 30, 28};
     const Rect stopR{width / 2 + 18, 35, 30, 28};
-    ui.IconButton(Slate::Context::ID("play"), playR, m_iconPlay);
-    ui.IconButton(Slate::Context::ID("pause"), pauseR, m_iconPause);
-    ui.IconButton(Slate::Context::ID("stop"), stopR, m_iconStop);
-    ui.Tooltip(Slate::Context::ID("tip.play"), playR,
-               "Play\nPlay-in-editor is not implemented yet.");
-    ui.Tooltip(Slate::Context::ID("tip.pause"), pauseR,
-               "Pause\nPlay-in-editor is not implemented yet.");
-    ui.Tooltip(Slate::Context::ID("tip.stop"), stopR,
-               "Stop\nPlay-in-editor is not implemented yet.");
+    if (ui.IconButton(Slate::Context::ID("play"), playR, m_iconPlay)) BeginPlay();
+    if (ui.IconButton(Slate::Context::ID("pause"), pauseR, m_iconPause)) m_runner.SetPaused(!m_runner.Paused());
+    if (ui.IconButton(Slate::Context::ID("stop"), stopR, m_iconStop)) StopPlay();
+    ui.Tooltip(Slate::Context::ID("tip.play"), playR, "Play in Editor");
+    ui.Tooltip(Slate::Context::ID("tip.pause"), pauseR, m_runner.Paused() ? "Resume" : "Pause");
+    ui.Tooltip(Slate::Context::ID("tip.stop"), stopR, "Stop and restore the authoring scene");
+    if (m_runner.PlayScene()) {
+        const Rect status{stopR.Right() + 6.0f, stopR.y, 64.0f, stopR.h};
+        if (m_runner.Paused()) {
+            if (ui.Button(Slate::Context::ID("play.step"), status, "Step")) m_runner.Step();
+        } else {
+            ui.LabelIn(status, "Playing", t.textDim);
+        }
+    }
 
     for (const auto& editor : m_materialEditors) {
         m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
@@ -1884,7 +1951,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
 
 Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const {
     using namespace Math;
-    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto& reg = const_cast<Scene&>(ActiveScene()).Registry();
     Entity best = kNullEntity;
     f32 bestT = 1e30f;
     // Slab test of a ray against an AABB; returns the entry parameter.
@@ -1990,19 +2057,19 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
         if (ui.keyPressed(kKeyR)) m_gizmo.SetMode(GizmoMode::Scale);
     }
     const bool overContent = m_contentBrowser.Hovered();
-    if (ctrl && ui.keyPressed(kKeyC) && !overContent && m_scene.IsValid(m_selected)) {
+    if (ctrl && ui.keyPressed(kKeyC) && !overContent && ActiveScene().IsValid(m_selected)) {
         CopyEntities(m_selected);
         return;
     }
-    if (ctrl && ui.keyPressed(kKeyX) && !overContent && m_scene.IsValid(m_selected)) {
+    if (ctrl && ui.keyPressed(kKeyX) && !overContent && ActiveScene().IsValid(m_selected)) {
         CutEntities(m_selected);
         return;
     }
     if (ctrl && ui.keyPressed(kKeyV) && !overContent && !m_clipboard.Empty()) {
-        PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+        PasteEntities(ActiveScene().IsValid(m_selected) ? m_selected : kNullEntity, false);
         return;
     }
-    if (!m_scene.IsValid(m_selected)) return;
+    if (!ActiveScene().IsValid(m_selected)) return;
     if (ctrl && ui.keyPressed(kKeyD)) {
         DuplicateEntity(m_selected);
     } else if (!ctrl && ui.keyPressed(kKeyF)) {
@@ -2016,41 +2083,41 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
 void EditorScreen::SelectOnly(Entity entity) {
     m_selection.clear();
     m_selected = entity;
-    if (m_scene.IsValid(entity)) m_selection.push_back(entity);
+    if (ActiveScene().IsValid(entity)) m_selection.push_back(entity);
 }
 
 std::vector<Entity> EditorScreen::ActionRoots(Entity clicked) const {
     const bool inSelection = std::find(m_selection.begin(), m_selection.end(), clicked) != m_selection.end();
-    if (inSelection && m_selection.size() > 1) return SelectionRoots(m_scene, m_selection);
-    if (!m_scene.IsValid(clicked)) return {};
+    if (inSelection && m_selection.size() > 1) return SelectionRoots(ActiveScene(), m_selection);
+    if (!ActiveScene().IsValid(clicked)) return {};
     return {clicked};
 }
 
 bool EditorScreen::IsHidden(Entity entity) const {
-    return m_scene.IsValid(entity) && m_scene.Registry().all_of<EditorHiddenComponent>(entity);
+    return ActiveScene().IsValid(entity) && ActiveScene().Registry().all_of<EditorHiddenComponent>(entity);
 }
 
 void EditorScreen::DuplicateEntity(Entity e) {
     std::vector<Entity> created;
     for (Entity root : ActionRoots(e)) {
         // A one-per-scene holder (e.g. the Environment) stays unique.
-        if (const ComponentDesc* single = OnePerSceneComponentOf(m_scene, root)) {
+        if (const ComponentDesc* single = OnePerSceneComponentOf(ActiveScene(), root)) {
             LUMA_USER_WARN("Scene", "A scene has a single {}; it can't be duplicated",
                            single->displayName);
             continue;
         }
-        const std::string base = m_scene.Registry().get<NameComponent>(root).name;
-        Entity copy = DuplicateSubtree(m_scene, root);
+        const std::string base = ActiveScene().Registry().get<NameComponent>(root).name;
+        Entity copy = DuplicateSubtree(ActiveScene(), root);
         if (copy == kNullEntity) continue;
         auto renameTree = [&](auto&& self, Entity entity) -> void {
-            auto& name = m_scene.Registry().get<NameComponent>(entity).name;
-            name = UniqueEntityName(m_scene, name);
-            for (Entity child : ChildrenOf(m_scene, entity)) self(self, child);
+            auto& name = ActiveScene().Registry().get<NameComponent>(entity).name;
+            name = UniqueEntityName(ActiveScene(), name);
+            for (Entity child : ChildrenOf(ActiveScene(), entity)) self(self, child);
         };
         renameTree(renameTree, copy);
         created.push_back(copy);
         LUMA_USER_INFO("Scene", "Duplicated '{}' as '{}'", base,
-                       m_scene.Registry().get<NameComponent>(copy).name);
+                       ActiveScene().Registry().get<NameComponent>(copy).name);
     }
     if (created.empty()) return;
     m_selection = created;
@@ -2062,24 +2129,24 @@ void EditorScreen::DeleteEntity(Entity e) {
     if (roots.empty()) return;
     m_inspectorPanel.ClosePopups();
     for (Entity root : roots) {
-        if (!m_scene.IsValid(root)) continue;
-        const bool selectedInSubtree = m_selected == root || IsDescendantOf(m_scene, root, m_selected);
-        const std::string name = m_scene.Registry().get<NameComponent>(root).name;
-        DestroySubtree(m_scene, root);
+        if (!ActiveScene().IsValid(root)) continue;
+        const bool selectedInSubtree = m_selected == root || IsDescendantOf(ActiveScene(), root, m_selected);
+        const std::string name = ActiveScene().Registry().get<NameComponent>(root).name;
+        DestroySubtree(ActiveScene(), root);
         if (selectedInSubtree) m_selected = kNullEntity;
         LUMA_USER_INFO("Scene", "Deleted '{}'", name);
     }
     std::vector<Entity> still;
     for (Entity entity : m_selection) {
-        if (m_scene.IsValid(entity)) still.push_back(entity);
+        if (ActiveScene().IsValid(entity)) still.push_back(entity);
     }
     m_selection = std::move(still);
-    if (!m_scene.IsValid(m_selected)) m_selected = m_selection.empty() ? kNullEntity : m_selection.back();
+    if (!ActiveScene().IsValid(m_selected)) m_selected = m_selection.empty() ? kNullEntity : m_selection.back();
 }
 
 void EditorScreen::FocusEntity(Entity e) {
-    if (!m_scene.IsValid(e) || !m_scene.Registry().all_of<TransformComponent>(e)) return;
-    const auto& tf = m_scene.Registry().get<TransformComponent>(e);
+    if (!ActiveScene().IsValid(e) || !ActiveScene().Registry().all_of<TransformComponent>(e)) return;
+    const auto& tf = ActiveScene().Registry().get<TransformComponent>(e);
     m_camTarget = tf.position;
     // Frame by the entity's largest scale axis (unit primitives).
     const f32 extent = std::max({std::fabs(tf.scale.x), std::fabs(tf.scale.y),
@@ -2089,13 +2156,13 @@ void EditorScreen::FocusEntity(Entity e) {
 }
 
 void EditorScreen::CopyEntities(Entity clicked) {
-    if (!m_clipboard.Copy(m_scene, ActionRoots(clicked))) {
+    if (!m_clipboard.Copy(ActiveScene(), ActionRoots(clicked))) {
         LUMA_USER_WARN("Scene", "Nothing to copy");
     }
 }
 
 void EditorScreen::CutEntities(Entity clicked) {
-    if (!m_clipboard.Cut(m_scene, ActionRoots(clicked))) {
+    if (!m_clipboard.Cut(ActiveScene(), ActionRoots(clicked))) {
         LUMA_USER_WARN("Scene", "Nothing to cut");
         return;
     }
@@ -2107,23 +2174,23 @@ void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
     Entity parent = kNullEntity;
     if (asChild) {
         parent = clicked;
-    } else if (m_scene.IsValid(clicked)) {
-        parent = ParentOf(m_scene, clicked);
+    } else if (ActiveScene().IsValid(clicked)) {
+        parent = ParentOf(ActiveScene(), clicked);
     }
     if (m_clipboard.IsCut()) {
         for (Entity source : m_clipboard.CutSources()) {
-            if (!m_scene.IsValid(source)) continue;
-            if (parent == source || IsDescendantOf(m_scene, source, parent)) {
+            if (!ActiveScene().IsValid(source)) continue;
+            if (parent == source || IsDescendantOf(ActiveScene(), source, parent)) {
                 LUMA_USER_WARN("Scene", "Can't paste a cut actor into itself");
                 return;
             }
         }
     }
     const std::vector<Entity> ignore = m_clipboard.IsCut() ? m_clipboard.CutSources() : std::vector<Entity>{};
-    const std::vector<Entity> created = m_clipboard.Paste(m_scene, parent, ignore);
+    const std::vector<Entity> created = m_clipboard.Paste(ActiveScene(), parent, ignore);
     if (created.empty()) return;
     if (m_clipboard.IsCut()) {
-        for (Entity source : m_clipboard.CutSources()) DestroySubtree(m_scene, source);
+        for (Entity source : m_clipboard.CutSources()) DestroySubtree(ActiveScene(), source);
         m_clipboard.Clear();
     }
     m_selection = created;
@@ -2132,14 +2199,14 @@ void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
 }
 
 void EditorScreen::CreateEmptyChild(Entity parent) {
-    if (!m_scene.IsValid(parent)) return;
-    Entity child = m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
-    SetParent(m_scene, child, parent);
+    if (!ActiveScene().IsValid(parent)) return;
+    Entity child = ActiveScene().CreateEntity(UniqueEntityName(ActiveScene(), "Empty Actor"));
+    SetParent(ActiveScene(), child, parent);
     SelectOnly(child);
 }
 
 void EditorScreen::SelectChildren(Entity parent) {
-    const std::vector<Entity> descendants = DescendantsOf(m_scene, parent);
+    const std::vector<Entity> descendants = DescendantsOf(ActiveScene(), parent);
     if (descendants.empty()) return;
     m_selection = descendants;
     m_selected = descendants.front();
@@ -2147,25 +2214,25 @@ void EditorScreen::SelectChildren(Entity parent) {
 
 void EditorScreen::MoveToRoot(Entity entity) {
     for (Entity root : ActionRoots(entity)) {
-        if (ParentOf(m_scene, root) == kNullEntity) continue;
-        SetParent(m_scene, root, kNullEntity);
+        if (ParentOf(ActiveScene(), root) == kNullEntity) continue;
+        SetParent(ActiveScene(), root, kNullEntity);
     }
 }
 
 void EditorScreen::HideEntities(Entity clicked) {
     for (Entity root : ActionRoots(clicked)) {
-        m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(root);
-        for (Entity child : DescendantsOf(m_scene, root)) {
-            m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(child);
+        ActiveScene().Registry().emplace_or_replace<EditorHiddenComponent>(root);
+        for (Entity child : DescendantsOf(ActiveScene(), root)) {
+            ActiveScene().Registry().emplace_or_replace<EditorHiddenComponent>(child);
         }
     }
 }
 
 void EditorScreen::ShowAllActors() {
     std::vector<Entity> hidden;
-    auto view = m_scene.Registry().view<EditorHiddenComponent>();
+    auto view = ActiveScene().Registry().view<EditorHiddenComponent>();
     for (Entity entity : view) hidden.push_back(entity);
-    for (Entity entity : hidden) m_scene.Registry().remove<EditorHiddenComponent>(entity);
+    for (Entity entity : hidden) ActiveScene().Registry().remove<EditorHiddenComponent>(entity);
 }
 
 void EditorScreen::CreateSceneAsset(const std::filesystem::path& folder) {

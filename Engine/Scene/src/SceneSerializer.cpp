@@ -4,6 +4,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <span>
 
 #include "Luma/Scene/ComponentReflection.h"
 #include "Luma/Scene/ComponentRegistry.h"
@@ -131,9 +132,8 @@ std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
     return WriteJson(root, pretty);
 }
 
-bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
-                                     std::string* outError,
-                                     LegacyMaterialList* outLegacy) {
+static bool ReadScene(Scene& scene, std::string_view json, std::string* outError,
+                      LegacyMaterialList* outLegacy, std::span<const Entity> originalIds) {
     auto parsed = ParseJson(json, outError);
     if (!parsed) return false;
 
@@ -143,10 +143,10 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
         return false;
     }
     const i64 version = versionValue->AsInt();
-    if (version > kVersion) {
+    if (version > SceneSerializer::kVersion) {
         if (outError) {
             *outError = "scene file version " + std::to_string(version) +
-                        " is newer than this engine supports (" + std::to_string(kVersion) +
+                        " is newer than this engine supports (" + std::to_string(SceneSerializer::kVersion) +
                         "); update the engine to open it";
         }
         return false;
@@ -178,7 +178,7 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
     for (const SerialValue& entity : entities.Elements()) {
         const SerialValue* comps = entity.Find("components");
         if (!comps || !comps->IsObject()) continue;
-        entt::entity e = reg.create();
+        entt::entity e = originalIds.empty() ? reg.create() : reg.create(originalIds[created.size()]);
         created.push_back(e);
         parents.push_back(entity.Find("parent") ? entity.Find("parent")->AsInt(-1) : -1);
         UnresolvedComponents unresolved;
@@ -202,6 +202,20 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
         if (parentIndex < 0 || static_cast<usize>(parentIndex) >= created.size()) continue;
         SetParent(scene, created[index], created[static_cast<usize>(parentIndex)]);
     }
+    return true;
+}
+
+bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json, std::string* error,
+                                     LegacyMaterialList* legacy) {
+    return ReadScene(scene, json, error, legacy, {});
+}
+
+bool SceneSerializer::Clone(const Scene& source, Scene& destination, std::string* error) {
+    Scene copy;
+    const auto* names = source.Registry().storage<NameComponent>();
+    const auto ids = names ? std::span<const Entity>(names->data(), names->size()) : std::span<const Entity>{};
+    if (!ReadScene(copy, SaveToString(source, false), error, nullptr, ids)) return false;
+    destination = std::move(copy);
     return true;
 }
 

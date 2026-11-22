@@ -2,6 +2,7 @@
 
 add_library(LumaScene STATIC
     src/Scene.cpp
+    src/SceneSystems.cpp
     src/Hierarchy.cpp
     src/ActorClipboard.cpp
     src/ComponentReflection.cpp

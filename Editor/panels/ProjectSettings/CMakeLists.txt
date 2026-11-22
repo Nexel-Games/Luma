@@ -1,5 +1,6 @@
 add_library(LumaPanelProjectSettings STATIC
     src/ProjectSettings.cpp
+    src/SimulationPage.cpp
     src/ProjectSettingsStore.cpp)
 
 add_library(Luma::PanelProjectSettings ALIAS LumaPanelProjectSettings)

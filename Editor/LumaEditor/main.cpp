@@ -479,6 +479,7 @@ int main(int argc, char** argv) {
         // Render the 3D scene into the editor viewport (using last frame's rect),
         // before opening the swapchain frame.
         if (editorMode && editor && splashTime >= kSplashDuration) {
+            editor->TickSimulation(dt.Seconds());
             Slate::Rect vp = editor->ViewportRect();
             if (vp.w > 4.0f && vp.h > 4.0f) {
                 // Use ONLY Vulkan deferred renderer for viewport

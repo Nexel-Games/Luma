@@ -33,7 +33,12 @@ public:
 
     // Clears the cached selection hint (called after the scene is reloaded
     // so the panel doesn't reference an entity that no longer exists).
-    void ClearSelection() {}
+    void ClearSelection() {
+        m_pressedRow = 0;
+        m_renaming = kNullEntity;
+        m_renameFocusPending = false;
+        m_collapsed.clear();
+    }
 
     // Unreal "Place Actors" menu: one submenu per EntityTemplates() category;
     // picking an entry calls PanelContext::onCreateEntity with the template id.

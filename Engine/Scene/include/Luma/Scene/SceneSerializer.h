@@ -51,6 +51,10 @@ public:
                                std::string* outError = nullptr,
                                LegacyMaterialList* outLegacy = nullptr);
 
+    // Independent in-memory copy preserving entity handles, registered component
+    // payloads, hierarchy and unresolved plugin data. File loads still allocate fresh ids.
+    static bool Clone(const Scene& source, Scene& destination, std::string* error = nullptr);
+
     static bool SaveToFile(const Scene& scene, const std::filesystem::path& path,
                            std::string* outError = nullptr);
     static bool LoadFromFile(Scene& scene, const std::filesystem::path& path,

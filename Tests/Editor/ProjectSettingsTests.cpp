@@ -213,3 +213,23 @@ TEST_CASE("Maps & Modes chooses the editor startup scene", "[settings]") {
     REQUIRE(store.LoadAll());
     REQUIRE(maps.editorStartupScene == "Assets/Scenes/Lab.lscene");
 }
+
+TEST_CASE("Simulation settings round trip through project Config and initialize play", "[settings][play]") {
+    TempDir dir("luma_simulation_settings");
+    SettingsPageRegistry pages;
+    SimulationSettings settings;
+    auto token = Panels::RegisterSimulationPage(pages, settings);
+    REQUIRE(token);
+    ProjectSettingsStore store(pages, dir.root / "Config");
+    REQUIRE(store.LoadAll());
+    settings = {0.025, 4};
+    store.MarkDirty("Project.Simulation");
+    REQUIRE(store.SaveAll());
+    settings = {};
+    REQUIRE(store.LoadAll());
+    CHECK(settings.fixedTimeStep == 0.025);
+    CHECK(settings.maxSubsteps == 4);
+    Scene authoring;
+    SceneRunner runner;
+    REQUIRE(runner.Begin(authoring, settings));
+}
