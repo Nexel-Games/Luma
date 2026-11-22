@@ -141,6 +141,12 @@ int main(int argc, char** argv) {
                Slate::Color::RGB(232, 88, 12));   // deep orange (bottom)
     MaterialEditors::MaterialEditorServices services;
     services.icons = &icons;
+    Slate::Font watermarkFont;
+    if (watermarkFont.LoadFromFile(*renderer,
+                                   (fs::path(LUMA_SOURCE_DIR) / "Content/Editor/Fonts/RubikIso/RubikIso-Regular.ttf").string(),
+                                   64.0f)) {
+        services.watermarkFont = &watermarkFont;
+    }
     // Reference adapter for the editor hookup: PreviewRequest -> MaterialPreview::Render.
     services.renderPreview = [&](const MaterialEditors::PreviewRequest& q) -> TextureHandle {
         if (!gpuPreview) return standIn;

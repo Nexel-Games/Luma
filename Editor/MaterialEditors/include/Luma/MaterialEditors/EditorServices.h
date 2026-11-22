@@ -8,6 +8,7 @@
 #include "Luma/Core/Types.h"
 #include "Luma/MaterialEditors/EditorIcons.h"
 #include "Luma/RHI/Renderer.h"
+#include "Luma/Slate/Font.h"
 
 // What the material editors need from the host editor, as callbacks, so the
 // module does not depend on the editor executable, the renderer backend or
@@ -42,6 +43,9 @@ struct MaterialEditorServices {
     std::function<u32()> pendingCompiles;
     // Toolbar / preview / details icons (null: Slate's procedural glyphs).
     const EditorIconSet* icons = nullptr;
+    // "LUMA MATERIAL" canvas watermark font (Content/Editor/Fonts/RubikIso,
+    // ~64 px); null = the UI title font.
+    const Slate::Font* watermarkFont = nullptr;
 };
 
 // "/Game/Materials/MI_Red" -> "MI_Red".

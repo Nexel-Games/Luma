@@ -184,6 +184,12 @@ void GraphEditorWidget::Draw(Context& ui, const Rect& rect) {
 
     ui.PushClip(rect);
     DrawGrid(ui, rect);
+    if (!m_watermark.empty()) {
+        const Slate::Font& font = m_watermarkFont ? *m_watermarkFont : ui.titleFont();
+        const Vec2 size = font.Measure(m_watermark);
+        ui.drawList().AddText(font, {rect.Right() - size.x - 28.0f, rect.Bottom() - size.y - 18.0f}, m_watermark,
+                              Color::RGBA(255, 255, 255, 26));
+    }
     HandleInput(ui, rect, nodes);
     nodes = m_controller.Model().Nodes();
     std::stable_partition(nodes.begin(), nodes.end(), [](const NodeView& n) { return n.kind == NodeKind::Comment; });

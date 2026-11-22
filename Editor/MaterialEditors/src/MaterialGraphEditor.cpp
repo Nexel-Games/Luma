@@ -51,6 +51,7 @@ MaterialGraphEditor::MaterialGraphEditor(std::string materialPath, Material::Mat
     m_preview.materialPath = m_path;
     m_palette.searchIcon = IconTexture(m_services, EditorIcon::Search);
     m_widget->PopupPalette().searchIcon = m_palette.searchIcon;
+    m_widget->SetWatermark("LUMA MATERIAL", m_services.watermarkFont);
     Recompile();
 }
 

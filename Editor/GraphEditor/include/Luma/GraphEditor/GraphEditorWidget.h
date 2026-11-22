@@ -42,6 +42,12 @@ public:
     // Popups above every panel (the right-click palette): call after the
     // host has drawn everything else.
     void DrawOverlays(Slate::Context& ui);
+    // Large faint text in the canvas' bottom-right corner (Unreal's
+    // "MATERIAL"); `font` null = the UI title font.
+    void SetWatermark(std::string text, const Slate::Font* font = nullptr) {
+        m_watermark = std::move(text);
+        m_watermarkFont = font;
+    }
     bool PaletteOpen() const { return m_paletteOpen; }
     GraphPalette& PopupPalette() { return m_popup; }
     void ClosePalette() { m_paletteOpen = false; }
@@ -104,6 +110,8 @@ private:
     std::optional<LinkView> m_hoverWire;
     std::string m_linkMessage;
     Slate::Rect m_exclusion{};
+    std::string m_watermark;
+    const Slate::Font* m_watermarkFont = nullptr;
     // Right-click / drag-off palette popup.
     GraphPalette m_popup;
     bool m_paletteOpen = false;
