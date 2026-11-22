@@ -19,6 +19,7 @@
 #include "Luma/Asset/TextureColorSpace.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/MaterialGpuCompile.h"
+#include "Luma/MaterialCompiler/Preshader.h"
 #include "Luma/Mesh/MeshConversion.h"
 #include "Luma/ShaderCompiler/ShaderCompiler.h"
 
@@ -244,7 +245,30 @@ void MaterialSceneBridge::SyncMaterial(const std::string& path, SceneRenderer& r
         entry.uploaded = true;
         return;
     }
-    if (entry.uploaded && entry.version == version) return;
+    if (entry.uploaded && entry.version == version) {
+        // Same graph. Collections it reads may have new values (re-evaluate
+        // the block, no recompile) or be gone (recompile: reports the error
+        // and keeps the last good shaders).
+        bool missing = false, changed = false;
+        for (auto& [collection, revision] : entry.collectionRevisions) {
+            const Material::ParameterCollection* pc = library.GetCollection(collection);
+            if (!pc) {
+                missing = true;
+            } else if (pc->revision != revision) {
+                revision = pc->revision;
+                changed = true;
+            }
+        }
+        if (!missing) {
+            if (changed) {
+                MaterialParameterBlock block;
+                block.values = MaterialCompiler::EvaluatePreshader(entry.preshader, entry.layout, entry.overrides,
+                                                                   MaterialCompiler::CollectionValues(library), nullptr);
+                renderer.UpdateMaterialParameters(entry.handle, block);
+            }
+            return;
+        }
+    }
     entry.version = version;
     entry.uploaded = true;
 
@@ -268,6 +292,15 @@ void MaterialSceneBridge::SyncMaterial(const std::string& path, SceneRenderer& r
         build.gpu.textures[i].texture = SyncTexture(texture, renderer, library.Paths()).handle;
     }
     entry.handle = renderer.UpdateMaterial(MaterialKey(path), build.gpu, build.block);
+    entry.preshader = std::move(build.preshader);
+    entry.layout = std::move(build.layout);
+    entry.overrides = std::move(overrides);
+    entry.collectionRevisions.clear();
+    for (const auto& [collection, parameter] : entry.preshader.collectionValues) {
+        if (const Material::ParameterCollection* pc = library.GetCollection(collection)) {
+            entry.collectionRevisions[collection] = pc->revision;
+        }
+    }
 }
 
 const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(

@@ -60,7 +60,10 @@ public:
         if (inserted) ++nextMaterial;
         return it->second;
     }
-    void UpdateMaterialParameters(MaterialHandle, const MaterialParameterBlock&) override { ++parameterUpdates; }
+    void UpdateMaterialParameters(MaterialHandle h, const MaterialParameterBlock& b) override {
+        ++parameterUpdates;
+        parameterBlocks[h] = b;
+    }
     void ReleaseMaterial(MaterialHandle) override {}
     MeshHandle PrimitiveMesh(MeshPrimitive p) const override {
         return 1000 + static_cast<u32>(p);
@@ -71,6 +74,7 @@ public:
     int textureReleases = 0;
     std::map<u64, usize> sections;
     int parameterUpdates = 0;
+    std::map<MaterialHandle, MaterialParameterBlock> parameterBlocks;
     std::map<u64, CompiledMaterialGpu> compiled;
     std::map<u64, MaterialParameterBlock> blocks;
 
@@ -403,4 +407,90 @@ TEST_CASE("A placement preview is drawn but is not part of the scene", "[bridge]
     f.bridge.ClearPlacementPreview();
     instances = f.Build(lib);
     CHECK(instances.size() == 1);
+}
+
+namespace {
+
+// BaseColor = /Game/MPC_Wind.Strength.
+GraphMaterial WindMaterial() {
+    GraphMaterial m;
+    const NodeId n = m.graph.AddNode("CollectionParameter", {0.0f, 0.0f});
+    m.graph.Find(n)->properties["collection"] = PropertyValue(std::string("/Game/MPC_Wind"));
+    m.graph.Find(n)->properties["parameter"] = PropertyValue(std::string("Strength"));
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{n, 0}, PinRef{m.graph.OutputNode(), 0}, &err));
+    return m;
+}
+
+Luma::Material::ParameterCollection Wind(f32 strength) {
+    Luma::Material::ParameterCollection pc;
+    pc.name = "MPC_Wind";
+    pc.scalars.push_back({"Strength", strength});
+    return pc;
+}
+
+bool BlockHasX(const MaterialParameterBlock& b, f32 x) {
+    for (const Math::Vec4& v : b.values) {
+        if (v.x == x) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("Materials reading a collection share its value", "[bridge][collection]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetCollection("/Game/MPC_Wind", Wind(0.5f));
+    lib.SetGraphMaterial("/Game/Materials/M_A", WindMaterial());
+    lib.SetGraphMaterial("/Game/Materials/M_B", WindMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_A", "/Game/Materials/M_B"};
+    f.Spawn(mr);
+    f.Build(lib);
+    int found = 0;
+    for (const auto& [key, block] : f.renderer.blocks) {
+        if (key != kDefaultMaterialKey && BlockHasX(block, 0.5f)) ++found;
+    }
+    CHECK(found == 2);
+}
+
+TEST_CASE("A collection value change updates parameters without recompiling", "[bridge][collection]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetCollection("/Game/MPC_Wind", Wind(0.5f));
+    lib.SetGraphMaterial("/Game/Materials/M_A", WindMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_A"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const int compiles = f.renderer.materialUpdates;
+    REQUIRE(lib.SetCollectionValue("/Game/MPC_Wind", "Strength", {0.9f, 0, 0, 0}));
+    f.Build(lib);
+    CHECK(f.renderer.materialUpdates == compiles);
+    REQUIRE(f.renderer.parameterUpdates == 1);
+    CHECK(BlockHasX(f.renderer.parameterBlocks.begin()->second, 0.9f));
+    f.Build(lib);  // unchanged revision: nothing to do
+    CHECK(f.renderer.parameterUpdates == 1);
+}
+
+TEST_CASE("Deleting a collection keeps the last good material", "[bridge][collection]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetCollection("/Game/MPC_Wind", Wind(0.5f));
+    REQUIRE(lib.SaveGraphAsset("/Game/MPC_Wind"));
+    lib.SetGraphMaterial("/Game/Materials/M_A", WindMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_A"};
+    const Entity e = f.Spawn(mr);
+    f.Build(lib, e);
+    const MaterialHandle good = f.bridge.HandleFor("/Game/Materials/M_A");
+    const int uploads = f.renderer.materialUpdates;
+
+    std::filesystem::remove(f.root / "Assets" / "MPC_Wind.lmpc");
+    lib.Reload("/Game/MPC_Wind");
+    REQUIRE(lib.GetCollection("/Game/MPC_Wind") == nullptr);
+    f.Build(lib, e);
+    CHECK(f.renderer.materialUpdates == uploads);  // the compile failed: nothing new uploaded
+    CHECK(f.bridge.HandleFor("/Game/Materials/M_A") == good);
 }

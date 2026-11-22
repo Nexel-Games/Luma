@@ -13,7 +13,8 @@ target_include_directories(LumaMaterialBridge
 
 target_link_libraries(LumaMaterialBridge
     PUBLIC Luma::Core Luma::Math Luma::RHI Luma::Scene Luma::Asset Luma::Material Luma::ShaderCompiler
-    PRIVATE Luma::Mesh Luma::MaterialCompiler)
+        Luma::MaterialCompiler
+    PRIVATE Luma::Mesh)
 
 # Generated material shaders #include the engine's pass templates.
 target_compile_definitions(LumaMaterialBridge PRIVATE

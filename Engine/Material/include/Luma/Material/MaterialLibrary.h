@@ -60,8 +60,9 @@ public:
     bool IsDirty(std::string_view path) const;
     std::vector<std::string> DirtyAssets() const;
 
-    // Re-reads the asset from disk (external change). Skipped, with a warning,
-    // when the asset has unsaved edits.
+    // Re-reads the asset from disk (external change; graph assets reload on
+    // their next Get*, so a deleted file stops resolving). Skipped, with a
+    // warning, when the asset has unsaved edits.
     void Reload(std::string_view path);
     // Discards unsaved edits: re-reads the asset from disk; an asset that was
     // never saved returns to the state CreateInMemoryInstance made it in.

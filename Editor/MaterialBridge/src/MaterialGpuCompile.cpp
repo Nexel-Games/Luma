@@ -110,6 +110,8 @@ GpuMaterialBuild BuildGpuMaterial(const Material::GraphMaterial& material, Mater
     const MC::ParameterValueSource collections =
         library ? MC::CollectionValues(*library) : MC::ParameterValueSource{};
     out.block.values = MC::EvaluatePreshader(compiled.preshader, compiled.layout, overrides, collections, nullptr);
+    out.preshader = compiled.preshader;
+    out.layout = compiled.layout;
     out.ok = true;
     return out;
 }

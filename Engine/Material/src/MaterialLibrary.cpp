@@ -247,6 +247,15 @@ std::vector<std::string> MaterialLibrary::DirtyAssets() const {
 
 void MaterialLibrary::Reload(std::string_view rawPath) {
     const std::string path = Normalize(rawPath);
+    // Graph assets (v4 materials, instances, functions, collections) reload
+    // lazily on their next Get*; a deleted file then stops resolving.
+    if (const auto it = m_graph.find(path); it != m_graph.end()) {
+        if (it->second.dirty) {
+            LUMA_USER_WARN("Material", "'{}' changed on disk but has unsaved edits — keeping the edits.", path);
+            return;
+        }
+        m_graph.erase(it);
+    }
     if (IsDirty(path)) {
         LUMA_USER_WARN("Material", "'{}' changed on disk but has unsaved edits — keeping the edits.",
                        path);

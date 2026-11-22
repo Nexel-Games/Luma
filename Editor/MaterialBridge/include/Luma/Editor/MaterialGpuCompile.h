@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Luma/Material/GraphAssets.h"
+#include "Luma/MaterialCompiler/Preshader.h"
 #include "Luma/RHI/MaterialGpuDesc.h"
 
 namespace Luma::Material {
@@ -30,6 +31,9 @@ struct GpuMaterialBuild {
     // Texture asset (virtual path, "" = none) for each gpu.textures entry; the
     // caller uploads them and fills GpuTextureBinding::texture.
     std::vector<std::string> texturePaths;
+    // To re-evaluate the block when parameters or collections change.
+    MaterialCompiler::PreshaderProgram preshader;
+    MaterialCompiler::ParameterBlockLayout layout;
 };
 
 // `overrides` are an instance chain's parameter values (static switches pick

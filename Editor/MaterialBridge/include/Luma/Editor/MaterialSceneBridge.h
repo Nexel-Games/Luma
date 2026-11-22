@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,6 +12,7 @@
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Material/MaterialLibrary.h"
+#include "Luma/MaterialCompiler/Preshader.h"
 #include "Luma/RHI/SceneRenderer.h"
 #include "Luma/Scene/Scene.h"
 
@@ -101,6 +103,11 @@ private:
         bool uploaded = false;
         std::vector<std::string> textures;  // virtual paths it samples
         std::string reportedErrors;         // last error set logged (once per distinct set)
+        // For parameter-only refreshes (collection value changes).
+        MaterialCompiler::PreshaderProgram preshader;
+        MaterialCompiler::ParameterBlockLayout layout;
+        std::vector<Material::ParameterOverride> overrides;
+        std::map<std::string, u32> collectionRevisions;  // collection path -> revision used
     };
     struct TextureEntry {
         GpuTextureHandle handle = kInvalidHandle;
