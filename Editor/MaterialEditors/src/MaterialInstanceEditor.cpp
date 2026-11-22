@@ -119,6 +119,7 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
     }
     f32 rowY = y;
     Rect field = Row(ui, p.info.name, x, rowY, w - 24.0f, !p.overridden, 36.0f);
+    ui.Panel({x + w - 24.0f, y + kRowH - 1.0f, 24.0f, 1.0f}, kDividerColor);  // row line under the reset column
     if (!p.info.description.empty()) {
         ui.Tooltip(Context::ID(key + ".tip"), {x + 36.0f, y, kLabelW - 36.0f, kRowH}, p.info.description);
     }
@@ -198,6 +199,7 @@ void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
     const Rect header{area.x, area.y, area.w, 24.0f};
     ui.Panel(header, t.surface1);
     ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, "Details", t.text);
+    HDivider(ui, header.x, header.Bottom(), header.w);
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     const f32 x = view.x + 4.0f, w = view.w - 14.0f;

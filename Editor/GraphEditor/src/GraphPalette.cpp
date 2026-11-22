@@ -69,6 +69,8 @@ void GraphPalette::Draw(Slate::Context& ui, const Slate::Rect& rect, const std::
     ui.SearchBox(Context::ID(m_id + ".search"), {rect.x + 4.0f, rect.y + 30.0f, rect.w - 8.0f, 24.0f}, m_query,
                  "Search");
     const Rect view{rect.x, rect.y + 58.0f, rect.w, rect.h - 58.0f};
+    const Slate::Color divider = Slate::Color::RGB(8, 8, 8);
+    ui.Panel({rect.x, view.y - 2.0f, rect.w, 2.0f}, divider);  // under filter + search
     if (!m_query.empty() && ui.enterPressed() && !groups.empty() && onPick) {
         onPick(groups.front().actions.front().id);
         return;
@@ -85,6 +87,7 @@ void GraphPalette::Draw(Slate::Context& ui, const Slate::Rect& rect, const std::
             !searching) {
             it->second = open;
         }
+        ui.Panel({view.x, y + rowH + 1.0f, view.w, 1.0f}, divider);  // under each category
         y += rowH + 2.0f;
         if (!open) continue;
         for (const GraphAction& a : g.actions) {

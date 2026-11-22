@@ -374,6 +374,7 @@ void MaterialGraphEditor::DrawDetails(Context& ui, const Rect& area) {
     const Rect header{area.x, area.y, area.w, 24.0f};
     ui.Panel(header, t.surface1);
     ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, "Details", t.text);
+    HDivider(ui, header.x, header.Bottom(), header.w);
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     const f32 x = view.x + 4.0f, w = view.w - 14.0f;
@@ -405,6 +406,7 @@ void MaterialGraphEditor::DrawStats(Context& ui, const Rect& area) {
     const Rect header{area.x, area.y, area.w, 22.0f};
     ui.Panel(header, t.surface1);
     ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, "Stats", t.text);
+    HDivider(ui, header.x, header.Bottom(), header.w);
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     f32 y = view.y + 4.0f - m_statsScroll;
