@@ -26,8 +26,15 @@ constexpr f32 kFovY = 0.5f;  // narrow lens: little perspective distortion
 // Thumbnails view the actor slightly from above and to the side.
 constexpr f32 kThumbnailYaw = 0.6f;
 constexpr f32 kThumbnailPitch = 0.3f;
-// The preview floor (engine content; Content/Engine/Materials/M_GridBox.lmat).
-constexpr std::string_view kFloorMaterial = "/Engine/Materials/M_GridBox";
+// The preview's default material (engine content,
+// Content/Engine/Materials/M_GridBox_Default.lmat): the floor, and whatever
+// is previewed without a material.
+constexpr std::string_view kPreviewDefaultMaterial = "/Engine/Materials/M_GridBox_Default";
+constexpr std::string_view kFloorMaterial = kPreviewDefaultMaterial;
+
+std::string OrPreviewDefault(std::string_view materialPath) {
+    return materialPath.empty() ? std::string(kPreviewDefaultMaterial) : std::string(materialPath);
+}
 
 MeshPrimitive ToPrimitive(PreviewShape shape) {
     switch (shape) {
@@ -151,7 +158,7 @@ TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShap
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.mesh.clear();
     mr.primitive = ToPrimitive(shape);
-    mr.materials = {std::string(materialPath)};
+    mr.materials = {OrPreviewDefault(materialPath)};
     m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
     m_showFloor = floor;
     // Interactive: exposure adapts over frames like the viewport.
@@ -206,7 +213,7 @@ bool MaterialPreview::CaptureMaterial(std::string_view materialPath, u32 size,
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.mesh.clear();
     mr.primitive = MeshPrimitive::Sphere;
-    mr.materials = {std::string(materialPath)};
+    mr.materials = {OrPreviewDefault(materialPath)};
     u32 w = 0, h = 0;
     CaptureExtent(w, h);
     // Two frames: the first captures the sky light; exposure snaps (dt 0).
