@@ -415,3 +415,73 @@ TEST_CASE("Translucent surfaces receive sun shadows", "[vulkan][render][transluc
     CHECK(Brightness(shadowed) + 20 < Brightness(lit));
     CHECK(r.f.ValidationErrors().empty());
 }
+
+namespace {
+
+// A post-process material: Emissive = f(Post Process Input 0).
+GraphMaterial PostProcess(Material::PostProcessLocation where, i32 priority, const char* op) {
+    GraphMaterial m;
+    m.settings.domain = Material::MaterialDomain::PostProcess;
+    m.settings.ppLocation = where;
+    m.settings.ppPriority = priority;
+    const NodeId input = Node(m, "SceneTexture");
+    m.graph.Find(input)->properties["id"] = PropertyValue(i64{8});  // PostProcessInput0
+    const NodeId mask = Node(m, "ComponentMask");
+    m.graph.Find(mask)->properties["b"] = PropertyValue(true);
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{input, 0}, PinRef{mask, 0}, &err));
+    NodeId result = mask;
+    if (std::string(op) == "invert") {
+        result = Node(m, "OneMinus");
+        REQUIRE(m.graph.Connect(PinRef{mask, 0}, PinRef{result, 0}, &err));
+    } else {  // "half": x * 0.5
+        result = Node(m, "Multiply");
+        REQUIRE(m.graph.Connect(PinRef{mask, 0}, PinRef{result, 0}, &err));
+        const NodeId half = Node(m, "Constant");
+        m.graph.Find(half)->properties["value"] = PropertyValue(0.5);
+        REQUIRE(m.graph.Connect(PinRef{half, 0}, PinRef{result, 1}, &err));
+    }
+    Link(m, result, 5);  // Emissive Color
+    return m;
+}
+
+}  // namespace
+
+TEST_CASE("A post-process material after tone mapping inverts the image", "[vulkan][render][postprocess]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 80, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle invert = Upload(r, 81, PostProcess(Material::PostProcessLocation::AfterTonemapping, 0, "invert"));
+    const auto plainCorner = r.RenderScene({Cube(white, 0.0f, 2.0f)}, 1, 1);  // the backdrop
+    r.view.postProcess.materials = {{invert, 1.0f}};
+    const auto centre = r.RenderScene({Cube(white, 0.0f, 2.0f)});  // white -> black
+    const auto corner = r.RenderScene({Cube(white, 0.0f, 2.0f)}, 1, 1);
+    CHECK(centre[0] < 5);
+    // The display image is inverted where it is: 255 - backdrop.
+    CHECK(std::abs(static_cast<int>(corner[0]) - (255 - static_cast<int>(plainCorner[0]))) <= 3);
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Post-process materials run in priority order", "[vulkan][render][postprocess]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 80, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    // invert then halve: (1 - 1) * 0.5 = 0;  halve then invert: 1 - 0.5 = 0.5.
+    const MaterialHandle invertFirst = Upload(r, 82, PostProcess(Material::PostProcessLocation::AfterTonemapping, 0, "invert"));
+    const MaterialHandle halveSecond = Upload(r, 83, PostProcess(Material::PostProcessLocation::AfterTonemapping, 1, "half"));
+    r.view.postProcess.materials = {{halveSecond, 1.0f}, {invertFirst, 1.0f}};  // listed out of order
+    const auto px = r.RenderScene({Cube(white, 0.0f, 2.0f)});
+    CHECK(px[0] < 5);
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("A post-process material with weight 0 is skipped", "[vulkan][render][postprocess]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 80, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle invert = Upload(r, 81, PostProcess(Material::PostProcessLocation::AfterTonemapping, 0, "invert"));
+    r.view.postProcess.materials = {{invert, 0.0f}};
+    const auto px = r.RenderScene({Cube(white, 0.0f, 2.0f)});
+    CHECK(px[0] > 250);
+    CHECK(r.f.ValidationErrors().empty());
+}

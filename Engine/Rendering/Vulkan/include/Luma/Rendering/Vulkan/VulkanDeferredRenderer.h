@@ -73,6 +73,7 @@ public:
         Attachment emissive;   // R16G16B16A16_SFLOAT (emissive radiance)
         Attachment custom;     // R8G8B8A8_UNORM (shading-model data, RT4)
         Attachment sceneColor; // copy of the lit HDR scene read by refracting translucency
+        Attachment ppInput;    // Post Process Input 0: copy of the post chain's current image
         Attachment depth;      // D32_SFLOAT
         Attachment lightAccum; // final lit result shown in the viewport
         VkSampler sampler = VK_NULL_HANDLE;
@@ -203,6 +204,10 @@ private:
     void DrawMaterialSections(const SceneInstance& inst, u32 objectId, GpuPass pass);
     // Forward pass: translucent sections back to front over the lit scene.
     void RecordTranslucency(const SceneView& source, const Math::Vec3& cameraPosition);
+    // Post-process materials at `location`, rendered in place over `target`
+    // (in SHADER_READ_ONLY before and after).
+    void RecordPostProcessMaterials(const PostProcessParams& pp, GpuPostProcessLocation location, VkImage target,
+                                    VkImageView targetView);
     // Records the depth-only cascade passes (clears every layer; draws only
     // when `enabled`) and leaves the array in SHADER_READ_ONLY for lighting.
     void RecordSunShadows(const SceneView& source,

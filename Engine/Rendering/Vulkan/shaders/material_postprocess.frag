@@ -1,6 +1,7 @@
 // material_postprocess.frag - a post-process material as a fullscreen pass:
-// Emissive Color is the pass output. Scene Texture reads the scene buffers
-// (Post Process Input 0 = the post chain's current colour).
+// Emissive Color is the pass output, blended over its input by the volume's
+// weight (pushed in lumaPush.opacityMaskClip). Scene Texture reads the scene
+// buffers (Post Process Input 0 = the post chain's current colour).
 
 layout(location = 0) in vec2 vScreenUV;
 layout(location = 0) out vec4 outColor;
@@ -28,5 +29,6 @@ void main() {
 
     MaterialPixel m = LumaDefaultPixel();
     LumaMaterialPixel(m);
-    outColor = vec4(m.emissive, 1.0);
+    vec3 input0 = texture(lumaSceneTextures[kLumaPostProcessInput0], uv).rgb;
+    outColor = vec4(mix(input0, m.emissive, clamp(lumaPush.opacityMaskClip, 0.0, 1.0)), 1.0);
 }

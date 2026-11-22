@@ -149,6 +149,13 @@ void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
         }
         for (const std::string& slot : mr.materials) used.push_back(SlotKey(slot));
     }
+    // Post-process volumes' material stacks.
+    auto volumes = scene.Registry().view<const PostProcessComponent>();
+    for (Entity e : volumes) {
+        for (const PostProcessMaterial& m : volumes.get<const PostProcessComponent>(e).materials) {
+            if (!m.material.empty()) used.push_back(SlotKey(m.material));
+        }
+    }
     std::sort(used.begin(), used.end());
     used.erase(std::unique(used.begin(), used.end()), used.end());
     for (const std::string& path : used) SyncMaterial(path, renderer, library);

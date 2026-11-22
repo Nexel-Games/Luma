@@ -198,10 +198,100 @@ void VulkanDeferredRenderer::RegisterMaterialTargets() {
     VulkanMaterialPipelines::Target selection;
     selection.colorFormats = {VulkanSelectionOutlinePass::kMaskFormat};
     m_materialPipelines->SetTarget(GpuPass::SelectionMask, selection);
+    VulkanMaterialPipelines::Target post;
+    post.colorFormats = {kLightFormat};
+    m_materialPipelines->SetTarget(GpuPass::PostProcess, post);
     VulkanMaterialPipelines::Target forward;
     forward.colorFormats = {kLightFormat};
     forward.depthFormat = kDepthFormat;
     m_materialPipelines->SetTarget(GpuPass::Forward, forward);
+}
+
+void VulkanDeferredRenderer::RecordPostProcessMaterials(const PostProcessParams& pp, GpuPostProcessLocation location,
+                                                        VkImage target, VkImageView targetView) {
+    struct Pass {
+        MaterialHandle handle;
+        const CompiledMaterialGpu* material;
+        f32 weight;
+    };
+    std::vector<Pass> passes;
+    for (const PostProcessParams::Material& m : pp.materials) {
+        if (m.weight <= 0.0f) continue;
+        const CompiledMaterialGpu* material = m_materials->Drawable(m.material);
+        if (!material || !material->HasPass(GpuPass::PostProcess) || material->ppLocation != location) continue;
+        passes.push_back({m.material, material, std::min(m.weight, 1.0f)});
+    }
+    if (passes.empty()) return;
+    std::stable_sort(passes.begin(), passes.end(),
+                     [](const Pass& a, const Pass& b) { return a.material->ppPriority < b.material->ppPriority; });
+
+    auto imageBarrier = [&](VkImage image, VkImageLayout from, VkImageLayout to, VkAccessFlags srcAccess,
+                            VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        b.srcAccessMask = srcAccess;
+        b.dstAccessMask = dstAccess;
+        vkCmdPipelineBarrier(m_commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    const VkExtent3D extent{static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height), 1};
+    const VkViewport viewport{0, 0, static_cast<f32>(extent.width), static_cast<f32>(extent.height), 0, 1};
+    const VkRect2D scissor{{0, 0}, {extent.width, extent.height}};
+    for (const Pass& pass : passes) {
+        const VkPipeline pipeline = m_materialPipelines->Get(*pass.material, GpuPass::PostProcess);
+        if (!pipeline) continue;
+        // The current image becomes Post Process Input 0 ...
+        imageBarrier(target, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT);
+        imageBarrier(m_gBuffer.ppInput.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.dstSubresource = copy.srcSubresource;
+        copy.extent = extent;
+        vkCmdCopyImage(m_commandBuffer, target, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_gBuffer.ppInput.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        imageBarrier(m_gBuffer.ppInput.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        imageBarrier(target, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        // ... and the material's output replaces it (fullscreen).
+        VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        color.imageView = targetView;
+        color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        rendering.renderArea.extent = {extent.width, extent.height};
+        rendering.layerCount = 1;
+        rendering.colorAttachmentCount = 1;
+        rendering.pColorAttachments = &color;
+        vkCmdBeginRendering(m_commandBuffer, &rendering);
+        vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
+        vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
+        BindMaterialSets(m_mainViewOffset);
+        vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        VulkanMaterialLayout::Push push{};
+        push.model = Math::Mat4::Identity();
+        push.paramOffset = m_materials->ParamOffset(pass.handle);
+        push.opacityMaskClip = pass.weight;
+        vkCmdPushConstants(m_commandBuffer, m_materialLayout->PipelineLayout(),
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
+        vkCmdEndRendering(m_commandBuffer);
+        imageBarrier(target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    }
 }
 
 void VulkanDeferredRenderer::RecordTranslucency(const SceneView& source, const Math::Vec3& cameraPosition) {
@@ -545,6 +635,7 @@ void VulkanDeferredRenderer::Cleanup() {
     DestroyAttachment(m_gBuffer.emissive);
     DestroyAttachment(m_gBuffer.custom);
     DestroyAttachment(m_gBuffer.sceneColor);
+    DestroyAttachment(m_gBuffer.ppInput);
 
     if (m_gBuffer.sampler)
         vkDestroySampler(m_device, m_gBuffer.sampler, nullptr);
@@ -620,6 +711,11 @@ bool VulkanDeferredRenderer::CreateGBuffer(int32_t width, int32_t height) {
     // Its copy for refraction (translucent materials read what is behind them).
     if (!CreateAttachment(kLightFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                           &m_gBuffer.sceneColor)) {
+        return false;
+    }
+    // Post Process Input 0 for post-process materials.
+    if (!CreateAttachment(kLightFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                          &m_gBuffer.ppInput)) {
         return false;
     }
 
@@ -1619,12 +1715,11 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     }
     std::memcpy(m_lightingUBO.mapped, &lighting, sizeof(lighting));
     {
-        // Scene textures: depth for selection; the rest get real buffers with
-        // translucency / post-process (white until then).
-        const VkImageView white = m_textures->WhiteView();
+        // Scene textures (material_frame.glsl order): scene-colour copy,
+        // depth, G-buffer A/B/C, shading-model data, Post Process Input 0.
         m_materialLayout->SetSceneTextures(m_frameSlot,
                                            {m_gBuffer.sceneColor.view, m_gBuffer.depth.view, m_gBuffer.albedo.view, m_gBuffer.normal.view,
-                                            m_gBuffer.material.view, m_gBuffer.custom.view, white},
+                                            m_gBuffer.material.view, m_gBuffer.custom.view, m_gBuffer.ppInput.view},
                                            m_gBuffer.sampler);
         VulkanMaterialLayout::Lighting l;
         l.ubo = m_lightingUBO.buffer;
@@ -1666,6 +1761,13 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         barrier(m_gBuffer.material.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         barrier(m_gBuffer.emissive.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
         barrier(m_gBuffer.custom.image, VK_IMAGE_ASPECT_COLOR_BIT, oldColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, oldColorAccess, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, oldColorStage, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        if (!m_gBufferInitialized) {
+            // Copies material shaders may sample before anything was copied
+            // into them: give them a defined, readable layout once.
+            for (VkImage image : {m_gBuffer.sceneColor.image, m_gBuffer.ppInput.image}) {
+                barrier(image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            }
+        }
     }
     barrier(m_gBuffer.depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
             m_gBufferInitialized ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1748,6 +1850,9 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
 
     // --- Translucency: forward-lit, sorted, over the opaque scene (+ grid).
     RecordTranslucency(source, scene.cameraPosition);
+    // --- Post-process materials placed before tone mapping (HDR scene).
+    RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::BeforeTonemapping,
+                               m_gBuffer.lightAccum.image, m_gBuffer.lightAccum.view);
 
     // --- HDR post: bloom + exposure + tone map (composite), then FXAA on the
     // display-encoded result. Without the composite (resource failure) FXAA
@@ -1760,8 +1865,13 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                                     source.postProcess, scene.deltaTime);
         }
         RecordBloom(source.postProcess);
+        // --- Post-process materials placed after tone mapping (display image).
+        RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::AfterTonemapping,
+                                   m_bloomCompositeOutput.image, m_bloomCompositeOutput.view);
         PointFXAAAt(m_bloomCompositeOutput.view);
     } else {
+        RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::AfterTonemapping,
+                                   m_gBuffer.lightAccum.image, m_gBuffer.lightAccum.view);
         PointFXAAAt(m_gBuffer.lightAccum.view);
     }
 
@@ -2290,7 +2400,8 @@ bool VulkanDeferredRenderer::CreateBloomResources() {
 
     // Create composite output texture
     if (!CreateAttachment(kLightFormat,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                           &m_bloomCompositeOutput)) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Failed to create bloom composite output");
         return false;

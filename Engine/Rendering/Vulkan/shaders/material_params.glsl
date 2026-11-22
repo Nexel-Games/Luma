@@ -30,7 +30,7 @@ layout(push_constant) uniform LumaPush {
     uint paramOffset;       // first vec4 of this draw's parameter block
     uint objectId;          // index into lumaObjects
     uint flags;             // reserved for pass-specific per-draw bits
-    float opacityMaskClip;  // Masked materials (instances may override it)
+    float opacityMaskClip;  // Masked materials (instances may override it); post-process: blend weight
 } lumaPush;
 
 #define MP(slot) lumaParams[lumaPush.paramOffset + uint(slot)]
