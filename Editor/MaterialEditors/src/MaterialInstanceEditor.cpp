@@ -204,13 +204,15 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
     const Slate::Theme& t = ui.theme();
     const std::string key = m_model.Path() + ".p." + p.info.name;
     // Override checkbox, then the label (dimmed while inherited).
+    // Base materials edit their defaults directly: no override checkbox.
+    const bool instanceMode = !m_model.IsMaterial();
     bool overridden = p.overridden;
     const Rect check{x + 14.0f, y + 5.0f, 16.0f, 16.0f};
-    if (ui.Checkbox(Context::ID(key + ".ovr"), check, {}, overridden)) {
+    if (instanceMode && ui.Checkbox(Context::ID(key + ".ovr"), check, {}, overridden)) {
         m_model.SetOverride(p.info.name, overridden);
     }
     f32 rowY = y;
-    Rect field = Row(ui, p.info.name, x, rowY, w - 24.0f, !p.overridden, 36.0f);
+    Rect field = Row(ui, p.info.name, x, rowY, w - 24.0f, instanceMode && !p.overridden, instanceMode ? 36.0f : 14.0f);
     ui.Panel({x + w - 24.0f, y + kRowH - 1.0f, 24.0f, 1.0f}, kDividerColor);  // row line under the reset column
     if (!p.info.description.empty()) {
         ui.Tooltip(Context::ID(key + ".tip"), {x + 36.0f, y, kLabelW - 36.0f, kRowH}, p.info.description);
@@ -283,7 +285,7 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
         m_model.SetValue(v);
     }
     // Reset to parent (UE's yellow arrow), only while overridden.
-    if (p.overridden) {
+    if (instanceMode && p.overridden) {
         const Rect reset{x + w - 22.0f, y + 3.0f, 20.0f, 20.0f};
         if (ui.Button(Context::ID(key + ".reset"), reset, {})) m_model.Reset(p.info.name);
         if (const TextureHandle arrow = IconTexture(m_services, EditorIcon::Reset)) {
@@ -307,7 +309,12 @@ void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
 
     Section(ui, "mie.general." + m_model.Path(), "General", m_generalOpen, x, y, w);
     if (m_generalOpen) {
-        DrawParentSlot(ui, x, y, w);
+        if (m_model.IsMaterial()) {
+            ui.LabelIn({x + 12.0f, y, w - 12.0f, kRowH}, "Base material: editing its parameter defaults.", t.textDim);
+            y += kRowH;
+        } else {
+            DrawParentSlot(ui, x, y, w);
+        }
         if (!m_parentError.empty()) {
             ui.LabelIn({x + kLabelW, y, w - kLabelW, 18.0f}, m_parentError, t.error);
             y += 20.0f;

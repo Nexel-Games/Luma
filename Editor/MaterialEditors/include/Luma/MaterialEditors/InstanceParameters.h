@@ -38,6 +38,9 @@ public:
 
     const std::string& Path() const { return m_path; }
     bool Valid() const;
+    // The path is a base material (not an instance): the editor shows its
+    // parameters and SetValue edits their default values on the graph.
+    bool IsMaterial() const;
     bool IsDirty() const;
     bool Save(std::string* error);
 

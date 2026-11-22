@@ -15,6 +15,7 @@
 #include "Luma/Asset/LumaMesh.h"
 #include "Luma/Core/Registration.h"
 #include "Luma/Editor/Panels/ImportDialog.h"
+#include "Luma/Editor/AssetWindows.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
 #include "Luma/Editor/PanelRegistry.h"
 #include "Luma/Editor/SettingsPageRegistry.h"
@@ -202,7 +203,8 @@ private:
     // Material Editor tabs (one per open asset).
     void OpenMaterialEditor(const std::string& assetPath);
     // Node-graph Material Editor / Material Instance Editor (graph assets).
-    bool OpenGraphMaterialEditor(const std::string& assetPath);
+    // editor: "" = default (the Instance Editor), "instance", "material".
+    bool OpenGraphMaterialEditor(const std::string& assetPath, const std::string& editor = {});
     MaterialEditors::MaterialEditorServices MakeMaterialEditorServices();
     void LoadMaterialEditorAssets();
     bool IsGraphEditor(const std::string& assetPath) const;
@@ -362,6 +364,10 @@ private:
     std::string m_uiFontPath;  // the UI font file (Content/Editor/Fonts/...), for the editors' extra sizes
     bool m_materialEditorAssetsLoaded = false;
     std::string m_closingEditor;                // dirty tab awaiting Save/Discard/Cancel
+    std::string m_closingWindow;                // its asset window id ("" = a dock tab)
+    // Asset editor windows (window row above the toolbar; Home = level editor).
+    Editor::AssetWindowManager m_windows;
+    Slate::Rect m_windowWorkArea{0, 60, 1280, 640};  // under the row, above the status bar
     std::vector<std::string> m_editorsToDelete;  // closed tabs, freed after the dock draws
     bool m_closeRequested = false;
     bool m_closeConfirmed = false;
