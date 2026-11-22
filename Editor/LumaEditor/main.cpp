@@ -14,6 +14,9 @@
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/MenuRegistry.h"
 #include "Luma/Editor/ProjectBrowser.h"
+#include "Luma/Graphics/GraphicsSettings.h"
+#include "Luma/Profiling/FrameLimiter.h"
+#include "Luma/Profiling/Profiler.h"
 #include "Luma/Platform/Process.h"
 #include "Luma/Platform/Window.h"
 #include "Luma/RHI/Renderer.h"
@@ -33,6 +36,7 @@
 #include "Luma/Jobs/JobSystem.h"
 #include "Luma/Tasks/TaskManager.h"
 #include "SplashScreen.h"
+#include "SettingsWindow.h"
 
 #include <vulkan/vulkan.h>
 
@@ -106,6 +110,28 @@ void FeedEvent(Slate::Context& ui, Event& e, bool& running, EditorScreen* editor
     });
 }
 
+// Vulkan validation layers cost a lot of CPU per draw call, so they are on
+// only in Debug builds, with --vulkan-validation, or LUMA_VULKAN_VALIDATION=1.
+bool WantValidation(bool flag) {
+    if (flag) return true;
+    if (const char* env = std::getenv("LUMA_VULKAN_VALIDATION")) {
+        return env[0] != '\0' && env[0] != '0';
+    }
+#if defined(LUMA_CONFIG_DEBUG)
+    return true;
+#else
+    return false;
+#endif
+}
+
+// Applies the render scale to a viewport size in UI points: DPI-aware (the
+// UI is laid out in points), clamped to 4K so a huge scale can't exhaust VRAM.
+u32 ScaledViewportExtent(f32 points, f32 dpi, f32 renderScale, u32 maxPixels) {
+    const f32 pixels = points * std::max(dpi, 1.0f) * renderScale + 0.5f;
+    const u32 n = pixels > 1.0f ? static_cast<u32>(pixels) : 1u;
+    return n < maxPixels ? n : maxPixels;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -136,6 +162,13 @@ int main(int argc, char** argv) {
     // --preview-capture <material virtual path> <png>: material preview capture
     std::string previewMaterial;
     std::string previewPng;
+    // --benchmark <frames>: measure that many frames (after --benchmark-warmup,
+    // default 120), log the averaged stats, write --benchmark-out <json>, exit.
+    int benchmarkFrames = 0;
+    int benchmarkWarmup = 120;
+    std::string benchmarkOut;
+    std::string benchmarkLabel = "editor";
+    bool validationFlag = false;
     bool editorMode = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -150,6 +183,16 @@ int main(int argc, char** argv) {
             selectName = argv[++i];
         } else if (arg == "--menu" && i + 1 < argc) {
             menuCommands.emplace_back(argv[++i]);
+        } else if (arg == "--benchmark" && i + 1 < argc) {
+            benchmarkFrames = std::max(1, std::atoi(argv[++i]));
+        } else if (arg == "--benchmark-warmup" && i + 1 < argc) {
+            benchmarkWarmup = std::max(0, std::atoi(argv[++i]));
+        } else if (arg == "--benchmark-out" && i + 1 < argc) {
+            benchmarkOut = argv[++i];
+        } else if (arg == "--benchmark-label" && i + 1 < argc) {
+            benchmarkLabel = argv[++i];
+        } else if (arg == "--vulkan-validation") {
+            validationFlag = true;
         } else if (arg == "--preview-capture" && i + 2 < argc) {
             previewMaterial = argv[++i];
             previewPng = argv[++i];
@@ -184,9 +227,24 @@ int main(int argc, char** argv) {
     props.height = editorMode ? 820u : 640u;
     std::unique_ptr<Window> window = Window::Create(props);
 
+    // Graphics settings the renderer needs at creation (present mode, texture
+    // filtering). The editor's Project Settings pages own the live copy.
+    Graphics::GraphicsSettings startupGraphics;
+    if (editorMode && !projectFile.empty()) {
+        const auto projectRoot = Luma::VFS::ProjectRootFromFile(projectFile);
+        std::string error;
+        if (!projectRoot.empty() && !Graphics::LoadFromConfigDir(projectRoot / "Config", startupGraphics, &error)) {
+            LUMA_USER_WARN("Graphics", "{}; using default graphics settings", error);
+        }
+    }
     RendererConfig rc;
     rc.appName = "Luma Editor";
-    rc.vsync = true;
+    rc.enableValidation = WantValidation(validationFlag);
+    // The project browser stays on VSync (it is idle UI); the editor follows
+    // the project's Display settings.
+    rc.presentMode = editorMode ? Graphics::EffectivePresentMode(startupGraphics.display) : PresentMode::Fifo;
+    rc.maxAnisotropy = startupGraphics.rendering.maxAnisotropy;
+    rc.textureMipBias = startupGraphics.rendering.textureMipBias;
     std::unique_ptr<Renderer> renderer = CreateVulkanRenderer(*window, rc);
 
     ThumbnailManager::Get().Initialize();
@@ -383,6 +441,9 @@ int main(int argc, char** argv) {
         editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
         editor->SetBackgroundServices(&jobs, &tasks);
+        editor->SetActivePresentModeQuery([r = renderer.get()] {
+            return std::string(Graphics::ToString(r->ActivePresentMode()));
+        });
         if (!previewMaterial.empty() &&
             !editor->CapturePreview(previewMaterial, previewPng, 256)) {
             LUMA_LOG_ERROR("Editor", "--preview-capture failed for '{}'", previewMaterial);
@@ -437,52 +498,103 @@ int main(int argc, char** argv) {
     constexpr f32 kSplashDuration = 1.6f;
     f32 splashTime = 0.0f;
     // For a screenshot, skip the splash and capture after the UI settles.
-    if (!screenshotPath.empty()) splashTime = kSplashDuration;
+    if (!screenshotPath.empty() || benchmarkFrames > 0) splashTime = kSplashDuration;
     int frameCount = 0;
     const int kCaptureFrame = 30;
 
     LUMA_LOG_INFO("Editor", "starting in {} mode",
                   editorMode ? "editor" : "project-browser");
 
+    SettingsWindow projectSettings(EditorScreen::SettingsKind::Project, FeedEvent);
+    SettingsWindow preferences(EditorScreen::SettingsKind::Preferences, FeedEvent);
+    const auto settingsIcon = FindEditorAsset("luma_icon.png");
+    const auto settingsAtlas = FindEditorAsset("Icons/SlateIcons.png");
     FrameClock clock;
+    Profiling::FrameLimiter limiter;
+    Profiling::Profiler& profiler = Profiling::Global();
+    auto lastFlush = Profiling::Clock::now();
+    int benchmarkFrame = 0;
     while (running && !window->ShouldClose()) {
-        window->PollEvents();
+        // Frame pacing first, so the wait counts in the frame time but not in
+        // the CPU time. The browser relies on VSync instead.
+        if (editor) {
+            const auto& display = editor->GraphicsSettings().display;
+            const bool focused = (window->IsFocused() && !window->IsMinimized()) ||
+                                 projectSettings.Focused() || preferences.Focused();
+            limiter.Wait(benchmarkFrames > 0 ? 0.0
+                                             : Graphics::EffectiveFrameRateLimit(display, focused));
+        }
+        profiler.BeginFrame();
+        struct FrameEnd {
+            ~FrameEnd() { Profiling::Global().EndFrame(); }
+        } frameEnd;
+        {
+            LUMA_PROFILE_SCOPE("Poll Events");
+            window->PollEvents();
+        }
         if (editor) {
             if (editor->CloseConfirmed()) break;
             window->SetShouldClose(false);  // closing waits for the prompt
+            // Live settings: a present-mode change rebuilds the swapchain
+            // before the next frame (no restart).
+            renderer->SetPresentMode(Graphics::EffectivePresentMode(editor->GraphicsSettings().display));
         }
         Timestep dt = clock.Tick();
         // Main-thread job completions (GPU uploads, pipeline creation...) and
         // task bookkeeping, before this frame's UI reads them.
-        jobs.RunMainThreadJobs(2.0);
-        tasks.Update(static_cast<f64>(dt));
+        {
+            LUMA_PROFILE_SCOPE("Main-Thread Jobs");
+            jobs.RunMainThreadJobs(2.0);
+            tasks.Update(static_cast<f64>(dt));
+        }
+
+        // Benchmark: warm up, then average a fixed number of frames.
+        if (benchmarkFrames > 0 && editor && splashTime >= kSplashDuration) {
+            if (benchmarkFrame == benchmarkWarmup) profiler.StartCapture();
+            if (benchmarkFrame == benchmarkWarmup + benchmarkFrames) {
+                profiler.StopCapture();
+                const Profiling::FrameStats total = profiler.TotalAverage();
+                LUMA_LOG_INFO("Benchmark", "[{}] {} frames (after {} warm-up)\n{}", benchmarkLabel,
+                              total.frames, benchmarkWarmup, Profiling::FormatReport(total));
+                if (!benchmarkOut.empty() && !Profiling::WriteReportJson(total, benchmarkOut, benchmarkLabel)) {
+                    LUMA_LOG_ERROR("Benchmark", "could not write {}", benchmarkOut);
+                }
+                running = false;
+                break;
+            }
+            ++benchmarkFrame;
+        }
 
         // Render the 3D scene into the editor viewport (using last frame's rect),
         // before opening the swapchain frame.
         if (editorMode && editor && splashTime >= kSplashDuration) {
-            editor->TickSimulation(dt.Seconds());
+            {
+                LUMA_PROFILE_SCOPE("Simulation");
+                editor->TickSimulation(dt.Seconds());
+            }
             Slate::Rect vp = editor->ViewportRect();
             if (vp.w > 4.0f && vp.h > 4.0f) {
                 // Use ONLY Vulkan deferred renderer for viewport
                 if (deferredRendererPtr) {
                     auto* vulkanDeferredRenderer = static_cast<Rendering::VulkanDeferredRenderer*>(deferredRendererPtr);
                     
-                    // Render the 3D view at framebuffer density (and 1.5× on
-                    // 96-DPI) so the panel samples a sharper image instead of
-                    // stretching a low-res target. Aspect still matches vp.
+                    // Render the 3D view at framebuffer density times the
+                    // project's render scale (Rendering Quality page). Aspect
+                    // still matches vp.
+                    const auto& rendering = editor->GraphicsSettings().rendering;
                     const f32 dpi = window->ContentScale();
-                    const f32 quality = dpi > 1.05f ? dpi : 1.5f;
-                    const u32 rw = static_cast<u32>(vp.w * quality + 0.5f);
-                    const u32 rh = static_cast<u32>(vp.h * quality + 0.5f);
-                    const u32 viewW = rw > 0 ? (rw < 3840u ? rw : 3840u) : 1u;
-                    const u32 viewH = rh > 0 ? (rh < 2160u ? rh : 2160u) : 1u;
+                    const u32 viewW = ScaledViewportExtent(vp.w, dpi, rendering.renderScale, 3840u);
+                    const u32 viewH = ScaledViewportExtent(vp.h, dpi, rendering.renderScale, 2160u);
 
-                    Renderer2::DeferredSceneView deferredScene =
-                        editor->BuildDeferredSceneView(viewW, viewH, dt.Seconds());
+                    Renderer2::DeferredSceneView deferredScene;
+                    {
+                        LUMA_PROFILE_SCOPE("Scene View Build");
+                        deferredScene = editor->BuildDeferredSceneView(viewW, viewH, dt.Seconds());
+                    }
 
                     vulkanDeferredRenderer->SetViewportDimensions(
                         static_cast<i32>(viewW), static_cast<i32>(viewH));
-                    vulkanDeferredRenderer->PrepareScene();
+                    vulkanDeferredRenderer->SetQuality(Graphics::ToRenderQuality(rendering));
                     vulkanDeferredRenderer->RenderScene(deferredScene);
                     
                     // The deferred renderer owns the UI texture handle for its
@@ -498,7 +610,12 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (editor) {
+            projectSettings.Tick(*editor, type, rc.enableValidation, settingsIcon, settingsAtlas, dt.Seconds());
+            preferences.Tick(*editor, type, rc.enableValidation, settingsIcon, settingsAtlas, dt.Seconds());
+        }
         if (!renderer->BeginFrame()) continue;
+        Profiling::CpuScope uiScope("UI (Slate)");
         ui.BeginFrame(static_cast<f32>(window->Width()),
                       static_cast<f32>(window->Height()), dt);
 
@@ -529,7 +646,10 @@ int main(int argc, char** argv) {
             }
         }
 
-        renderer->DrawUI(ui.EndFrame());
+        {
+            LUMA_PROFILE_SCOPE("UI Record");
+            renderer->DrawUI(ui.EndFrame());
+        }
         window->SetCursor(ui.RequestedCursor());
         // Spin-box scrubbing: hide + lock the pointer while a drag wants it;
         // when the drag ends, unlock and put the cursor back where it began.
@@ -545,9 +665,13 @@ int main(int argc, char** argv) {
             renderer->CaptureFrame(screenshotPath);
         }
         renderer->EndFrame();
-        
+
         // Flush logs periodically to ensure they're written to disk
-        Luma::Log::Flush();
+        if (Profiling::Clock::now() - lastFlush >= std::chrono::seconds(1)) {
+            lastFlush = Profiling::Clock::now();
+            LUMA_PROFILE_SCOPE("Log Flush");
+            Luma::Log::Flush();
+        }
 
         if (!screenshotPath.empty() && frameCount >= kCaptureFrame) {
             running = false;  // captured; exit

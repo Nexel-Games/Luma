@@ -77,12 +77,15 @@ VulkanRenderer::VulkanRenderer(Window& window, const RendererConfig& config)
         m_device->GraphicsQueue(), m_swapchain->Format(), kFramesInFlight,
         LUMA_SHADER_DIR);
 
+    if (!config.enableSceneRendering) return;
+
     // Vulkan deferred renderer for the editor viewport. It renders into an
     // offscreen G-Buffer + light-accumulation image that is registered with
     // the UI pass so the viewport panel can display it.
     m_vulkanDeferredRenderer = std::make_unique<Rendering::VulkanDeferredRenderer>(
         m_device->Physical(), m_device->Logical(), m_device->GraphicsQueue(),
-        m_device->Queues().graphics.value(), *m_uiPass, LUMA_SHADER_DIR);
+        m_device->Queues().graphics.value(), *m_uiPass, LUMA_SHADER_DIR, false, "",
+        config.maxAnisotropy, config.textureMipBias);
 
     if (!m_vulkanDeferredRenderer->Initialize(1920, 1080)) {
         LUMA_LOG_ERROR("Vulkan", "Failed to initialize Vulkan deferred renderer");
@@ -99,7 +102,8 @@ VulkanRenderer::VulkanRenderer(Window& window, const RendererConfig& config)
             m_device->Physical(), m_device->Logical(),
             m_device->GraphicsQueue(), m_device->Queues().graphics.value(),
             *m_uiPass, LUMA_SHADER_DIR, /*useEnvironment=*/true,
-            std::string(LUMA_CONTENT_DIR) + "/skybox/DayEnvironmentHDRI089_4K_HDR.exr");
+            std::string(LUMA_CONTENT_DIR) + "/skybox/DayEnvironmentHDRI089_4K_HDR.exr",
+            config.maxAnisotropy, config.textureMipBias);
     // The material preview shows the HDRI (blurred) as its backdrop and lights
     // with it (Unreal's preview scene).
 

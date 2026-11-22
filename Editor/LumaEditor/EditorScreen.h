@@ -75,6 +75,10 @@ public:
     void TickSimulation(f64 seconds) { m_runner.Tick(seconds); }
 
     void Draw(Slate::Context& ui, f32 width, f32 height);
+    enum class SettingsKind { Project, Preferences };
+    bool SettingsOpen(SettingsKind kind) const;
+    void CloseSettings(SettingsKind kind);
+    void DrawSettings(SettingsKind kind, Slate::Context& ui, f32 width, f32 height);
 
     // Persists the latest rendered editor frame as the project-browser card
     // preview. The renderer must still be alive when this is called.
@@ -87,7 +91,7 @@ public:
     // Reported on the Display page ("Swapchain is using: ...").
     void SetActivePresentModeQuery(std::function<std::string()> query) { m_activePresentMode = std::move(query); }
 
-    Slate::Rect ViewportRect() const { return m_preferencesOpen ? Slate::Rect{} : m_viewportPanel.Rect(); }
+    Slate::Rect ViewportRect() const { return m_viewportPanel.Rect(); }
     void SetViewportTexture(TextureHandle texture) {
         m_viewportPanel.SetTexture(texture);
     }

@@ -32,7 +32,7 @@ VulkanOverlayLinePass::VulkanOverlayLinePass(VkPhysicalDevice physical, VkDevice
                                              const std::string& shaderDir,
                                              VkFormat colorFormat, VkFormat depthFormat)
     : m_device(device) {
-    m_vertices = CreateBuffer(physical, device, sizeof(Vertex) * kMaxVertices,
+    m_vertices = CreateBuffer(physical, device, sizeof(Vertex) * kMaxVertices * 2,
                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -144,7 +144,7 @@ VulkanOverlayLinePass::~VulkanOverlayLinePass() {
 
 void VulkanOverlayLinePass::Record(VkCommandBuffer cmd, const LineVertex* lines,
                                    u32 vertexCount, const Math::Mat4& viewProj, u32 width,
-                                   u32 height, f32 thicknessPx) {
+                                   u32 height, f32 thicknessPx, u32 slot) {
     if (!Valid() || !lines || vertexCount < 2 || width == 0 || height == 0) return;
     m_scratch.clear();
     const f32 halfW = static_cast<f32>(width) * 0.5f;
@@ -196,7 +196,8 @@ void VulkanOverlayLinePass::Record(VkCommandBuffer cmd, const LineVertex* lines,
     }
     if (m_scratch.empty()) return;
 
-    std::memcpy(m_vertices.mapped, m_scratch.data(), m_scratch.size() * sizeof(Vertex));
+    const VkDeviceSize offset = (slot % 2) * kMaxVertices * sizeof(Vertex);
+    std::memcpy(static_cast<u8*>(m_vertices.mapped) + offset, m_scratch.data(), m_scratch.size() * sizeof(Vertex));
     VkViewport viewport{0.0f, 0.0f, static_cast<f32>(width), static_cast<f32>(height), 0.0f, 1.0f};
     VkRect2D scissor{{0, 0}, {width, height}};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -205,7 +206,6 @@ void VulkanOverlayLinePass::Record(VkCommandBuffer cmd, const LineVertex* lines,
     const f32 pushData[4] = {halfThick, 1.0f, 0.0f, 0.0f};  // half width, feather
     vkCmdPushConstants(cmd, m_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushData),
                        pushData);
-    VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &m_vertices.buffer, &offset);
     vkCmdDraw(cmd, static_cast<u32>(m_scratch.size()), 1, 0, 0);
 }

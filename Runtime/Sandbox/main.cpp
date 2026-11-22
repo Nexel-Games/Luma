@@ -1,7 +1,8 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
-#include <thread>
+#include "Luma/Graphics/GraphicsSettings.h"
+#include "Luma/Profiling/FrameLimiter.h"
 
 #include "Luma/Core/Application.h"
 #include "Luma/Core/Config.h"
@@ -45,7 +46,7 @@ Config LoadEngineConfig() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     Log::Init(LogLevel::Trace);
 
     // Touch the VFS first so it mounts Engine/ before anything else needs it.
@@ -62,6 +63,20 @@ int main() {
     Log::AddSink(Log::MakeFileSink("Saved/Logs/Luma.log"));
 
     LUMA_LOG_INFO("Boot", "starting {}", EngineVersionString());
+
+    Graphics::GraphicsSettings graphics;
+    if (argc > 1) {
+        if (argc != 3 || std::string_view(argv[1]) != "--project" ||
+            !std::filesystem::is_regular_file(argv[2])) {
+            LUMA_LOG_ERROR("Boot", "Expected --project <existing project file>");
+            return 2;
+        }
+        const auto root = VFS::ProjectRootFromFile(std::filesystem::absolute(argv[2]));
+        vfs.Mount(VFS::Root::Project, root);
+        std::string error;
+        if (!Graphics::LoadFromConfigDir(root / "Config", graphics, &error))
+            LUMA_LOG_WARN("Graphics", "{}", error);
+    }
 
     Config cfg = LoadEngineConfig();
 
@@ -81,8 +96,10 @@ int main() {
 
     RendererConfig rendererConfig;
     rendererConfig.appName = spec.name;
-    rendererConfig.enableValidation = true;
-    rendererConfig.vsync = cfg.GetBool("Window.vsync", true);
+    if (argc == 1) graphics.display.vsync = cfg.GetBool("Window.vsync", true);
+    rendererConfig.presentMode = Graphics::EffectivePresentMode(graphics.display);
+    rendererConfig.maxAnisotropy = graphics.rendering.maxAnisotropy;
+    rendererConfig.textureMipBias = graphics.rendering.textureMipBias;
     std::unique_ptr<Renderer> renderer =
         CreateVulkanRenderer(*window, rendererConfig);
     renderer->SetClearColor(ClearColor{0.10f, 0.12f, 0.16f, 1.0f});
@@ -101,6 +118,7 @@ int main() {
 
     LUMA_LOG_INFO("Boot", "entering main loop");
     FrameClock clock;
+    Profiling::FrameLimiter limiter;
     f32 fpsAccum = 0.0f;
     int frames = 0;
     while (app.IsRunning() && !window->ShouldClose()) {
@@ -124,8 +142,8 @@ int main() {
             frames = 0;
         }
 
-        // Without vsync/rendering, yield briefly so we don't spin a core at 100%.
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        limiter.Wait(Graphics::EffectiveFrameRateLimit(graphics.display,
+                          window->IsFocused() && !window->IsMinimized()));
     }
 
     LUMA_LOG_INFO("Boot", "main loop exited; shutting down");

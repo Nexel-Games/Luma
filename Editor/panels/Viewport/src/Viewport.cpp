@@ -1,3 +1,5 @@
+#include "Luma/Profiling/Profiler.h"
+#include <format>
 #include "Luma/Editor/Panels/Viewport.h"
 
 #include <algorithm>
@@ -425,16 +427,39 @@ Slate::Rect ViewportPanel::DrawTransformToolbar(Slate::Context& ui, const Slate:
 }
 
 void ViewportPanel::DrawStats(Slate::Context& ui, const Slate::Rect& body, f32 top) {
-    if (!m_settings.showStats || m_frameMs <= 0.0f) return;
-    Slate::Theme& t = ui.theme();
-    char buf[48];
-    std::snprintf(buf, sizeof(buf), "%.2f ms   %.0f FPS", m_frameMs, 1000.0f / m_frameMs);
-    const Slate::Font& mono = ui.monoFont();
-    const f32 w = mono.Measure(buf).x + 16.0f;
-    const Slate::Rect r{body.Right() - w - kInset, top, w, kPillH};
-    ui.drawList().AddRectFilledRounded(r, t.surface0.WithAlpha(200), t.radius.sm);
-    const Color c = m_frameMs <= 17.5f ? t.success : (m_frameMs <= 34.0f ? t.warning : t.error);
-    ui.drawList().AddText(mono, {r.x + 8.0f, r.y + (r.h - mono.LineHeight()) * 0.5f}, buf, c);
+    const auto& stats = Profiling::Global().Average();
+    if (!m_settings.showStats || !stats.frames) return;
+    const auto& t = ui.theme();
+    const auto& font = ui.monoFont();
+    const auto& c = stats.counters;
+    const std::string summary = std::format("{:.0f} FPS   Frame {:.2f}   CPU {:.2f}   GPU {:.2f} ms",
+                                            stats.fps, stats.frameMs, stats.cpuMs, stats.gpuMs);
+    const std::string geometry = std::format("{} draws   {} triangles   {} / {} instances culled",
+                                             c.drawCalls, c.triangles, c.culledInstances, c.instances);
+    const f32 line = font.LineHeight();
+    const f32 w = std::min(body.w, std::max({font.Measure(summary).x, font.Measure(geometry).x, 560.0f}) + 16);
+    const f32 h = std::min(body.Bottom() - top, (3 + std::max(stats.cpu.size(), stats.gpu.size())) * line + 12);
+    if (h <= 0) return;
+    const Slate::Rect box{body.Right() - w, top, w, h};
+    ui.PushClip(box);
+    ui.drawList().AddRectFilledRounded(box, t.surface0.WithAlpha(220), t.radius.sm);
+    const f32 x = box.x + 8, y = top + 5;
+    auto label = [&](f32 px, f32 py, const std::string& value) {
+        ui.drawList().AddText(font, {px, py}, value, t.text);
+    };
+    label(x, y, summary);
+    label(x, y + line, geometry);
+    auto column = [&](f32 px, const char* heading, const std::vector<Profiling::Timing>& times) {
+        label(px, y + line * 2, heading);
+        f32 row = y + line * 3;
+        for (const auto& timing : times) {
+            label(px + timing.depth * 6, row, std::format("{} {:.2f}", timing.name, timing.ms));
+            row += line;
+        }
+    };
+    column(x, "CPU scopes (ms)", stats.cpu);
+    column(x + w * 0.5f, "GPU passes (ms)", stats.gpu);
+    ui.PopClip();
 }
 
 // --- Navigation (Unreal level-editor controls) ---------------------------------------

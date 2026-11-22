@@ -78,7 +78,7 @@ u32 VulkanTextureCache::MipCountFor(u32 width, u32 height) {
 }
 
 VulkanTextureCache::VulkanTextureCache(VkPhysicalDevice physical, VkDevice device,
-                                       VkQueue queue, u32 queueFamily, u32 maxTextures)
+                                       VkQueue queue, u32 queueFamily, u32 maxTextures, u32 anisotropy, f32 mipBias)
     : m_physical(physical), m_device(device), m_queue(queue) {
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
@@ -87,7 +87,7 @@ VulkanTextureCache::VulkanTextureCache(VkPhysicalDevice physical, VkDevice devic
         LUMA_LOG_ERROR("TextureCache", "Failed to create the upload command pool");
         return;
     }
-    if (!CreateSamplers() || !CreateDescriptors(maxTextures) || !CreateWhiteCube()) {
+    if (!CreateSamplers(anisotropy, mipBias) || !CreateDescriptors(maxTextures) || !CreateWhiteCube()) {
         LUMA_LOG_ERROR("TextureCache", "Failed to create the bindless texture table");
         return;
     }
@@ -128,7 +128,7 @@ VulkanTextureCache::~VulkanTextureCache() {
     if (m_pool) vkDestroyCommandPool(m_device, m_pool, nullptr);
 }
 
-bool VulkanTextureCache::CreateSamplers() {
+bool VulkanTextureCache::CreateSamplers(u32 anisotropy, f32 mipBias) {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(m_physical, &props);
     const VkSamplerAddressMode addresses[3] = {VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -142,7 +142,8 @@ bool VulkanTextureCache::CreateSamplers() {
             info.mipmapMode = nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
             info.addressModeU = info.addressModeV = info.addressModeW = addresses[a];
             info.anisotropyEnable = filter == GpuSamplerFilter::Anisotropic ? VK_TRUE : VK_FALSE;
-            info.maxAnisotropy = info.anisotropyEnable ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
+            info.mipLodBias = std::clamp(mipBias, -props.limits.maxSamplerLodBias, props.limits.maxSamplerLodBias);
+            info.maxAnisotropy = info.anisotropyEnable ? std::clamp(static_cast<f32>(anisotropy), 1.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
             info.minLod = 0.0f;
             info.maxLod = filter == GpuSamplerFilter::LinearNoMips ? 0.0f : VK_LOD_CLAMP_NONE;
             const u32 index = GpuSamplerIndex(filter, static_cast<GpuSamplerAddress>(a));

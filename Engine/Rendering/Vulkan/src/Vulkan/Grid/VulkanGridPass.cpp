@@ -30,7 +30,11 @@ VulkanGridPass::VulkanGridPass(VkPhysicalDevice physical, VkDevice device,
                                VkFormat colorFormat, VkFormat depthFormat)
     : m_device(device) {
     // Params UBO (host-visible, persistently mapped) + its descriptor set.
-    m_ubo = CreateBuffer(physical, device, sizeof(GridUBO),
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(physical, &props);
+    const auto align = props.limits.minUniformBufferOffsetAlignment;
+    m_stride = static_cast<u32>((sizeof(GridUBO) + align - 1) / align * align);
+    m_ubo = CreateBuffer(physical, device, m_stride * 2,
                          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -38,7 +42,7 @@ VulkanGridPass::VulkanGridPass(VkPhysicalDevice physical, VkDevice device,
 
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     binding.descriptorCount = 1;
     binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo slInfo{};
@@ -47,7 +51,7 @@ VulkanGridPass::VulkanGridPass(VkPhysicalDevice physical, VkDevice device,
     slInfo.pBindings = &binding;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &slInfo, nullptr, &m_setLayout));
 
-    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1};
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.maxSets = 1;
@@ -68,7 +72,7 @@ VulkanGridPass::VulkanGridPass(VkPhysicalDevice physical, VkDevice device,
     write.dstSet = m_set;
     write.dstBinding = 0;
     write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     write.pBufferInfo = &bufInfo;
     vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
@@ -187,7 +191,7 @@ VulkanGridPass::~VulkanGridPass() {
 }
 
 void VulkanGridPass::Record(VkCommandBuffer cmd, const GridParams& grid,
-                            const Math::Mat4& view, const Math::Mat4& viewProj) {
+                            const Math::Mat4& view, const Math::Mat4& viewProj, u32 slot) {
     using namespace Math;
     Mat4 invView = Inverse(view);
 
@@ -209,7 +213,8 @@ void VulkanGridPass::Record(VkCommandBuffer cmd, const GridParams& grid,
     ubo.params[1] = static_cast<f32>(grid.majorEvery);
     ubo.params[2] = grid.fadeStart;
     ubo.params[3] = grid.fadeEnd;
-    std::memcpy(m_ubo.mapped, &ubo, sizeof(ubo));
+    const u32 offset = (slot % 2) * m_stride;
+    std::memcpy(static_cast<u8*>(m_ubo.mapped) + offset, &ubo, sizeof(ubo));
 
     GridPush pc{};
     pc.invViewProj = Inverse(viewProj);
@@ -217,7 +222,7 @@ void VulkanGridPass::Record(VkCommandBuffer cmd, const GridParams& grid,
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_layout, 0, 1,
-                            &m_set, 0, nullptr);
+                            &m_set, 1, &offset);
     vkCmdPushConstants(cmd, m_layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(GridPush), &pc);

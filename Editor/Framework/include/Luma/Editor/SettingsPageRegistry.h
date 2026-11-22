@@ -35,6 +35,7 @@ struct SettingsPageDesc {
     std::function<SerialValue()> save;
     // Draws the page body; returns true when the user changed a value.
     std::function<bool(Slate::Context&, const Slate::Rect&)> draw;
+    f32 contentHeight = 0;  // scrollable page height in UI points
 };
 
 class SettingsPageRegistry {

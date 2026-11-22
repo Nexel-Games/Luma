@@ -41,7 +41,7 @@ struct VulkanTestFixture {
         Luma::RendererConfig rc;
         rc.appName = "Luma Vulkan Test";
         rc.enableValidation = true;
-        rc.vsync = false;
+        rc.presentMode = Luma::PresentMode::Immediate;
         renderer = Luma::CreateVulkanRenderer(*window, rc);
         device = static_cast<Luma::VulkanDevice*>(renderer->GetVulkanDevice());
     }

@@ -1956,21 +1956,32 @@ void EditorScreen::PollImport() {
     m_importSession.reset();
 }
 
+bool EditorScreen::SettingsOpen(SettingsKind kind) const {
+    return kind == SettingsKind::Project ? m_projectSettings.IsOpen() : m_preferencesOpen;
+}
+
+void EditorScreen::CloseSettings(SettingsKind kind) {
+    if (kind == SettingsKind::Project) m_projectSettings.Close();
+    else {
+        m_preferences.SaveChanges();
+        m_preferencesOpen = false;
+    }
+}
+
+void EditorScreen::DrawSettings(SettingsKind kind, Slate::Context& ui, f32 width, f32 height) {
+    if (kind == SettingsKind::Project) m_projectSettings.Draw(ui, width, height);
+    else {
+        m_preferencesOpen = m_preferences.Draw(ui, width, height);
+        if (!ui.isMouseDown(0) || !m_preferencesOpen) m_preferences.SaveChanges();
+    }
+}
+
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     ui.drawList().SetAntiAliased(true);       // smooth (anti-aliased) edges across the editor UI
     m_uiFontPath = ui.theme().type.uiRegular;  // the material editors load extra sizes of it
     PollTranslate();
     PollImport();
     if (m_sourceWatch) m_sourceWatch->Update();
-    // A full workspace page owns input. An incoming import or close prompt
-    // returns to the level editor, where the existing dialog flow lives.
-    if (m_closeRequested || m_importDialog.IsOpen()) m_preferencesOpen = false;
-    if (m_preferencesOpen) {
-        m_preferencesOpen = m_preferences.Draw(ui, width, height);
-        if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
-        return;
-    }
-    if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
     Slate::Theme& t = ui.theme();
     if (!m_layoutBuilt) {
         m_panelHost->BuildLayout();
@@ -2136,7 +2147,6 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
     }
     if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
-    m_projectSettings.Draw(ui, width, height);
     DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
     if (m_importDialog.IsOpen()) {

@@ -1,3 +1,4 @@
+#include <unordered_map>
 #include "Luma/Editor/Panels/WorldOutliner.h"
 
 #include <algorithm>
@@ -105,6 +106,8 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         }
         struct RowItem { Entity entity; int depth; };
         std::vector<RowItem> visible;
+        std::unordered_map<Entity, std::vector<Entity>> children;
+        for (Entity entity : view) children[ParentOf(*ctx.scene, entity)].push_back(entity);
         auto matches = [&](Entity entity) {
             if (needle.empty()) return true;
             std::string ln = view.get<const NameComponent>(entity).name;
@@ -119,11 +122,10 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             std::function<void(Entity, int)> walk = [&](Entity entity, int depth) {
                 visible.push_back({entity, depth});
                 if (m_collapsed.count(entity) != 0) return;
-                for (Entity child : ChildrenOf(*ctx.scene, entity)) walk(child, depth + 1);
+                if (const auto it = children.find(entity); it != children.end())
+                    for (Entity child : it->second) walk(child, depth + 1);
             };
-            for (Entity entity : view) {
-                if (ParentOf(*ctx.scene, entity) == kNullEntity) walk(entity, 0);
-            }
+            for (Entity entity : children[kNullEntity]) walk(entity, 0);
         }
 
         if (visible.empty()) {
@@ -140,17 +142,18 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             const f32 listTop = body.y + kHeaderH + 2.0f;
             Rect listRegion{body.x, listTop, body.w, body.Bottom() - listTop};
             ui.PushClip(listRegion);
-            f32 y = listTop - m_listScroll;
+            const usize first = std::min(visible.size(), static_cast<usize>(m_listScroll / kRowStep));
+            f32 y = listTop + first * kRowStep - m_listScroll;
             Entity rowMenuEntity = kNullEntity;
-            usize rowIndex = 0;
-            for (const RowItem& item : visible) {
+            for (usize rowIndex = first; rowIndex < visible.size() && y < listRegion.Bottom(); ++rowIndex) {
+                const auto& item = visible[rowIndex];
                 const Entity e = item.entity;
                 const f32 indent = static_cast<f32>(item.depth) * 14.0f;
                 const std::string& name =
                     view.get<const NameComponent>(e).name;
                 // Unreal-style striping: every other row on a darker band,
                 // full width and touching, so the rows read as a table.
-                if (rowIndex++ % 2 == 0) {
+                if (rowIndex % 2 == 0) {
                     ui.drawList().AddRectFilled({body.x, y, body.w, kRowStep}, t.listRowAlt);
                 }
                 Rect row{body.x + 4, y, body.w - 8, kRowStep};
@@ -176,7 +179,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                     if (hovered) clicked = true;
                     m_pressedRow = 0;
                 }
-                const bool hasChildren = !ChildrenOf(*ctx.scene, e).empty();
+                const bool hasChildren = children.contains(e);
                 Rect chevron{row.x + indent, row.y, 14.0f, row.h};
                 if (hasChildren && clicked && chevron.Contains(ui.mouse())) {
                     if (m_collapsed.count(e) != 0) m_collapsed.erase(e);
@@ -238,9 +241,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 y += kRowStep;
             }
             ui.PopClip();
-            // Scroll region spans the list area below the header. Content
-            // height is recovered from where the row loop ended.
-            f32 contentH = (y - listTop) + m_listScroll;
+            const f32 contentH = static_cast<f32>(visible.size()) * kRowStep;
             m_listScroll = ui.VerticalScroll(
                 Slate::Context::ID("outliner.list"), listRegion, contentH,
                 m_listScroll);

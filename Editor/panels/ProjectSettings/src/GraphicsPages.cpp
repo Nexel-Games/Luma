@@ -25,9 +25,10 @@ public:
 
     void Heading(std::string_view text) {
         if (m_y > m_area.y) m_y += 6.0f;
-        m_ui.LabelIn({m_area.x, m_y, m_area.w, 22.0f}, text, m_ui.theme().accent);
+        m_ui.Panel({m_area.x, m_y, m_area.w, 24}, m_ui.theme().surface3);
+        m_ui.Heading({m_area.x + 8, m_y, m_area.w - 8, 24}, text, m_ui.theme().text);
         m_y += 24.0f;
-        m_ui.Panel({m_area.x, m_y - 2.0f, m_area.w, 1.0f}, m_ui.theme().outline);
+        m_ui.Panel({m_area.x, m_y - 2.0f, m_area.w, 1.0f}, m_ui.theme().separator);
         m_y += 4.0f;
     }
 
@@ -206,7 +207,7 @@ bool DrawRenderingPage(Slate::Context& ui, const Rect& area, Graphics::Rendering
         int index = IndexOf(sizes, s.shadowMapSize);
         if (rows.Choice("shadowsize", "Shadow Map Size",
                         "Resolution of each shadow cascade (texels per side). Higher is sharper but costs GPU "
-                        "memory and fill rate (4096 = 64 MB for four cascades).",
+                        "memory and fill rate (4096 = 256 MiB for four cascades).",
                         items, index)) {
             s.shadowMapSize = sizes[static_cast<usize>(index)];
             tierFieldChanged = true;
@@ -290,6 +291,7 @@ RegistrationToken RegisterDisplayPage(SettingsPageRegistry& pages, Graphics::Dis
     SettingsPageDesc page;
     page.id = std::string(Graphics::kDisplayPageId);
     page.category = "Engine";
+    page.contentHeight = 286;
     page.title = "Display & Frame Rate";
     page.tooltip = "VSync, present mode and frame-rate limits (Config/Graphics.json).";
     page.owner = "Engine";
@@ -307,6 +309,7 @@ RegistrationToken RegisterRenderingPage(SettingsPageRegistry& pages, Graphics::R
     SettingsPageDesc page;
     page.id = std::string(Graphics::kRenderingPageId);
     page.category = "Engine";
+    page.contentHeight = 508;
     page.title = "Rendering Quality";
     page.tooltip = "Quality tier, render scale, anti-aliasing, post effects, shadows, culling and texture "
                    "filtering (Config/Graphics.json).";

@@ -3,6 +3,7 @@
 
 add_executable(LumaEditor
     main.cpp
+    SettingsWindow.cpp
     SplashScreen.cpp
     EditorScreen.cpp
     MaterialPreview.cpp)

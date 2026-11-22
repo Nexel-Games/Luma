@@ -30,7 +30,7 @@ namespace Luma {
 class VulkanTextureCache {
 public:
     VulkanTextureCache(VkPhysicalDevice physical, VkDevice device, VkQueue queue,
-                       u32 queueFamily, u32 maxTextures = 4096);
+                       u32 queueFamily, u32 maxTextures = 4096, u32 anisotropy = 16, f32 mipBias = 0);
     ~VulkanTextureCache();
 
     VulkanTextureCache(const VulkanTextureCache&) = delete;
@@ -86,7 +86,7 @@ private:
     };
 
     bool CreateDescriptors(u32 maxTextures);
-    bool CreateSamplers();
+    bool CreateSamplers(u32 anisotropy, f32 mipBias);
     bool CreateWhiteCube();
     bool CanBlitLinear(VkFormat format) const;
     Prepared Prepare(const TextureUploadDesc& desc) const;

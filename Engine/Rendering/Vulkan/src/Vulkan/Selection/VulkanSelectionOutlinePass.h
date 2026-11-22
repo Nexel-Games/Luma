@@ -33,6 +33,7 @@ public:
                                const std::string& shaderDir, u32 width, u32 height,
                                VkFormat targetFormat);
     ~VulkanSelectionOutlinePass();
+    bool Resize(VkPhysicalDevice physical, u32 width, u32 height);
 
     VulkanSelectionOutlinePass(const VulkanSelectionOutlinePass&) = delete;
     VulkanSelectionOutlinePass& operator=(const VulkanSelectionOutlinePass&) = delete;
@@ -50,6 +51,8 @@ public:
 private:
     bool CreateMask(VkPhysicalDevice physical);
     bool CreateDescriptors();
+    void UpdateMaskDescriptor();
+    void DestroyMask();
     bool CreatePipelines(const std::string& shaderDir, VkFormat targetFormat);
 
     VkDevice m_device = VK_NULL_HANDLE;

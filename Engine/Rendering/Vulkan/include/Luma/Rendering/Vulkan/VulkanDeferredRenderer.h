@@ -11,6 +11,8 @@
 #include "Luma/Profiling/Profiler.h"
 #include "Luma/RHI/SceneRenderer.h"
 #include "Luma/Renderer/CascadeShadows.h"
+#include "Luma/Renderer/FrustumCulling.h"
+#include "Luma/Renderer/RenderQuality.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Sky/AtmosphereParams.h"
 #include "Vulkan/VulkanMemory.h"
@@ -89,7 +91,7 @@ public:
                            VkQueue graphicsQueue, uint32_t graphicsQueueFamilyIndex,
                            VulkanUIPass& uiPass, const std::string& shaderDir,
                            bool useEnvironment = false,
-                           std::string environmentPath = {});  // "" = the default HDRI
+                           std::string environmentPath = {}, u32 anisotropy = 16, f32 mipBias = 0);  // "" = the default HDRI
     ~VulkanDeferredRenderer();
 
     VulkanDeferredRenderer(const VulkanDeferredRenderer&) = delete;
@@ -104,6 +106,7 @@ public:
 
     // Public API for editor integration
     void SetViewportDimensions(int32_t width, int32_t height);
+    void SetQuality(const Renderer2::RenderQuality& quality);
     void PrepareScene();
     void RenderScene(const Renderer2::DeferredSceneView& scene);
     const Attachment* GetLightAccumulationBuffer() const;
@@ -152,7 +155,10 @@ private:
     };
     static constexpr u32 kMaxLights = 16;
     static constexpr u32 kCascadesUBO = 4;
-    static constexpr u32 kShadowSize = 2048;
+    Renderer2::RenderQuality m_quality;
+    std::vector<Renderer2::Aabb> m_worldBounds;
+    std::vector<bool> m_staticBounds;
+    std::vector<bool> m_visible;
     static constexpr u32 kCascades = 4;
     static constexpr VkFormat kShadowFormat = VK_FORMAT_D32_SFLOAT;
 
@@ -186,6 +192,7 @@ private:
     // Resource creation
     bool CreateCommandPool();
     bool CreateGBuffer(int32_t width, int32_t height);
+    void DestroyGBufferTargets();
     // `width`/`height` <= 0 use the viewport (G-Buffer) size.
     bool CreateAttachment(VkFormat format, VkImageUsageFlags usage,
                           Attachment* attachment, i32 width = 0, i32 height = 0);
@@ -213,6 +220,19 @@ private:
     void RegisterMaterialTargets();
     void BindMaterialSets(u32 viewOffset);
     Math::Mat4 NormalMatrix(const Math::Mat4& model) const;
+    struct DrawItem {
+        VkPipeline pipeline;
+        MaterialHandle handle;
+        const GpuMesh* mesh;
+        const CompiledMaterialGpu* material;
+        u32 instance, section;
+    };
+    std::vector<DrawItem> m_opaqueDraws, m_depthDraws;
+    const GpuMesh* m_boundMesh = nullptr;
+    VkPipeline m_boundPipeline = VK_NULL_HANDLE;
+    void BuildDrawList(const SceneView& source, GpuPass pass, std::vector<DrawItem>& list);
+    void DrawSection(const SceneInstance& inst, u32 objectId, GpuPass pass, const GpuMesh* mesh,
+                     u32 sectionIndex, MaterialHandle handle, const CompiledMaterialGpu& material, VkPipeline pipeline);
     void DrawMaterialSections(const SceneInstance& inst, u32 objectId, GpuPass pass);
     // Forward pass: translucent sections back to front over the lit scene.
     void RecordTranslucency(const SceneView& source, const Math::Vec3& cameraPosition);
@@ -275,15 +295,19 @@ private:
     // Descriptor resources
     VkDescriptorSetLayout m_lightingSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool m_lightingPool = VK_NULL_HANDLE;
-    VkDescriptorSet m_lightingSet = VK_NULL_HANDLE;
+    static constexpr u32 kFrameSlots = 2;
+    std::array<VkDescriptorSet, kFrameSlots> m_lightingSets{};
+    void UpdateLightingSet(u32 slot);
 
     // Uniform buffers
-    GpuBuffer m_lightingUBO;
+    std::array<GpuBuffer, kFrameSlots> m_lightingUBOs{};
 
     // Command resources
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
-    VkFence m_fence = VK_NULL_HANDLE;
+    std::array<VkFence, kFrameSlots> m_fences{};
+    std::array<VkCommandBuffer, kFrameSlots> m_commands{};
+    bool m_garbagePending = false;
 
     // Cascaded shadow map resources (sun / directional light)
     VkImage m_shadowImage = VK_NULL_HANDLE;
@@ -318,7 +342,9 @@ private:
     VkDescriptorSetLayout m_fxaaSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool m_fxaaPool = VK_NULL_HANDLE;
     VkDescriptorSet m_fxaaSet = VK_NULL_HANDLE;
+    const Attachment& DisplayAttachment() const;
     bool CreateFXAAPass();
+    bool CreateFXAATarget();
     void DestroyFXAAPass();
     void PointFXAAAt(VkImageView sourceView);
 
@@ -353,6 +379,8 @@ private:
     bool m_bloomChainPrimed = false;  // down/up chain has run since creation
     VkDescriptorSetLayout m_bloomCompositeSetLayout = VK_NULL_HANDLE;
     bool CreateBloomResources();
+    bool CreateBloomTargets();
+    void DestroyBloomTargets();
     void DestroyBloomResources();
     // Bloom chain (when enabled) + the final composite: exposure, tone map and
     // sRGB encode of the HDR light buffer into m_bloomCompositeOutput.

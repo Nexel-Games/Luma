@@ -35,6 +35,7 @@ struct RendererConfig {
     // material sampler table is immutable).
     u32 maxAnisotropy = 16;
     f32 textureMipBias = 0.0f;
+    bool enableSceneRendering = true;  // settings windows need only Slate
 };
 
 // --- 2D UI drawing (Luma Slate produces this; the backend renders it) --------
