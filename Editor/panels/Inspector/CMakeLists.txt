@@ -1,6 +1,7 @@
 add_library(LumaPanelInspector STATIC
     src/Inspector.cpp
-    src/MaterialSlots.cpp)
+    src/MaterialSlots.cpp
+    src/StaticMeshSlot.cpp)
 
 add_library(Luma::PanelInspector ALIAS LumaPanelInspector)
 

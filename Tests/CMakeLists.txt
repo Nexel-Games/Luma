@@ -23,11 +23,14 @@ add_executable(LumaTests
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
     Scene/SceneSerializerTests.cpp
+    Scene/MeshRendererSerializationTests.cpp
+    Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
     Scene/ComponentRegistryTests.cpp
     Scene/UnresolvedComponentTests.cpp
     Scene/EntityTemplateTests.cpp
+    Scene/HierarchyTests.cpp
     Math/MathTests.cpp
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp
@@ -47,12 +50,24 @@ add_executable(LumaTests
     Asset/MaterialThumbnailTests.cpp
     Asset/AssetPathTests.cpp
     Asset/TextureColorSpaceTests.cpp
+    Asset/Import/ImportSceneTests.cpp
+    Asset/Import/ModelTranslatorTests.cpp
+    Asset/Import/ImageTranslatorTests.cpp
+    Asset/Import/AudioTranslatorTests.cpp
+    Asset/Import/PipelineTests.cpp
+    Asset/Import/FactoryTests.cpp
+    Asset/Import/ImportSessionTests.cpp
+    Asset/Import/SourceWatchTests.cpp
+    Asset/ThumbnailImportTests.cpp
+    Audio/AudioDecodeTests.cpp
     Scene/MaterialMigrationTests.cpp
     Material/MaterialModelTests.cpp
     Material/MaterialSerializerTests.cpp
     Material/MaterialLibraryTests.cpp
     Material/MaterialFromTexturesTests.cpp
     Editor/ContentBrowserTests.cpp
+    Editor/ThumbnailBudgetTests.cpp
+    Editor/ImportDialogTests.cpp
     Editor/ConsoleTests.cpp
     Editor/MaterialSceneBridgeTests.cpp
     Editor/MaterialEditorTests.cpp
@@ -61,6 +76,8 @@ add_executable(LumaTests
     Editor/OutlinerRegistryTests.cpp
     Editor/EditorFrameworkTests.cpp
     Editor/ProjectSettingsTests.cpp
+    Editor/StaticMeshSlotTests.cpp
+    Editor/MeshPlacementTests.cpp
     Editor/TransformGizmoTests.cpp
     Editor/BackgroundTasksTests.cpp
     VFS/PathTests.cpp
@@ -70,12 +87,19 @@ add_executable(LumaTests
     Rendering/MeshGeometryTests.cpp
     Rendering/MaterialGpuDescTests.cpp
     Rendering/VulkanTextureCacheTests.cpp
+    Rendering/VulkanUITextureTests.cpp
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelProjectSettings Luma::PanelBackgroundTasks Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelProjectSettings Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
+
+add_executable(LumaPreferencesTests Editor/PreferencesTests.cpp)
+target_compile_definitions(LumaPreferencesTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(LumaPreferencesTests PRIVATE Luma::PanelPreferences Catch2::Catch2WithMain)
+set_target_properties(LumaPreferencesTests PROPERTIES FOLDER "Tests")
+add_test(NAME LumaPreferencesTests COMMAND LumaPreferencesTests)
 
 # One ctest entry that runs the whole Catch2 binary (reports per-assertion on
 # failure). Fine-grained catch_discover_tests can be adopted later.

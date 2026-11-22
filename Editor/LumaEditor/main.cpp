@@ -1,4 +1,6 @@
+#include <cstdlib>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,7 +25,9 @@
 #include "Luma/Slate/Image.h"
 #include "Luma/VFS/Path.h"
 #include "Luma/VFS/VFS.h"
+#include "Luma/Audio/AudioPreview.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Asset/SoundThumbnailRenderer.h"
 #include "Luma/Asset/TextureThumbnailRenderer.h"
 #include "Luma/Asset/MeshThumbnailRenderer.h"
 #include "Luma/Asset/MaterialThumbnailRenderer.h"
@@ -203,8 +207,10 @@ int main(int argc, char** argv) {
                                      std::make_unique<Luma::MeshThumbnailRenderer>());
         thumbnailMgr.RegisterRenderer(Luma::AssetType::Material,
                                      std::make_unique<Luma::MaterialThumbnailRenderer>());
+        thumbnailMgr.RegisterRenderer(Luma::AssetType::Sound,
+                                     std::make_unique<Luma::SoundThumbnailRenderer>());
         
-        LUMA_LOG_INFO("Editor", "Thumbnail system initialized with {} renderers", 3);
+        LUMA_LOG_INFO("Editor", "Thumbnail system initialized with {} renderers", 4);
     }
 
     // Fonts: Red Hat Display (variable font) is the primary UI family. The variable font
@@ -215,21 +221,35 @@ int main(int argc, char** argv) {
     //   uiSemiBold-> section headings, tab titles, button labels
     //   uiBold    -> titles, splash, large display
     //   mono      -> console output, logs, code
-    // If Red Hat Display can't be located, fall back to Segoe UI on Windows.
-    auto fontPathOr = [](const std::string& primary, const char* fallback) {
-        return primary.empty() ? std::string(fallback) : primary;
+    // Red Hat Display ships in Content/Editor/Fonts; if it can't be found
+    // (or a file is missing) fall back to the system UI font.
+    auto firstExisting = [](std::initializer_list<std::string> candidates) {
+        for (const std::string& c : candidates) {
+            std::error_code ec;
+            if (!c.empty() && std::filesystem::exists(c, ec)) return c;
+        }
+        return std::string{};
     };
-
-    // Use Red Hat Display variable font for all weights (shipped under
-    // Content/Editor/Fonts; empty when it can't be found -> Segoe UI).
-    std::string redHatFont =
+    std::string systemFonts = "C:/Windows/Fonts/";
+    if (const char* windir = std::getenv("WINDIR")) {
+        systemFonts = std::filesystem::path(windir).append("Fonts").generic_string() + "/";
+    }
+    const std::string redHatFont =
         FindEditorAsset("Fonts/RedHatDisplay/RedHatDisplay-VariableFont_wght.ttf");
-    std::string bodyFont = fontPathOr(redHatFont, "C:/Windows/Fonts/segoeui.ttf");
-    std::string mediumFont = fontPathOr(redHatFont, bodyFont.c_str());
-    std::string uiFont = fontPathOr(redHatFont, bodyFont.c_str());
-    std::string titleFont = fontPathOr(redHatFont, "C:/Windows/Fonts/segoeui.ttf");
-    std::string monoFont =
-        "C:/Windows/Fonts/consola.ttf";  // always present on Windows
+    const std::string bodyFont = firstExisting({redHatFont, systemFonts + "segoeui.ttf"});
+    const std::string mediumFont = bodyFont;
+    const std::string uiFont = bodyFont;
+    const std::string titleFont = bodyFont;
+    const std::string monoFont = firstExisting({systemFonts + "consola.ttf", bodyFont});
+    if (bodyFont.empty()) {
+        LUMA_LOG_ERROR("Editor", "No UI font found (looked for Content/Editor/Fonts/RedHatDisplay "
+                                 "and {}segoeui.ttf)", systemFonts);
+        Log::Flush();
+        return 1;
+    }
+    if (redHatFont.empty()) {
+        LUMA_LOG_WARN("Editor", "Red Hat Display not found in Content/Editor/Fonts; using {}", bodyFont);
+    }
 
     Slate::Context ui;  // owns the loaded fonts + theme tokens
     // Build the typography scale on the theme. Sizes are tuned for a 96 DPI
@@ -250,16 +270,20 @@ int main(int argc, char** argv) {
     ui.SetClipboardHandlers([&window] { return window->GetClipboardText(); },
                             [&window](const std::string& text) { window->SetClipboardText(text); });
     if (!ui.Init(*renderer, type, window->ContentScale())) {
-        LUMA_LOG_ERROR("Editor", "failed to load UI font");
+        // Without a font every label is empty and layout breaks: stop here
+        // with a clear message rather than running a broken UI.
+        LUMA_LOG_ERROR("Editor", "failed to load the UI fonts ({}, {})", bodyFont, monoFont);
+        Log::Flush();
+        return 1;
     }
     // Window icon from the engine icon asset.
     {
         std::string iconPath = FindEditorAsset("luma_icon.png");
-        u32 iw = 0, ih = 0;
-        std::vector<u8> iconPixels;
-        if (!iconPath.empty() &&
-            Slate::LoadImagePixels(iconPath, iw, ih, iconPixels)) {
-            window->SetIcon(iw, ih, iconPixels.data());
+        if (!iconPath.empty()) {
+            std::vector<u8> pixels;
+            const Slate::Image icon = Slate::LoadImage(*renderer, iconPath, &pixels);
+            if (!pixels.empty()) window->SetIcon(icon.width, icon.height, pixels.data());
+            ui.SetBrandIcon(icon);
         }
     }
     // Logo for the banner / splash.
@@ -308,7 +332,6 @@ int main(int argc, char** argv) {
     TextureHandle iconPlay = loadIcon("Icons/play.png");
     TextureHandle iconPause = loadIcon("Icons/pause.png");
     TextureHandle iconStop = loadIcon("Icons/stop.png");
-    TextureHandle iconLogo = loadIcon("luma_icon.png");
     // Content Browser chrome icons (sort arrows + search glass + folder +
     // reload + import + open-folder).
     TextureHandle cbSortUp = loadIcon("Icons/sort_up.png");
@@ -336,7 +359,7 @@ int main(int argc, char** argv) {
     TextureHandle olActorPointLight =
         loadIcon("Icons/actor-light-point.png");
     TextureHandle olActorSpotLight = loadIcon("Icons/actor-light-spot.png");
-    TextureHandle olActorMesh = loadIcon("Icons/actor-mesh.png");
+    TextureHandle olActorMesh = loadIcon("Icons/actor-static-mesh.png");
 
     // Unreal icon pack (Content/Editor/Icons/ue).
     EditorScreen::IconSet ueIcons;
@@ -370,8 +393,12 @@ int main(int argc, char** argv) {
         LUMA_LOG_WARN("Editor", "Vulkan deferred renderer not available");
     }
     Log::Flush();
+    Audio::AudioPreview audioPreview;
     if (editorMode) {
+        std::string audioError;
+        audioPreview.Init(&audioError);
         editor = std::make_unique<EditorScreen>(projectFile);
+        editor->SetAudioPreview(&audioPreview);
         editor->SetLogHistory(logHistory);
         editor->SetRenderer(renderer.get());
         editor->SetBackgroundServices(&jobs, &tasks);
@@ -389,7 +416,6 @@ int main(int argc, char** argv) {
             LUMA_LOG_WARN("Editor", "--select: no entity named '{}'", selectName);
         }
         editor->SetToolbarIcons(iconPlay, iconPause, iconStop);
-        editor->SetLogoIcon(iconLogo);
         editor->SetEditorIcons(ueIcons);
         editor->SetContentBrowserIcons(cbSortUp, cbSortDown, cbSearchGlass,
                                        cbFolder, cbReload, cbImport,
@@ -548,6 +574,7 @@ int main(int argc, char** argv) {
     }
 
     renderer->WaitIdle();
+    audioPreview.Shutdown();
     editor.reset();
     renderer.reset();
     window.reset();

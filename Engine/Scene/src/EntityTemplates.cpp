@@ -92,18 +92,7 @@ usize EnsureAutoCreatedEntities(Scene& scene, const EntityTemplateRegistry& regi
 }
 
 std::string UniqueEntityName(const Scene& scene, std::string_view base) {
-    auto view = scene.Registry().view<const NameComponent>();
-    auto taken = [&view](const std::string& name) {
-        for (Entity e : view) {
-            if (view.get<const NameComponent>(e).name == name) return true;
-        }
-        return false;
-    };
-    std::string name(base);
-    if (!taken(name)) return name;
-    int n = 1;
-    while (taken(name + " " + std::to_string(n))) ++n;
-    return name + " " + std::to_string(n);
+    return scene.UniqueEntityName(std::string(base));
 }
 
 // --- Built-in templates ----------------------------------------------------------

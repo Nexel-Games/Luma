@@ -52,6 +52,9 @@ public:
     // Material slot rows laid out by the last Draw (drop targets), one per
     // mesh section.
     const std::vector<Slate::Rect>& MaterialSlotRects() const { return m_slotRects; }
+    // The Static Mesh row laid out by the last Draw (drop target); empty when
+    // the selection has no Mesh Renderer.
+    const Slate::Rect& StaticMeshRowRect() const { return m_meshRowRect; }
     // Component ids given a section by the last Draw, in draw order.
     const std::vector<std::string>& LastDrawnSections() const { return m_drawnSections; }
 
@@ -84,6 +87,7 @@ private:
     f32 m_scroll = 0.0f;
 
     std::vector<Slate::Rect> m_slotRects;
+    Slate::Rect m_meshRowRect{};
     std::vector<std::string> m_drawnSections;
 
     Entity m_pendingRemoveEntity = kNullEntity;

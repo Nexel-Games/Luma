@@ -87,11 +87,17 @@ elseif(Vulkan_ROOT)
     set(_luma_vk_layer_dir "${Vulkan_ROOT}/Bin")
 endif()
 if(_luma_vk_layer_dir)
+    # VULKAN_SDK is usually a Windows path (D:\VulkanSDK\...): normalise to
+    # forward slashes so it is a valid C++ string literal.
+    file(TO_CMAKE_PATH "${_luma_vk_layer_dir}" _luma_vk_layer_dir)
     target_compile_definitions(LumaRenderVulkan PRIVATE
         LUMA_VULKAN_LAYER_PATH="${_luma_vk_layer_dir}")
 endif()
 
+# Engine content (sky HDR, default textures) in this checkout.
+file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}/Content" _luma_content_dir)
 target_compile_definitions(LumaRenderVulkan PRIVATE
-    LUMA_SHADER_DIR="${_luma_shader_out}")
+    LUMA_SHADER_DIR="${_luma_shader_out}"
+    LUMA_CONTENT_DIR="${_luma_content_dir}")
 
 set_target_properties(LumaRenderVulkan PROPERTIES FOLDER "Engine")

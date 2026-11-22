@@ -247,6 +247,24 @@ void DrawPrimitiveCube(Context& ctx, const Rect& box, Color color) {
                            {x + s, y + s}, color.WithAlpha(120));
 }
 
+// Static mesh asset: a faceted hexagonal gem (six shaded triangles around a
+// centre, lit from the upper left), so it reads as arbitrary geometry rather
+// than the Cube primitive.
+void DrawStaticMesh(Context& ctx, const Rect& box, Color color) {
+    const Vec2 c{box.x + box.w * 0.5f, box.y + box.h * 0.52f};
+    const f32 r = std::min(box.w, box.h) * 0.42f;
+    Vec2 p[6];
+    for (int i = 0; i < 6; ++i) {
+        const f32 a = (-90.0f + 60.0f * static_cast<f32>(i)) * 3.14159265f / 180.0f;
+        p[i] = {c.x + std::cos(a) * r, c.y + std::sin(a) * r};
+    }
+    // Top-left facets brightest, bottom-right darkest.
+    const u8 alpha[6] = {235, 175, 120, 140, 200, 255};
+    for (int i = 0; i < 6; ++i) {
+        ctx.drawList().AddTriangle(c, p[i], p[(i + 1) % 6], color.WithAlpha(alpha[i]));
+    }
+}
+
 void DrawPrimitiveSphere(Context& ctx, const Rect& box, Color color) {
     Vec2 c{box.x + box.w * 0.5f, box.y + box.h * 0.5f};
     f32 r = box.w * 0.32f;
@@ -360,6 +378,7 @@ void DrawIcon(Context& ctx, const Rect& box, Icon icon, Color color) {
         case Icon::Refresh:      DrawRefresh(ctx, box, color); break;
         case Icon::ArrowLeft:    DrawArrowLeft(ctx, box, color); break;
         case Icon::Reset:        DrawReset(ctx, box, color); break;
+        case Icon::StaticMesh:   DrawStaticMesh(ctx, box, color); break;
         case Icon::Image: {
             // A square frame with a small mountain + sun inside.
             f32 x = box.x, y = box.y, w = box.w, h = box.h;

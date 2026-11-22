@@ -22,10 +22,14 @@ public:
     bool BeginFrame() override { return true; }
     void EndFrame() override {}
     void DrawUI(const UIDrawData&) override {}
-    TextureHandle CreateTexture(u32, u32, const void*) override { return 0; }
+    // Non-zero handles so the font atlas exists and text produces geometry.
+    TextureHandle CreateTexture(u32, u32, const void*) override { return ++m_nextTexture; }
     void DestroyTexture(TextureHandle) override {}
     void CaptureFrame(const std::string&) override {}
     void WaitIdle() override {}
+
+private:
+    TextureHandle m_nextTexture = 0;
 };
 
 inline Typography SystemTypography() {

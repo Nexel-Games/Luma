@@ -1,5 +1,6 @@
 #include "EditorScreen.h"
 
+#include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -14,18 +15,25 @@
 #include <shellapi.h>
 #endif
 
+#include "Luma/AssetImport/ImportSession.h"
+#include "Luma/AssetImport/TranslatorRegistry.h"
+#include "Luma/AssetImport/SourceWatch.h"
+#include "Luma/Jobs/JobSystem.h"
+#include "Luma/Tasks/TaskManager.h"
 #include "Luma/Asset/LumaMeshFormat.h"
-#include "Luma/Asset/MeshImporter.h"
-#include "Luma/Asset/TextureImporter.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/MenuRegistry.h"
 #include "Luma/Editor/PanelRegistry.h"
 #include "Luma/Editor/SettingsPageRegistry.h"
 #include "Luma/Serialization/Json.h"
+#include "Luma/Scene/AssetReferences.h"
 #include "Luma/Scene/Components.h"
+#include "Luma/Scene/Hierarchy.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
+#include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
@@ -82,7 +90,8 @@ bool IsWatchedAssetFile(const std::filesystem::path& p) {
 
 }  // namespace
 
-EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
+EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
+    : m_preferences(m_viewportPanel.Settings(), m_gizmo.Snap(), Editor::Panels::PreferencesPanel::UserFile()) {
     m_panelHost = std::make_unique<Editor::EditorPanelHost>(
         Editor::EditorPanels(), m_dock, [this] { return BuildPanelContext(); });
     m_panelHost->onStateChanged = [this] { SavePanelLayout(); };
@@ -142,6 +151,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
 }
 
 EditorScreen::~EditorScreen() {
+    m_preferences.SaveChanges();
     // Unsaved Project Settings edits are written on the way out.
     if (m_projectSettings.IsOpen()) m_projectSettings.Close();
     if (m_settingsStore) m_settingsStore->SaveAll();
@@ -162,7 +172,7 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
         ThumbnailManager::Get().SetRenderCallback({});
         return;
     }
-    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials, m_assetRegistry);
+    m_preview = std::make_unique<MaterialPreview>(*previewRenderer, *m_materials);
     // Material and mesh thumbnails render on the GPU through the preview
     // scene, so they match the viewport (square captures).
     ThumbnailManager::Get().SetRenderCallback(
@@ -174,8 +184,8 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
                 return virtualPath && m_preview->CaptureMaterial(*virtualPath, width, rgba);
             }
             if (type == AssetType::Mesh) {
-                const AssetData* data = m_assetRegistry.LookupByPath(path);
-                return data && m_preview->CaptureMesh(data->id, width, rgba);
+                const auto virtualPath = m_assetPaths.ToVirtual(path);
+                return virtualPath && m_preview->CaptureMesh(*virtualPath, width, rgba);
             }
             return false;
         });
@@ -194,6 +204,8 @@ bool EditorScreen::LoadScene() {
         return false;
     }
     m_selected = kNullEntity;
+    m_selection.clear();
+    ShowAllActors();
     m_outlinerPanel.ClearSelection();
     m_inspectorPanel.ClosePopups();
     // Scene setup: every auto-created template (e.g. the sky) the scene lacks.
@@ -229,7 +241,7 @@ bool EditorScreen::SelectEntityByName(const std::string& name) {
     auto view = m_scene.Registry().view<const NameComponent>();
     for (Entity e : view) {
         if (view.get<const NameComponent>(e).name == name) {
-            m_selected = e;
+            SelectOnly(e);
             return true;
         }
     }
@@ -474,6 +486,107 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
     OpenMaterialEditor(path);
 }
 
+std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math::Vec3& origin,
+                                                                     const Math::Vec3& dir) const {
+    using namespace Math;
+    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto transformPoint = [](const Mat4& m, const Vec3& p) {
+        return Vec3(m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
+                    m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
+                    m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]);
+    };
+    auto transformDir = [](const Mat4& m, const Vec3& v) {
+        return Vec3(m.m[0] * v.x + m.m[4] * v.y + m.m[8] * v.z,
+                    m.m[1] * v.x + m.m[5] * v.y + m.m[9] * v.z,
+                    m.m[2] * v.x + m.m[6] * v.y + m.m[10] * v.z);
+    };
+    std::optional<Editor::Panels::PlacementHit> best;
+    f32 bestDistance = 1e30f;
+    auto view = reg.view<const TransformComponent, const MeshRendererComponent>();
+    for (Entity e : view) {
+        if (reg.all_of<EditorHiddenComponent>(e)) continue;
+        const auto& tf = view.get<const TransformComponent>(e);
+        const auto& mr = view.get<const MeshRendererComponent>(e);
+        Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
+        if (mr.UsesMeshAsset()) {
+            const Editor::MeshBounds* bounds = m_bridge.Bounds(mr.mesh);
+            if (!bounds) continue;
+            lo = bounds->min;
+            hi = bounds->max;
+        } else if (mr.primitive == MeshPrimitive::Plane) {
+            lo.y = hi.y = 0.0f;  // the plane's surface
+        }
+        const Mat4 model = tf.Matrix();
+        const Mat4 inv = Inverse(model);
+        const auto local = Editor::Panels::RayAabb(transformPoint(inv, origin), transformDir(inv, dir), lo, hi);
+        if (!local) continue;
+        const Vec3 world = transformPoint(model, local->point);
+        const Vec3 d = world - origin;
+        const f32 distance = Dot(d, d);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            Vec3 n = transformDir(model, local->normal);
+            const f32 len = std::sqrt(Dot(n, n));
+            best = Editor::Panels::PlacementHit{world, len > 1e-6f ? n * (1.0f / len) : Vec3(0, 1, 0)};
+        }
+    }
+    return best;
+}
+
+std::optional<Math::Vec3> EditorScreen::MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
+                                                         const std::string& mesh) {
+    if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
+        m_bridge.EnsureMesh(mesh, *sceneRenderer, m_assetPaths);
+    }
+    const Editor::MeshBounds* bounds = m_bridge.Bounds(mesh);
+    Editor::Panels::MeshPlacementInput in;
+    in.rayOrigin = origin;
+    in.rayDir = dir;
+    in.hit = PickSurface(origin, dir);
+    if (bounds) {
+        in.boundsMin = bounds->min;
+        in.boundsMax = bounds->max;
+    }
+    in.snap = m_gizmo.Snap().translate;
+    in.snapStep = m_gizmo.Snap().translateStep;
+    if (!bounds) return std::nullopt;  // not loaded (or failed): nothing to rest
+    return Editor::Panels::ComputeMeshPlacement(in);
+}
+
+void EditorScreen::PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir,
+                                   const std::string& mesh) {
+    if (const auto position = MeshDropPosition(origin, dir, mesh)) {
+        m_bridge.SetPlacementPreview(mesh, Math::Translate(*position));
+    } else {
+        m_bridge.ClearPlacementPreview();
+    }
+}
+
+void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh) {
+    m_bridge.ClearPlacementPreview();
+    // A mesh that fails to load is still placed (it draws its primitive and
+    // the bridge warns once), on the surface under the cursor.
+    Math::Vec3 position;
+    if (const auto placed = MeshDropPosition(origin, dir, mesh)) {
+        position = *placed;
+    } else {
+        Editor::Panels::MeshPlacementInput in;
+        in.rayOrigin = origin;
+        in.rayDir = dir;
+        in.hit = PickSurface(origin, dir);
+        in.boundsMin = {-0.5f, -0.5f, -0.5f};
+        in.boundsMax = {0.5f, 0.5f, 0.5f};
+        position = Editor::Panels::ComputeMeshPlacement(in);
+    }
+    const std::string name = UniqueEntityName(m_scene, Editor::Panels::AssetNameOf(mesh));
+    const Entity e = m_scene.CreateEntity(name);
+    m_scene.Registry().get<TransformComponent>(e).position = position;
+    auto& mr = m_scene.Registry().emplace<MeshRendererComponent>(e);
+    Editor::Panels::AssignStaticMesh(mr, mesh);
+    SelectOnly(e);
+    LUMA_USER_INFO("Level", "Placed '{}'", name);
+}
+
 void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) {
     const Entity e = PickEntity(origin, dir);
@@ -484,7 +597,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
         return;
     }
     Editor::Panels::AssignMaterialSlot(*mesh, 0, path);
-    m_selected = e;
+    SelectOnly(e);
     LUMA_USER_INFO("Materials", "Assigned '{}' to '{}'", path,
                    m_scene.Registry().get<NameComponent>(e).name);
 }
@@ -492,7 +605,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
 TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
     if (!m_renderer) return 0;
     auto file = m_assetPaths.ToFile(assetPath, {"png", "jpg", "jpeg", "tga", "bmp", "psd", "gif",
-                                                "lmat", "lmatinst"});
+                                                "lmat", "lmatinst", "lmesh"});
     if (!file) return 0;
     const AssetData* data = m_assetRegistry.LookupByPath(*file);
     return data ? static_cast<TextureHandle>(
@@ -567,10 +680,8 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
         m_materials->Reload(*virtualPath);
         RefreshMaterialThumbnails();
     } else if (ext == ".lmesh") {
-        if (const AssetData* data = m_assetRegistry.LookupByPath(file)) {
-            m_bridge.OnMeshFileChanged(data->id);
-            if (m_preview) m_preview->OnMeshFileChanged(data->id);
-        }
+        m_bridge.OnMeshFileChanged(*virtualPath);
+        if (m_preview) m_preview->OnMeshFileChanged(*virtualPath);
     } else {
         // Changed or removed texture: re-validate (missing -> constant, warned
         // once) and re-upload it in the viewport and the preview.
@@ -662,7 +773,7 @@ void EditorScreen::CreateActor(const std::string& templateId) {
         LUMA_USER_ERROR("Scene", "Cannot create '{}': no such entity template", templateId);
         return;
     }
-    m_selected = Instantiate(m_scene, *t, {m_nextNumber++});
+    SelectOnly(Instantiate(m_scene, *t, {m_nextNumber++}));
 }
 
 void EditorScreen::ReportMissingComponentPlugins() {
@@ -703,6 +814,11 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onImportAssets = [this](const std::filesystem::path& folder) {
         ImportAssetsInto(folder);
     };
+    ctx.onReimport = [this](const std::filesystem::path& asset) { ReimportAsset(asset); };
+    ctx.sourceChanged = [this](const std::filesystem::path& asset) {
+        return m_sourceWatch != nullptr && m_sourceWatch->IsChanged(asset);
+    };
+    ctx.audioPreview = m_audioPreview;
     ctx.onCreateScene = [this](const std::filesystem::path& folder) {
         CreateSceneAsset(folder);
     };
@@ -715,8 +831,21 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onDuplicateEntity = [this](Entity e) { DuplicateEntity(e); };
     ctx.onDeleteEntity = [this](Entity e) { DeleteEntity(e); };
     ctx.onFocusEntity = [this](Entity e) { FocusEntity(e); };
+    ctx.onCutEntities = [this](Entity e) { CutEntities(e); };
+    ctx.onCopyEntities = [this](Entity e) { CopyEntities(e); };
+    ctx.onPasteEntities = [this](Entity e, bool asChild) { PasteEntities(e, asChild); };
+    ctx.canPasteEntities = [this] { return !m_clipboard.Empty(); };
+    ctx.onCreateChild = [this](Entity e) { CreateEmptyChild(e); };
+    ctx.onSelectChildren = [this](Entity e) { SelectChildren(e); };
+    ctx.onMoveToRoot = [this](Entity e) { MoveToRoot(e); };
+    ctx.onHideEntities = [this](Entity e) { HideEntities(e); };
+    ctx.onShowAllActors = [this] { ShowAllActors(); };
+    ctx.isEntityHidden = [this](Entity e) { return IsHidden(e); };
+    ctx.entityHasChildren = [this](Entity e) { return !ChildrenOf(m_scene, e).empty(); };
+    ctx.entityIsRoot = [this](Entity e) { return ParentOf(m_scene, e) == kNullEntity; };
+    ctx.selection = &m_selection;
     ctx.onPickRay = [this](const Math::Vec3& origin, const Math::Vec3& dir) {
-        m_selected = PickEntity(origin, dir);
+        SelectOnly(PickEntity(origin, dir));
     };
     ctx.materials = m_materials.get();
     ctx.jobs = m_jobs;
@@ -734,6 +863,23 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.assetThumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
     ctx.listTextures = [this] { return ListAssets(false); };
     ctx.listMaterials = [this] { return ListAssets(true); };
+    ctx.listMeshes = [this] {
+        std::vector<std::string> out;
+        for (const AssetData* a : m_assetRegistry.Filter(AssetType::Mesh, std::nullopt, {})) {
+            if (auto vp = m_assetPaths.ToVirtual(a->packagePath)) out.push_back(*vp);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    ctx.meshSections = [this](Entity e) {
+        std::vector<Editor::Panels::MeshSlotInfo> out;
+        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        if (!mesh || !mesh->UsesMeshAsset()) return out;
+        if (const auto* sections = m_bridge.Sections(mesh->mesh)) {
+            for (const Editor::MeshSectionInfo& s : *sections) out.push_back({s.slotName, s.defaultMaterial});
+        }
+        return out;
+    };
     ctx.onOpenAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
     ctx.virtualPathOf = [this](const std::filesystem::path& file) {
         return m_assetPaths.ToVirtual(file).value_or(std::string{});
@@ -750,11 +896,27 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     };
     ctx.onDropMaterial = [this](const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) { DropMaterial(origin, dir, path); };
+    ctx.onMeshDragPreview = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                                   const std::string& mesh) { PreviewMeshDrop(origin, dir, mesh); };
+    ctx.onDropMesh = [this](const Math::Vec3& origin, const Math::Vec3& dir,
+                            const std::string& mesh) { DropMesh(origin, dir, mesh); };
+    ctx.onMeshDragEnd = [this] { m_bridge.ClearPlacementPreview(); };
+    ctx.onAssetRenamed = [this](const std::string& oldPath, const std::string& newPath) {
+        // Unreal leaves a redirector; Luma fixes the open scene up directly.
+        // Scenes that are not open keep the old path (see GOAL.md 5.6).
+        const u32 changed = RetargetAssetReferences(m_scene, oldPath, newPath);
+        m_bridge.OnMeshFileChanged(oldPath);
+        if (m_preview) m_preview->OnMeshFileChanged(oldPath);
+        if (changed > 0) {
+            LUMA_USER_INFO("Content", "Updated {} reference(s) to '{}' in the open scene (save it to keep them)",
+                           changed, newPath);
+        }
+    };
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);
-        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "png", "jpg", "jpeg", "tga",
-                                                          "bmp", "psd", "gif"})) {
+        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "lmesh", "png", "jpg", "jpeg",
+                                                          "tga", "bmp", "psd", "gif"})) {
             m_contentBrowser.BrowseTo(*file);
         }
     };
@@ -799,7 +961,7 @@ SceneView EditorScreen::BuildSceneView() {
     // through the renderer's SceneRenderer; the selection draws normally
     // (the selection outline marks it).
     if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
-        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials, m_assetRegistry);
+        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials);
     }
     m_bridge.BuildInstances(m_scene, m_selected, m_instances);
 
@@ -814,6 +976,7 @@ SceneView EditorScreen::BuildSceneView() {
     auto lightView =
         m_scene.Registry().view<TransformComponent, LightComponent>();
     for (Entity e : lightView) {
+        if (m_scene.Registry().all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = lightView.get<TransformComponent>(e);
         const auto& lc = lightView.get<LightComponent>(e);
         Mat4 mtx = tf.Matrix();
@@ -1025,6 +1188,40 @@ void EditorScreen::RegisterEditorUi() {
         e.isEnabled = hasProject;
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
+    // Cut / Copy keep one-per-scene holders (e.g. the Environment) in the scene.
+    auto canCopySelection = [this] {
+        return m_scene.IsValid(m_selected) && !OnePerSceneComponentOf(m_scene, m_selected);
+    };
+    {
+        MenuEntryDesc e = entry("Edit.Cut", "Edit", "Selection", "Cut", "", -30,
+                                [this] { CutEntities(m_selected); });
+        e.shortcut = "Ctrl+X";
+        e.isEnabled = canCopySelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Copy", "Edit", "Selection", "Copy", "", -20,
+                                [this] { CopyEntities(m_selected); });
+        e.shortcut = "Ctrl+C";
+        e.isEnabled = canCopySelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Paste", "Edit", "Selection", "Paste", "", -10, [this] {
+            PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+        });
+        e.shortcut = "Ctrl+V";
+        e.tooltip = "Paste as a sibling of the selection, or at the scene root.";
+        e.isEnabled = [this] { return !m_clipboard.Empty(); };
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.EditorPreferences", "Edit", "Configuration",
+                                "Editor Preferences", "Gear", 190,
+                                [this] { m_preferencesOpen = true; });
+        e.tooltip = "Your own editor settings (all projects).";
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
     {
         MenuEntryDesc e = entry("Edit.Duplicate", "Edit", "Selection", "Duplicate", "Plus", 0,
                                 [this] { DuplicateEntity(m_selected); });
@@ -1057,7 +1254,10 @@ void EditorScreen::RegisterEditorUi() {
     }
     {
         MenuEntryDesc e = entry("Assets.Refresh", "Assets", "Content", "Refresh Content",
-                                "Refresh", 10, [this] { m_assetRegistry.Scan(); });
+                                "Refresh", 10, [this] {
+                                    m_assetRegistry.Scan();
+                                    if (m_sourceWatch) m_sourceWatch->InvalidateAll();
+                                });
         e.tooltip = "Rescan the project's content from disk.";
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
@@ -1242,85 +1442,97 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
     return deferredScene;
 }
 
+namespace {
+
+std::string FamilyLabel(std::string_view name) {
+    if (name.find("Model") != std::string_view::npos) return "Models";
+    if (name.find("Image") != std::string_view::npos) return "Images";
+    if (name.find("Audio") != std::string_view::npos) return "Audio";
+    return std::string(name);
+}
+
+std::vector<char> ImportFileFilter(const Import::TranslatorRegistry& registry) {
+    std::vector<std::pair<std::string, std::string>> families;
+    std::string all;
+    for (const std::string& ext : registry.SupportedExtensions()) {
+        const Import::ITranslator* translator = registry.Find(std::filesystem::path("import").concat(ext));
+        const std::string label = FamilyLabel(translator != nullptr ? translator->Name() : "Other");
+        const std::string pattern = "*" + ext;
+        if (!all.empty()) all += ";";
+        all += pattern;
+        auto it = std::find_if(families.begin(), families.end(),
+                               [&](const auto& family) { return family.first == label; });
+        if (it == families.end()) families.push_back({label, pattern});
+        else {
+            it->second += ";";
+            it->second += pattern;
+        }
+    }
+    std::vector<char> filter;
+    auto append = [&](const std::string& text) {
+        filter.insert(filter.end(), text.begin(), text.end());
+        filter.push_back('\0');
+    };
+    append("All Supported");
+    append(all);
+    for (const auto& family : families) {
+        append(family.first);
+        append(family.second);
+    }
+    filter.push_back('\0');
+    return filter;
+}
+
+void CollectImportFiles(const std::filesystem::path& path, const Import::TranslatorRegistry& registry,
+                        std::vector<std::filesystem::path>& out) {
+    std::error_code error;
+    if (std::filesystem::is_directory(path, error)) {
+        for (std::filesystem::recursive_directory_iterator it(path, error), end; it != end && !error; it.increment(error)) {
+            if (!it->is_regular_file(error)) continue;
+            CollectImportFiles(it->path(), registry, out);
+        }
+        return;
+    }
+    if (!std::filesystem::is_regular_file(path, error)) return;
+    if (registry.Find(path) != nullptr) out.push_back(path);
+    else LUMA_USER_WARN("Import", "'{}' is not a supported import format", path.filename().string());
+}
+
+}  // namespace
+
 void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& files) {
     if (files.empty() || !m_project) return;
-
-    std::filesystem::path targetDir = m_contentBrowser.CurrentFolder();
-    if (targetDir.empty() || !std::filesystem::exists(targetDir)) {
-        targetDir = m_project->AssetsDir();
-    }
-    std::error_code ec;
-    std::filesystem::create_directories(targetDir, ec);
-
-    LUMA_LOG_INFO("Editor", "Handling dropped assets/packs ({}) into target folder {}", files.size(), targetDir.string());
-
-    auto processSingleFile = [&](const std::filesystem::path& srcPath, const std::filesystem::path& destDir) {
-        std::error_code copyEc;
-        std::filesystem::path destPath = destDir / srcPath.filename();
-
-        // Copy source file to target directory if not already there
-        if (std::filesystem::canonical(srcPath, copyEc) != std::filesystem::canonical(destPath, copyEc)) {
-            std::filesystem::copy_file(srcPath, destPath, std::filesystem::copy_options::overwrite_existing, copyEc);
-            if (copyEc) {
-                LUMA_USER_ERROR("Content", "Could not import '{}': {}", srcPath.filename().string(), copyEc.message());
-                return;
-            }
-        }
-        LUMA_LOG_INFO("Editor", "Copied dropped file to {}", destPath.string());
-    };
-
-    for (const auto& file : files) {
-        if (std::filesystem::is_directory(file)) {
-            // Recursive copy for directories
-            std::filesystem::path destDir = targetDir / file.filename();
-            std::error_code copyEc;
-            std::filesystem::copy(file, destDir, std::filesystem::copy_options::recursive, copyEc);
-            if (copyEc) {
-                LUMA_USER_ERROR("Content", "Could not import folder '{}': {}", file.filename().string(), copyEc.message());
-            } else {
-                LUMA_LOG_INFO("Editor", "Copied dropped directory to {}", destDir.string());
-            }
-        } else {
-            processSingleFile(file, targetDir);
-        }
-    }
-
-    // Refresh the registry after dropping files
-    m_assetRegistry.Scan();
-    LUMA_LOG_INFO("Editor", "Registry refreshed after drop ({} entries)", m_assetRegistry.Size());
-    LUMA_USER_INFO("Content", "Imported {} item(s) into '{}'", files.size(),
-                   ProjectRelative(targetDir));
+    std::filesystem::path target = m_contentBrowser.ImportDropFolder();
+    if (target.empty()) target = m_contentBrowser.CurrentFolder();
+    if (target.empty()) target = m_project->AssetsDir();
+    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    std::vector<std::filesystem::path> supported;
+    for (const std::filesystem::path& file : files) CollectImportFiles(file, registry, supported);
+    OpenImport(supported, target, false);
 }
 
 void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
     if (!m_project) return;
-    std::filesystem::path target = folder;
-    if (target.empty()) target = m_project->AssetsDir();
-    std::error_code ec;
-    std::filesystem::create_directories(target, ec);
-
-    // Native multi-select file picker (Windows).
+    std::filesystem::path target = folder.empty() ? m_project->AssetsDir() : folder;
+    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    const std::vector<char> filter = ImportFileFilter(registry);
     std::vector<std::filesystem::path> picked;
 #ifdef _WIN32
     {
         char buffer[16384] = {0};
         OPENFILENAMEA ofn{};
         ofn.lStructSize = sizeof(ofn);
-        ofn.lpstrFilter = "All Files (*.*)\0*.*\0";
+        ofn.lpstrFilter = filter.data();
         ofn.lpstrFile = buffer;
         ofn.nMaxFile = static_cast<DWORD>(sizeof(buffer));
         ofn.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_FILEMUSTEXIST;
         ofn.lpstrTitle = "Import Assets";
         if (GetOpenFileNameA(&ofn)) {
-            // With OFN_ALLOWMULTISELECT + OFN_EXPLORER the buffer is
-            // "dir\0file1\0file2\0\0" for several files, or a single full
-            // path when exactly one file is chosen.
             const char* p = buffer;
             std::string first(p);
             p += first.size() + 1;
-            if (*p == '\0') {
-                picked.push_back(first);
-            } else {
+            if (*p == '\0') picked.push_back(first);
+            else {
                 const std::filesystem::path dir(first);
                 while (*p != '\0') {
                     picked.push_back(dir / p);
@@ -1330,45 +1542,199 @@ void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
         }
     }
 #endif
-    if (picked.empty()) return;
+    std::vector<std::filesystem::path> supported;
+    for (const std::filesystem::path& file : picked) CollectImportFiles(file, registry, supported);
+    OpenImport(supported, target, false);
+}
 
-    LUMA_LOG_INFO("Editor", "Importing {} file(s) into {}", picked.size(),
-                  target.string());
-    usize failed = 0;
-    for (const auto& src : picked) {
-        std::error_code copyEc;
-        if (!std::filesystem::exists(src, copyEc) || copyEc) {
-            continue;  // no longer exists — skip
-        }
-        std::filesystem::path dest = target / src.filename();
-        copyEc.clear();
-        std::filesystem::path srcReal = std::filesystem::canonical(src, copyEc);
-        if (copyEc) continue;
-        copyEc.clear();
-        std::filesystem::path destReal =
-            std::filesystem::canonical(dest, copyEc);
-        if (!copyEc && srcReal == destReal) continue;  // already there
-        copyEc.clear();
-        std::filesystem::copy_file(src, dest,
-                                   std::filesystem::copy_options::overwrite_existing,
-                                   copyEc);
-        if (copyEc) {
-            ++failed;
-            LUMA_USER_ERROR("Content", "Could not import '{}' -> {}: {}",
-                           src.string(), dest.string(), copyEc.message());
-        }
+struct EditorScreen::PendingTranslate {
+    std::unique_ptr<Import::ImportSession> session;
+    std::string error;
+    std::filesystem::path folder;
+    bool reimport = false;
+    std::atomic<bool> done{false};
+    Tasks::TaskToken token;
+};
+
+void EditorScreen::SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManager* tasks) {
+    m_jobs = jobs;
+    m_tasks = tasks;
+    m_sourceWatch = std::make_unique<Import::SourceWatch>(jobs, tasks);
+}
+
+void EditorScreen::BeginTranslate(std::string title, std::filesystem::path folder, bool reimport,
+                                  std::function<std::unique_ptr<Import::ImportSession>(std::string*)> work) {
+    if (m_translate) {
+        LUMA_USER_WARN("Import", "Still reading the previous files; try again when it finishes");
+        return;
     }
+    if (m_importSession && m_importSession->Running()) {
+        LUMA_USER_WARN("Import", "An import is already running");
+        return;
+    }
+    auto pending = std::make_shared<PendingTranslate>();
+    pending->folder = std::move(folder);
+    pending->reimport = reimport;
+    if (m_jobs == nullptr) {
+        pending->session = work(&pending->error);
+        pending->done = true;
+        m_translate = std::move(pending);
+        PollTranslate();
+        return;
+    }
+    if (m_tasks != nullptr) {
+        Tasks::TaskDesc desc;
+        desc.title = std::move(title);
+        desc.category = "Import";
+        pending->token = m_tasks->Begin(std::move(desc));
+    }
+    Jobs::JobDesc desc;
+    desc.name = "Import: read source";
+    desc.priority = Jobs::Priority::High;
+    m_jobs->Schedule(std::move(desc), [pending, work = std::move(work)] {
+        try {
+            pending->session = work(&pending->error);
+        } catch (const std::exception& e) {
+            pending->session.reset();
+            pending->error = e.what();
+        }
+        pending->done = true;
+    });
+    m_translate = std::move(pending);
+}
 
+void EditorScreen::PollTranslate() {
+    if (!m_translate || !m_translate->done) return;
+    std::shared_ptr<PendingTranslate> pending = std::move(m_translate);
+    if (!pending->session) {
+        const std::string message = pending->error.empty() ? "Could not read the selected files" : pending->error;
+        if (pending->token.IsValid()) pending->token.Fail(message);
+        LUMA_USER_ERROR("Import", "{}", message);
+        return;
+    }
+    if (pending->token.IsValid()) pending->token.Complete();
+    if (!m_project) return;  // project closed while reading
+    FinishOpenImport(std::move(pending->session), pending->folder, pending->reimport);
+}
+
+void EditorScreen::OpenImport(const std::vector<std::filesystem::path>& files,
+                              const std::filesystem::path& folder, bool reimport) {
+    if (!m_project || files.empty()) return;
+    std::string title = files.size() == 1 ? "Reading " + files.front().filename().string()
+                                          : "Reading " + std::to_string(files.size()) + " files";
+    BeginTranslate(std::move(title), folder, reimport, [files](std::string* err) {
+        auto session = std::make_unique<Import::ImportSession>();
+        if (!session->Translate(files, err)) return std::unique_ptr<Import::ImportSession>{};
+        return session;
+    });
+}
+
+void EditorScreen::FinishOpenImport(std::unique_ptr<Import::ImportSession> session,
+                                    const std::filesystem::path& folder, bool reimport) {
+    m_importDest = folder.empty() ? m_project->AssetsDir() : folder;
+    std::error_code io;
+    std::filesystem::create_directories(m_importDest, io);
+    if (auto virtualPath = m_assetPaths.ToVirtual(m_importDest)) m_importVirtual = *virtualPath;
+    else m_importVirtual = "/Game";
+    // A reimport keeps the settings recorded in the .meta (presets would
+    // overwrite them) and replaces the existing assets.
+    const SerialValue restored = reimport ? session->Settings().ToJson() : SerialValue{};
+    m_importSession = std::move(session);
+    m_importDialog.Open(m_importSession.get(), m_importDest, m_importVirtual, reimport);
+    m_importDialog.LoadPresets(m_project->ConfigDir());
+    if (reimport) {
+        m_importSession->Settings().FromJson(restored);
+        m_importSession->Settings().Common().Set("conflict", std::string("Overwrite"));
+    }
+}
+
+void EditorScreen::ReimportAsset(const std::filesystem::path& asset) {
+    if (!m_project) return;
+    BeginTranslate("Reading source of " + asset.filename().string(), asset.parent_path(), true,
+                   [asset](std::string* err) { return Import::ImportSession::ForReimport(asset, err); });
+}
+
+void EditorScreen::OnImportDialog(Editor::Panels::ImportDialog::Action action) {
+    if (!m_importSession || action == Editor::Panels::ImportDialog::Action::None) return;
+    if (action == Editor::Panels::ImportDialog::Action::Cancel) {
+        m_importSession.reset();
+        m_importActive = false;
+        return;
+    }
+    Import::FactoryContext context{m_importSession->Scene(), m_importSession->Settings(), m_materials.get(),
+                                   m_assetPaths, {}};
+    const Import::ImportPlan plan = m_importSession->Plan(m_importDest);
+    m_importSession->Start(plan, context);
+    m_importActive = true;
+    // Progress and Cancel live in the Background Tasks indicator / panel,
+    // like every other long-running editor job.
+    if (m_tasks != nullptr) {
+        Tasks::TaskDesc desc;
+        desc.title = "Importing into " + m_importVirtual;
+        desc.unit = "assets";
+        desc.total = plan.requests.size();
+        desc.cancellable = true;
+        desc.category = "Import";
+        m_importTotal = plan.requests.size();
+        m_importTask = m_tasks->Begin(std::move(desc));
+    }
+}
+
+void EditorScreen::PollImport() {
+    if (!m_importSession || !m_importActive) return;
+    if (m_importSession->Running()) {
+        if (m_importTask.IsValid()) {
+            if (m_importTask.CancelRequested()) m_importSession->Cancel();
+            // "37 / 120 assets" in the indicator, same as other counted tasks.
+            const f64 total = static_cast<f64>(m_importTask.IsValid() ? m_importTotal : 0);
+            m_importTask.SetDone(static_cast<u64>(std::lround(total * m_importSession->Progress())));
+        }
+        return;
+    }
+    const auto result = m_importSession->TakeResult();
+    m_importActive = false;
+    if (m_importTask.IsValid()) {
+        // Complete() reports Cancelled when Cancel was pressed in the panel.
+        if (result && result->failed > 0 && !m_importTask.CancelRequested()) {
+            m_importTask.Fail(std::to_string(result->failed) + " assets failed (see the Console)");
+        } else {
+            m_importTask.Complete();
+        }
+        m_importTask = Tasks::TaskToken{};
+    }
+    if (!result) {
+        m_importSession.reset();
+        return;
+    }
     m_assetRegistry.Scan();
-    if (picked.size() > failed) {
-        LUMA_USER_INFO("Content", "Imported {} file(s) into '{}'", picked.size() - failed,
-                       ProjectRelative(target));
+    if (m_sourceWatch) m_sourceWatch->InvalidateAll();
+    for (const std::filesystem::path& file : result->files) {
+        const AssetData* data = m_assetRegistry.LookupByPath(file);
+        const AssetId id = data != nullptr ? data->id : MakeAssetIdFromKey(file.string());
+        ThumbnailManager::Get().DirtyThumbnail(id);
+        m_contentBrowser.InvalidateThumbnail(id);
     }
-    LUMA_LOG_INFO("Editor", "Registry refreshed after import ({} entries)",
-                  m_assetRegistry.Size());
+    const u32 imported = result->created + result->overwritten;
+    LUMA_USER_INFO("Import", "Imported {} assets into {} ({} skipped, {} failed, {} warnings)", imported,
+                   m_importVirtual, result->skipped, result->failed, result->warnings.size());
+    for (const std::string& message : result->warnings) LUMA_USER_WARN("Import", "{}", message);
+    for (const std::string& message : result->messages) LUMA_USER_ERROR("Import", "{}", message);
+    m_importSession.reset();
 }
 
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
+    PollTranslate();
+    PollImport();
+    if (m_sourceWatch) m_sourceWatch->Update();
+    // A full workspace page owns input. An incoming import or close prompt
+    // returns to the level editor, where the existing dialog flow lives.
+    if (m_closeRequested || m_importDialog.IsOpen()) m_preferencesOpen = false;
+    if (m_preferencesOpen) {
+        m_preferencesOpen = m_preferences.Draw(ui, width, height);
+        if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
+        return;
+    }
+    if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
     Slate::Theme& t = ui.theme();
     if (!m_layoutBuilt) {
         m_panelHost->BuildLayout();
@@ -1380,11 +1746,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     ui.GradientRect(menu, t.surface2, t.surface1);
     ui.Panel({0, 31, width, 1}, t.separator);
 
-    if (m_iconLogo) {
-        ui.Image(m_iconLogo, {8, 4, 24, 24});
-    } else {
-        ui.LogoMark({20, 16}, 9.0f);
-    }
+    ui.LogoMark({20, 16}, 12.0f);
     f32 mx = 42.0f;
 
     // Main menu bar (Unreal-style): every registered menu with entries, in
@@ -1511,6 +1873,9 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     m_projectSettings.Draw(ui, width, height);
     DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
+    if (m_importDialog.IsOpen()) {
+        OnImportDialog(m_importDialog.Draw(ui, width, height));
+    }
 }
 
 Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const {
@@ -1551,6 +1916,7 @@ Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir)
 
     auto view = reg.view<const TransformComponent>();
     for (Entity e : view) {
+        if (reg.all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = view.get<const TransformComponent>(e);
         f32 t = 0.0f;
         bool hit = false;
@@ -1559,7 +1925,7 @@ Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir)
             // unnormalized local direction keeps t in world ray units).
             Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
             if (mr->UsesMeshAsset()) {
-                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->meshAsset)) {
+                if (const Editor::MeshBounds* bounds = m_bridge.Bounds(mr->mesh)) {
                     lo = bounds->min;
                     hi = bounds->max;
                 }
@@ -1602,7 +1968,7 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
     // Editor-wide shortcuts. Text entry owns the keyboard while focused, and
     // an open menu hides key presses from this pass entirely.
     if (ui.textFieldFocused() || ui.AnyMenuOpen()) return;
-    constexpr int kKeyS = 83, kKeyD = 68, kKeyF = 70;
+    constexpr int kKeyS = 83, kKeyD = 68, kKeyF = 70, kKeyC = 67, kKeyX = 88, kKeyV = 86;
     const bool ctrl = ui.ctrlDown();
     if (ctrl && ui.keyPressed(kKeyS)) {
         const bool overMaterialEditor =
@@ -1619,53 +1985,183 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
         if (ui.keyPressed(kKeyE)) m_gizmo.SetMode(GizmoMode::Rotate);
         if (ui.keyPressed(kKeyR)) m_gizmo.SetMode(GizmoMode::Scale);
     }
+    const bool overContent = m_contentBrowser.Hovered();
+    if (ctrl && ui.keyPressed(kKeyC) && !overContent && m_scene.IsValid(m_selected)) {
+        CopyEntities(m_selected);
+        return;
+    }
+    if (ctrl && ui.keyPressed(kKeyX) && !overContent && m_scene.IsValid(m_selected)) {
+        CutEntities(m_selected);
+        return;
+    }
+    if (ctrl && ui.keyPressed(kKeyV) && !overContent && !m_clipboard.Empty()) {
+        PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+        return;
+    }
     if (!m_scene.IsValid(m_selected)) return;
     if (ctrl && ui.keyPressed(kKeyD)) {
         DuplicateEntity(m_selected);
     } else if (!ctrl && ui.keyPressed(kKeyF)) {
         FocusEntity(m_selected);
-    } else if (ui.keyDelete() && !m_contentBrowser.Hovered()) {
+    } else if (ui.keyDelete() && !overContent) {
         // Over the Content Browser, Delete belongs to assets, not actors.
         DeleteEntity(m_selected);
     }
 }
 
+void EditorScreen::SelectOnly(Entity entity) {
+    m_selection.clear();
+    m_selected = entity;
+    if (m_scene.IsValid(entity)) m_selection.push_back(entity);
+}
+
+std::vector<Entity> EditorScreen::ActionRoots(Entity clicked) const {
+    const bool inSelection = std::find(m_selection.begin(), m_selection.end(), clicked) != m_selection.end();
+    if (inSelection && m_selection.size() > 1) return SelectionRoots(m_scene, m_selection);
+    if (!m_scene.IsValid(clicked)) return {};
+    return {clicked};
+}
+
+bool EditorScreen::IsHidden(Entity entity) const {
+    return m_scene.IsValid(entity) && m_scene.Registry().all_of<EditorHiddenComponent>(entity);
+}
+
 void EditorScreen::DuplicateEntity(Entity e) {
-    if (!m_scene.IsValid(e)) return;
-    if (const ComponentDesc* single = OnePerSceneComponentOf(m_scene, e)) {
-        LUMA_USER_WARN("Scene", "A scene has a single {}; it can't be duplicated",
-                       single->displayName);
-        return;
+    std::vector<Entity> created;
+    for (Entity root : ActionRoots(e)) {
+        // A one-per-scene holder (e.g. the Environment) stays unique.
+        if (const ComponentDesc* single = OnePerSceneComponentOf(m_scene, root)) {
+            LUMA_USER_WARN("Scene", "A scene has a single {}; it can't be duplicated",
+                           single->displayName);
+            continue;
+        }
+        const std::string base = m_scene.Registry().get<NameComponent>(root).name;
+        Entity copy = DuplicateSubtree(m_scene, root);
+        if (copy == kNullEntity) continue;
+        auto renameTree = [&](auto&& self, Entity entity) -> void {
+            auto& name = m_scene.Registry().get<NameComponent>(entity).name;
+            name = UniqueEntityName(m_scene, name);
+            for (Entity child : ChildrenOf(m_scene, entity)) self(self, child);
+        };
+        renameTree(renameTree, copy);
+        created.push_back(copy);
+        LUMA_USER_INFO("Scene", "Duplicated '{}' as '{}'", base,
+                       m_scene.Registry().get<NameComponent>(copy).name);
     }
-    const std::string base = m_scene.Registry().get<NameComponent>(e).name;
-    Entity copy = m_scene.DuplicateEntity(e);
-    if (copy == kNullEntity) return;
-    const std::string name = UniqueEntityName(m_scene, base);
-    m_scene.Registry().get<NameComponent>(copy).name = name;
-    m_selected = copy;
-    LUMA_USER_INFO("Scene", "Duplicated '{}' as '{}'", base, name);
+    if (created.empty()) return;
+    m_selection = created;
+    m_selected = created.back();
 }
 
 void EditorScreen::DeleteEntity(Entity e) {
-    if (!m_scene.IsValid(e)) return;
-    if (m_selected == e) {
-        m_inspectorPanel.ClosePopups();
-        m_selected = kNullEntity;
+    const std::vector<Entity> roots = ActionRoots(e);
+    if (roots.empty()) return;
+    m_inspectorPanel.ClosePopups();
+    for (Entity root : roots) {
+        if (!m_scene.IsValid(root)) continue;
+        const bool selectedInSubtree = m_selected == root || IsDescendantOf(m_scene, root, m_selected);
+        const std::string name = m_scene.Registry().get<NameComponent>(root).name;
+        DestroySubtree(m_scene, root);
+        if (selectedInSubtree) m_selected = kNullEntity;
+        LUMA_USER_INFO("Scene", "Deleted '{}'", name);
     }
-    const std::string name = m_scene.Registry().get<NameComponent>(e).name;
-    m_scene.DestroyEntity(e);
-    LUMA_USER_INFO("Scene", "Deleted '{}'", name);
+    std::vector<Entity> still;
+    for (Entity entity : m_selection) {
+        if (m_scene.IsValid(entity)) still.push_back(entity);
+    }
+    m_selection = std::move(still);
+    if (!m_scene.IsValid(m_selected)) m_selected = m_selection.empty() ? kNullEntity : m_selection.back();
 }
 
 void EditorScreen::FocusEntity(Entity e) {
-    if (!m_scene.IsValid(e)) return;
+    if (!m_scene.IsValid(e) || !m_scene.Registry().all_of<TransformComponent>(e)) return;
     const auto& tf = m_scene.Registry().get<TransformComponent>(e);
     m_camTarget = tf.position;
     // Frame by the entity's largest scale axis (unit primitives).
     const f32 extent = std::max({std::fabs(tf.scale.x), std::fabs(tf.scale.y),
                                  std::fabs(tf.scale.z), 1.0f});
     m_camDistance = std::clamp(extent * 4.0f, 3.0f, m_farZ * 0.5f);
-    m_selected = e;
+    SelectOnly(e);
+}
+
+void EditorScreen::CopyEntities(Entity clicked) {
+    if (!m_clipboard.Copy(m_scene, ActionRoots(clicked))) {
+        LUMA_USER_WARN("Scene", "Nothing to copy");
+    }
+}
+
+void EditorScreen::CutEntities(Entity clicked) {
+    if (!m_clipboard.Cut(m_scene, ActionRoots(clicked))) {
+        LUMA_USER_WARN("Scene", "Nothing to cut");
+        return;
+    }
+    LUMA_USER_INFO("Scene", "Cut {} actor(s)", m_clipboard.CutSources().size());
+}
+
+void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
+    if (m_clipboard.Empty()) return;
+    Entity parent = kNullEntity;
+    if (asChild) {
+        parent = clicked;
+    } else if (m_scene.IsValid(clicked)) {
+        parent = ParentOf(m_scene, clicked);
+    }
+    if (m_clipboard.IsCut()) {
+        for (Entity source : m_clipboard.CutSources()) {
+            if (!m_scene.IsValid(source)) continue;
+            if (parent == source || IsDescendantOf(m_scene, source, parent)) {
+                LUMA_USER_WARN("Scene", "Can't paste a cut actor into itself");
+                return;
+            }
+        }
+    }
+    const std::vector<Entity> ignore = m_clipboard.IsCut() ? m_clipboard.CutSources() : std::vector<Entity>{};
+    const std::vector<Entity> created = m_clipboard.Paste(m_scene, parent, ignore);
+    if (created.empty()) return;
+    if (m_clipboard.IsCut()) {
+        for (Entity source : m_clipboard.CutSources()) DestroySubtree(m_scene, source);
+        m_clipboard.Clear();
+    }
+    m_selection = created;
+    m_selected = created.back();
+    LUMA_USER_INFO("Scene", "Pasted {} actor(s)", created.size());
+}
+
+void EditorScreen::CreateEmptyChild(Entity parent) {
+    if (!m_scene.IsValid(parent)) return;
+    Entity child = m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
+    SetParent(m_scene, child, parent);
+    SelectOnly(child);
+}
+
+void EditorScreen::SelectChildren(Entity parent) {
+    const std::vector<Entity> descendants = DescendantsOf(m_scene, parent);
+    if (descendants.empty()) return;
+    m_selection = descendants;
+    m_selected = descendants.front();
+}
+
+void EditorScreen::MoveToRoot(Entity entity) {
+    for (Entity root : ActionRoots(entity)) {
+        if (ParentOf(m_scene, root) == kNullEntity) continue;
+        SetParent(m_scene, root, kNullEntity);
+    }
+}
+
+void EditorScreen::HideEntities(Entity clicked) {
+    for (Entity root : ActionRoots(clicked)) {
+        m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(root);
+        for (Entity child : DescendantsOf(m_scene, root)) {
+            m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(child);
+        }
+    }
+}
+
+void EditorScreen::ShowAllActors() {
+    std::vector<Entity> hidden;
+    auto view = m_scene.Registry().view<EditorHiddenComponent>();
+    for (Entity entity : view) hidden.push_back(entity);
+    for (Entity entity : hidden) m_scene.Registry().remove<EditorHiddenComponent>(entity);
 }
 
 void EditorScreen::CreateSceneAsset(const std::filesystem::path& folder) {

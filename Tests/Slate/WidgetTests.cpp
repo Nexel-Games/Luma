@@ -17,6 +17,7 @@
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Icons.h"
 #include "Luma/Slate/Theme.h"
+#include "SlateTestHarness.h"
 
 using Luma::Slate::Context;
 using Luma::Slate::Color;
@@ -415,4 +416,36 @@ TEST_CASE("A Tab-focused checkbox loses focus on a click elsewhere", "[slate][wi
     draw();
     ctx.EndFrame();
     CHECK_FALSE(on);
+}
+
+TEST_CASE("An unloaded font measures and lays out nothing instead of crashing", "[slate][font]") {
+    Luma::Slate::Font font;  // never loaded (e.g. the font file was missing)
+    const auto size = font.Measure("Luma");
+    CHECK(size.x == 0.0f);
+    int glyphs = 0;
+    font.Layout({0, 0}, "Luma", [&](const Rect&, const Rect&) { ++glyphs; });
+    CHECK(glyphs == 0);
+}
+
+TEST_CASE("PropertyRow clips a long label to its label column", "[slate][widgets]") {
+    Luma::Slate::Test::Harness h;
+    const Luma::Slate::Rect row{0.0f, 0.0f, 400.0f, 26.0f};
+    constexpr float kLabelW = 80.0f;
+    h.ctx.BeginFrame(800, 600, 0.0166f);
+    h.ctx.PropertyRow(row, "Create Sub-folders (Meshes/Materials/Textures) and more", kLabelW);
+    const Luma::UIDrawData& data = h.ctx.drawList().Build();
+    const float columnRight = row.x + kLabelW + h.ctx.theme().space.md;
+    int visibleOverflow = 0;
+    for (Luma::u32 c = 0; c < data.commandCount; ++c) {
+        const Luma::UIDrawCommand& cmd = data.commands[c];
+        for (Luma::u32 i = cmd.indexOffset; i < cmd.indexOffset + cmd.indexCount; ++i) {
+            const Luma::UIVertex& v = data.vertices[data.indices[i]];
+            if (v.y >= row.Bottom() - 1.0f) continue;  // the row's hairline divider
+            const bool insideClip = v.x <= cmd.clipX + cmd.clipW;
+            if (v.x > columnRight + 1.0f && insideClip) ++visibleOverflow;
+        }
+    }
+    h.ctx.EndFrame();
+    REQUIRE(data.vertexCount > 8);  // the label really produced glyphs
+    REQUIRE(visibleOverflow == 0);
 }

@@ -93,7 +93,10 @@ struct BridgeFixture {
     }
 
     // A quad split into `sectionCount` submeshes, written as an .lmesh.
-    AssetId WriteMesh(const std::string& name, u32 sectionCount) {
+    // Returns the mesh's virtual path. `sectionMaterials[i]` (if given) is what
+    // the importer writes as section i's material.
+    std::string WriteMesh(const std::string& name, u32 sectionCount,
+                          std::vector<std::string> sectionMaterials = {}) {
         LumaMeshData mesh;
         mesh.name = name;
         for (u32 s = 0; s < sectionCount; ++s) {
@@ -111,7 +114,8 @@ struct BridgeFixture {
             sm.indexCount = 3;
             sm.vertexOffset = base;
             sm.vertexCount = 3;
-            sm.materialName = "Section" + std::to_string(s);
+            sm.materialName = s < sectionMaterials.size() ? sectionMaterials[s]
+                                                          : "Section" + std::to_string(s);
             mesh.submeshes.push_back(sm);
             mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2});
         }
@@ -120,10 +124,7 @@ struct BridgeFixture {
         REQUIRE(LumaMeshIO::WriteMesh(file, mesh));
         registry.AddRoot(root / "Assets");
         registry.Scan();
-        const AssetData* data = registry.LookupByPath(fs::weakly_canonical(file));
-        if (!data) data = registry.LookupByPath(file);
-        REQUIRE(data != nullptr);
-        return data->id;
+        return "/Game/Meshes/" + name;
     }
 
     void WritePng(const std::string& name) {
@@ -139,7 +140,7 @@ struct BridgeFixture {
     }
 
     std::vector<SceneInstance> Build(MaterialLibrary& lib, Entity selected = kNullEntity) {
-        bridge.Sync(scene, renderer, lib, registry);
+        bridge.Sync(scene, renderer, lib);
         std::vector<SceneInstance> out;
         bridge.BuildInstances(scene, selected, out);
         return out;
@@ -163,7 +164,7 @@ TEST_CASE("Bridge gives sections without a slot the Default Material", "[bridge]
     const std::string red = lib.CreateInMemoryInstance("/Game/Materials/MI_Red", RedInstance());
 
     MeshRendererComponent mr;
-    mr.meshAsset = f.WriteMesh("ThreeParts", 3);
+    mr.mesh = f.WriteMesh("ThreeParts", 3);
     mr.materials = {red};
     const Entity e = f.Spawn(mr);
 
@@ -230,13 +231,13 @@ TEST_CASE("Bridge uploads each mesh asset once", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
     MeshRendererComponent mr;
-    mr.meshAsset = f.WriteMesh("Rock", 1);
+    mr.mesh = f.WriteMesh("Rock", 1);
     f.Spawn(mr);
     f.Spawn(mr);
     f.Build(lib);
     f.Build(lib);
     CHECK(f.renderer.meshUploads == 1);
-    const auto* bounds = f.bridge.Bounds(mr.meshAsset);
+    const auto* bounds = f.bridge.Bounds(mr.mesh);
     REQUIRE(bounds != nullptr);
     CHECK(bounds->max.x == 1.0f);
 }
@@ -285,10 +286,94 @@ TEST_CASE("Bridge reports a mesh's section count", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
     MeshRendererComponent mesh;
-    mesh.meshAsset = f.WriteMesh("FourParts", 4);
+    mesh.mesh = f.WriteMesh("FourParts", 4);
     MeshRendererComponent primitive;
     f.Spawn(mesh);
     f.Build(lib);
     CHECK(f.bridge.SectionCount(mesh) == 4);
     CHECK(f.bridge.SectionCount(primitive) == 1);
+}
+
+TEST_CASE("Empty slots draw the mesh's section materials", "[bridge]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    const std::string a = lib.CreateInMemoryInstance("/Game/Materials/MI_A", RedInstance());
+    const std::string b = lib.CreateInMemoryInstance("/Game/Materials/MI_B", RedInstance());
+    const std::string c = lib.CreateInMemoryInstance("/Game/Materials/MI_C", RedInstance());
+    MeshRendererComponent mr;
+    mr.mesh = f.WriteMesh("TwoParts", 2, {a, b});
+    const Entity e = f.Spawn(mr);
+
+    auto instances = f.Build(lib);
+    REQUIRE(instances.size() == 1);
+    CHECK(instances[0].sectionMaterials[0] == f.bridge.HandleFor(a));
+    CHECK(instances[0].sectionMaterials[1] == f.bridge.HandleFor(b));
+    CHECK(instances[0].sectionMaterials[0] != kDefaultMaterialHandle);
+    CHECK(instances[0].sectionMaterials[0] != instances[0].sectionMaterials[1]);
+
+    // An override wins over the mesh's material.
+    f.scene.Registry().get<MeshRendererComponent>(e).materials = {"", c};
+    instances = f.Build(lib);
+    CHECK(instances[0].sectionMaterials[0] == f.bridge.HandleFor(a));
+    CHECK(instances[0].sectionMaterials[1] == f.bridge.HandleFor(c));
+
+    const auto* sections = f.bridge.Sections(mr.mesh);
+    REQUIRE(sections != nullptr);
+    REQUIRE(sections->size() == 2);
+    CHECK((*sections)[0].defaultMaterial == a);
+    CHECK((*sections)[0].slotName == "A");
+    CHECK((*sections)[1].slotName == "B");
+}
+
+TEST_CASE("A section material that is not an asset path uses the Default Material",
+          "[bridge]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    MeshRendererComponent mr;
+    mr.mesh = f.WriteMesh("Lambert", 1, {"lambert1"});
+    f.Spawn(mr);
+    const auto instances = f.Build(lib);
+    CHECK(instances[0].sectionMaterials[0] == kDefaultMaterialHandle);
+    const auto* sections = f.bridge.Sections(mr.mesh);
+    REQUIRE(sections != nullptr);
+    CHECK((*sections)[0].defaultMaterial.empty());
+    CHECK((*sections)[0].slotName == "lambert1");
+}
+
+TEST_CASE("A missing mesh draws its primitive and has no sections", "[bridge]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    MeshRendererComponent mr;
+    mr.mesh = "/Game/Meshes/DoesNotExist";
+    mr.primitive = MeshPrimitive::Sphere;
+    f.Spawn(mr);
+    const auto instances = f.Build(lib);
+    REQUIRE(instances.size() == 1);
+    CHECK(instances[0].mesh == kInvalidHandle);
+    CHECK(instances[0].primitive == MeshPrimitive::Sphere);
+    CHECK(f.bridge.Sections(mr.mesh) == nullptr);
+    CHECK(f.bridge.Bounds(mr.mesh) == nullptr);
+}
+
+TEST_CASE("A placement preview is drawn but is not part of the scene", "[bridge]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    const std::string a = lib.CreateInMemoryInstance("/Game/Materials/MI_A", RedInstance());
+    const std::string rock = f.WriteMesh("Rock", 1, {a});
+    MeshRendererComponent cube;
+    f.Spawn(cube);
+
+    f.bridge.SetPlacementPreview(rock, Math::Translate(Math::Vec3(3.0f, 0.0f, 0.0f)));
+    auto instances = f.Build(lib);
+    REQUIRE(instances.size() == 2);
+    const SceneInstance& preview = instances.back();
+    CHECK(preview.mesh != kInvalidHandle);
+    CHECK(preview.selected);
+    CHECK(preview.model.m[12] == 3.0f);
+    CHECK(preview.sectionMaterials[0] == f.bridge.HandleFor(a));  // its own material, uploaded
+    CHECK(f.scene.Registry().view<const MeshRendererComponent>().size() == 1);
+
+    f.bridge.ClearPlacementPreview();
+    instances = f.Build(lib);
+    CHECK(instances.size() == 1);
 }

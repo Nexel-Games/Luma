@@ -5,13 +5,14 @@
 namespace Luma {
 
 // An RGBA8 sampled texture with its own descriptor set (combined image sampler)
-// allocated from a shared pool/layout and using a shared sampler.
+// and a shared sampler. The caller allocates the set (from whichever of its
+// pools had room); the texture writes it and frees it back to `setPool`.
 class VulkanTexture {
 public:
     VulkanTexture(VkPhysicalDevice physical, VkDevice device,
                   VkCommandPool uploadPool, VkQueue uploadQueue, u32 width,
-                  u32 height, const void* rgba8Pixels, VkDescriptorPool pool,
-                  VkDescriptorSetLayout layout, VkSampler sampler);
+                  u32 height, const void* rgba8Pixels, VkDescriptorSet set,
+                  VkDescriptorPool setPool, VkSampler sampler);
     ~VulkanTexture();
 
     VulkanTexture(const VulkanTexture&) = delete;

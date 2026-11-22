@@ -14,6 +14,7 @@
 #include "Luma/Slate/DrawList.h"
 #include "Luma/Slate/Font.h"
 #include "Luma/Slate/IconKind.h"
+#include "Luma/Slate/Image.h"
 #include "Luma/Slate/Menu.h"
 #include "Luma/Slate/TextEditState.h"
 #include "Luma/Slate/Theme.h"
@@ -157,7 +158,8 @@ public:
     void PopClip();
     void ImageUV(TextureHandle texture, const Rect& rect, const Rect& uv,
                  Color tint = Color::RGB(255, 255, 255));
-    // Draws the Luma gem/prism logo mark centered at `center`.
+    // The renderer owns the icon texture for the lifetime of this context.
+    void SetBrandIcon(const Slate::Image& icon) { m_brandIcon = icon; }
     void LogoMark(Vec2 center, f32 radius);
     void Label(Vec2 pos, std::string_view text, Color color);
     void LabelIn(const Rect& rect, std::string_view text, Color color,
@@ -300,6 +302,8 @@ public:
     bool BeginDrag(u64 sourceId, const Rect& source, const DragPayload& payload);
     bool IsDragging(std::string_view type) const { return m_drag.IsDragging(type); }
     bool IsDraggingAnything() const { return m_drag.Active(); }
+    // The payload being dragged right now (past the start threshold), or null.
+    const DragPayload* ActiveDrag() const { return m_drag.Active() ? &m_drag.Payload() : nullptr; }
     // Target: highlights `target` while a `type` payload hovers it; returns the
     // payload on release inside it (once per drop), else nullptr.
     const DragPayload* AcceptDrop(const Rect& target, std::string_view type);
@@ -463,6 +467,7 @@ public:
     static u64 ID(std::string_view s);
 
 private:
+    Slate::Image m_brandIcon;
     // --- Text-field internals (EditableText, TextField, SearchBox) -------
     // Interaction + editing core (no chrome). `hitRect` is the interactive
     // region (SearchBox passes the whole bar so clicking the icon zone

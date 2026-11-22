@@ -2,10 +2,17 @@
 
 #include "Luma/Core/Log.h"
 
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
+#define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
 #include "stb_image.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace Luma::Slate {
 
@@ -24,9 +31,10 @@ bool LoadImagePixels(const std::string& path, u32& outWidth, u32& outHeight,
     return true;
 }
 
-Image LoadImage(Renderer& renderer, const std::string& path) {
+Image LoadImage(Renderer& renderer, const std::string& path, std::vector<u8>* decodedPixels) {
     Image image;
-    std::vector<u8> pixels;
+    std::vector<u8> scratch;
+    auto& pixels = decodedPixels ? *decodedPixels : scratch;
     if (!LoadImagePixels(path, image.width, image.height, pixels)) {
         return image;
     }

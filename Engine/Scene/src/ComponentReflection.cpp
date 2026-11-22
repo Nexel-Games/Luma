@@ -34,9 +34,13 @@ const TypeInfo<MeshRendererComponent>& GetTypeInfo<MeshRendererComponent>() {
             .Category("Mesh")
             .DisplayName("Shape")
             .Enum({"Cube", "Plane", "Sphere", "Cylinder"});
+        b.Property("mesh", &MeshRendererComponent::mesh)
+            .Category("Mesh")
+            .Tooltip("Static mesh asset (virtual path). Empty draws the primitive shape.");
         b.Property("materials", &MeshRendererComponent::materials)
             .Category("Materials")
-            .Tooltip("One material per mesh section (virtual asset paths)");
+            .Tooltip("Material overrides, one per mesh section (virtual asset paths; empty = "
+                     "the mesh's own material)");
         return b.Build();
     }();
     return info;

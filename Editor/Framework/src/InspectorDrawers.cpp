@@ -42,7 +42,15 @@ InspectorRows::InspectorRows(Slate::Context& ui_, Panels::PanelContext& panel_, 
                              Entity entity_, f32 x_, f32 y_, f32 w_,
                              InspectorColorPickers& pickers)
     : ui(ui_), panel(panel_), scene(scene_), entity(entity_), x(x_), y(y_), w(w_),
-      m_pickers(pickers) {}
+      panelLeft(x_ - 12.0f), panelRight(x_ + w_ + 12.0f), m_pickers(pickers) {}
+
+f32 InspectorRows::NameColumn() const { return std::clamp(w * 0.36f, 96.0f, 180.0f); }
+
+void InspectorRows::Grid(f32 top, f32 h, f32 divX) {
+    const Slate::Color line = ui.theme().propertyDivider;
+    ui.Panel({panelLeft, top + h - 1.0f, panelRight - panelLeft, 1.0f}, line);
+    if (divX > panelLeft) ui.Panel({divX, top, 1.0f, h - 1.0f}, line);
+}
 
 u64 InspectorRows::RowId(std::string_view key, Entity entity) {
     const u64 e = static_cast<u64>(entt::to_integral(entity)) + 1;
@@ -52,88 +60,96 @@ u64 InspectorRows::RowId(std::string_view key, Entity entity) {
 void InspectorRows::SubHeading(std::string_view text) {
     y += 4.0f;
     ui.LabelIn({x, y, w, 20}, text, ui.theme().accent);
-    y += 24.0f;
+    Grid(y - 2.0f, 26.0f, 0.0f);
+    y += 28.0f;
 }
 
-bool InspectorRows::Float(std::string_view label, std::string_view key, f32& value,
+// Property rows are 22 px controls in 28 px bands (3 px above, 3 below): name
+// in the name column, the editor in the value column, then the grid lines.
+#define LUMA_ROW_BEGIN(label)                                              \
+    const f32 nameCol = NameColumn();                                      \
+    ui.LabelIn({x, y, nameCol - 8.0f, kRowHeight}, label, ui.theme().textDim); \
+    const Slate::Rect value{x + nameCol, y, w - nameCol, kRowHeight}
+#define LUMA_ROW_END()                          \
+    Grid(y - 3.0f, kRowStep, x + nameCol - 6.0f); \
+    y += kRowStep
+
+bool InspectorRows::Float(std::string_view label, std::string_view key, f32& v,
                           const Slate::SpinBoxOptions& options) {
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
-    const bool changed =
-        ui.SpinBox(Id(key), {x + kLabelWidth, y, w - kLabelWidth, kRowHeight}, value, options)
-            .changed;
-    y += kRowStep;
+    LUMA_ROW_BEGIN(label);
+    const bool changed = ui.SpinBox(Id(key), value, v, options).changed;
+    LUMA_ROW_END();
     return changed;
 }
 
-bool InspectorRows::Int(std::string_view label, std::string_view key, i32& value,
+bool InspectorRows::Int(std::string_view label, std::string_view key, i32& v,
                         const Slate::SpinBoxOptions& options) {
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
-    const bool changed =
-        ui.SpinBoxInt(Id(key), {x + kLabelWidth, y, w - kLabelWidth, kRowHeight}, value, options)
-            .changed;
-    y += kRowStep;
+    LUMA_ROW_BEGIN(label);
+    const bool changed = ui.SpinBoxInt(Id(key), value, v, options).changed;
+    LUMA_ROW_END();
     return changed;
 }
 
-bool InspectorRows::Vec3(std::string_view label, std::string_view key, Math::Vec3& value) {
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
-    const bool changed =
-        ui.Vector3Field(Id(key), {x + kLabelWidth, y, w - kLabelWidth, kRowHeight}, &value.x);
-    y += kRowStep;
+bool InspectorRows::Vec3(std::string_view label, std::string_view key, Math::Vec3& v) {
+    LUMA_ROW_BEGIN(label);
+    const bool changed = ui.Vector3Field(Id(key), value, &v.x);
+    LUMA_ROW_END();
     return changed;
 }
 
-bool InspectorRows::Check(std::string_view label, std::string_view key, bool& value,
-                          f32 indent) {
-    const bool changed = ui.Checkbox(Id(key), {x + indent, y, 18, 18}, label, value);
-    y += 26.0f;
+bool InspectorRows::Check(std::string_view label, std::string_view key, bool& v, f32 indent) {
+    LUMA_ROW_BEGIN(label);
+    const bool changed =
+        ui.Checkbox(Id(key), {value.x + indent, y + 2.0f, 18.0f, 18.0f}, "", v);
+    LUMA_ROW_END();
     return changed;
 }
 
 bool InspectorRows::Combo(std::string_view label, std::string_view key,
                           const std::vector<std::string>& items, int& current) {
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
-    const int picked =
-        ui.Combo(Id(key), {x + kLabelWidth, y, w - kLabelWidth, kRowHeight}, items, current);
-    y += kRowStep;
+    LUMA_ROW_BEGIN(label);
+    const int picked = ui.Combo(Id(key), value, items, current);
+    LUMA_ROW_END();
     if (picked == current) return false;
     current = picked;
     return true;
 }
 
-bool InspectorRows::Text(std::string_view label, std::string_view key, std::string& value) {
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
-    const std::string before = value;
-    ui.TextField(Id(key), {x + kLabelWidth, y, w - kLabelWidth, kRowHeight}, value);
-    y += kRowStep;
-    return value != before;
+bool InspectorRows::Text(std::string_view label, std::string_view key, std::string& v) {
+    LUMA_ROW_BEGIN(label);
+    const std::string before = v;
+    ui.TextField(Id(key), value, v);
+    LUMA_ROW_END();
+    return v != before;
 }
 
 void InspectorRows::Color(std::string_view label, std::string_view key,
                           const Math::Vec3& current,
                           std::function<void(const Math::Vec3&)> set) {
-    auto toColor = [](const Math::Vec3& v) {
+    auto toColor = [](const Math::Vec3& c) {
         return Slate::Color::RGB(
-            static_cast<u8>(std::clamp(v.x, 0.0f, 1.0f) * 255.0f + 0.5f),
-            static_cast<u8>(std::clamp(v.y, 0.0f, 1.0f) * 255.0f + 0.5f),
-            static_cast<u8>(std::clamp(v.z, 0.0f, 1.0f) * 255.0f + 0.5f));
+            static_cast<u8>(std::clamp(c.x, 0.0f, 1.0f) * 255.0f + 0.5f),
+            static_cast<u8>(std::clamp(c.y, 0.0f, 1.0f) * 255.0f + 0.5f),
+            static_cast<u8>(std::clamp(c.z, 0.0f, 1.0f) * 255.0f + 0.5f));
     };
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
+    LUMA_ROW_BEGIN(label);
     Slate::ColorPickerPopup& popup = m_pickers.Use(Id(key));
     popup.OnColorChanged = [set = std::move(set)](const Slate::Color& c) {
         set(Math::Vec3(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f));
     };
     popup.SetColor(toColor(current));  // follows the component (no-op while editing)
-    popup.DrawSwatch(ui, {x + kLabelWidth, y + 2, w - kLabelWidth, 18});
-    y += kRowStep;
+    popup.DrawSwatch(ui, {value.x, y + 2, value.w, 18});
+    LUMA_ROW_END();
 }
 
-void InspectorRows::ReadOnly(std::string_view label, std::string_view value) {
-    ui.LabelIn({x, y, kLabelWidth, kRowHeight}, label, ui.theme().textDim);
-    ui.LabelIn({x + kLabelWidth, y, w - kLabelWidth, kRowHeight}, value,
-               ui.theme().textDisabled);
-    y += kRowStep;
+void InspectorRows::ReadOnly(std::string_view label, std::string_view text) {
+    LUMA_ROW_BEGIN(label);
+    ui.LabelIn(value, text, ui.theme().textDisabled);
+    LUMA_ROW_END();
 }
+
+#undef LUMA_ROW_BEGIN
+#undef LUMA_ROW_END
 
 void InspectorRows::Note(std::string_view text, Slate::Color color) {
     ui.LabelIn({x, y, w, kRowHeight}, text, color);

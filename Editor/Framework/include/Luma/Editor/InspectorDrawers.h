@@ -59,10 +59,23 @@ public:
     f32 x;
     f32 y;  // cursor: the top of the next row
     f32 w;
-    // Mesh Renderer material slot rows laid out this frame (drop targets).
+    // Horizontal extent of the panel (row grid lines span it). Defaults to the
+    // row area plus the panel's 12 px padding.
+    f32 panelLeft;
+    f32 panelRight;
+    // Mesh Renderer drop targets laid out this frame (material slots, the
+    // Static Mesh row).
     std::vector<Slate::Rect>* materialSlotRects = nullptr;
+    Slate::Rect* staticMeshRowRect = nullptr;
 
-    static constexpr f32 kLabelWidth = 118.0f;
+    // Unreal Details layout: one name column for every property row, so the
+    // vertical divider lines up down the whole panel.
+    f32 NameColumn() const;
+    // Property grid: a line under the row across the panel and one between the
+    // name and value columns (`divX` 0 = no column line).
+    void Grid(f32 top, f32 h, f32 divX);
+
+    static constexpr f32 kLabelWidth = 118.0f;  // reflection-row tooltip hit width
     static constexpr f32 kRowHeight = 22.0f;
     static constexpr f32 kRowStep = 28.0f;
 

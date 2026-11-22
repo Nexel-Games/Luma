@@ -354,3 +354,80 @@ TEST_CASE("Tooltips appear after the hover delay and hide on click",
     }
     CHECK(f.ui.drawList().vertexCount() > quiet);
 }
+
+TEST_CASE("The click that opens a menu never selects an item in it", "[slate][menu]") {
+    // A slot picker opens on mouse press. A long list fits neither below nor
+    // above its anchor, so it is placed over the anchor -- under the cursor.
+    // The release of that same click must not pick the row under it.
+    Fixture f;
+    int picked = -1;
+    const Rect anchor{300, 340, 200, 22};
+    auto widgets = [&] {
+        if (f.ui.mousePressed(0) && anchor.Contains(f.ui.mouse()) && !f.ui.AnyMenuOpen()) {
+            MenuBuilder b;
+            for (int i = 0; i < 80; ++i) {
+                b.AddEntry("Material " + std::to_string(i), {}, [&picked, i] { picked = i; });
+            }
+            f.ui.OpenMenuBelow(Context::ID("picker"), anchor, b.Build());
+        }
+    };
+    f.ui.OnMouseMove(350, 351);
+    f.ui.OnMouseButton(0, true);
+    f.Frame(widgets);
+    REQUIRE(f.ui.AnyMenuOpen());
+    f.ui.OnMouseButton(0, false);
+    f.Frame(widgets);
+    CHECK(picked == -1);
+    CHECK(f.ui.AnyMenuOpen());
+
+    // A real click on a row still picks it.
+    f.ui.OnMouseButton(0, true);
+    f.Frame([] {});
+    f.ui.OnMouseButton(0, false);
+    f.Frame([] {});
+    CHECK(picked >= 0);
+}
+
+TEST_CASE("Thumbnail icons are fetched while the menu is drawn", "[slate][menu]") {
+    // Asset pickers show thumbnails that may still be generating: the entry
+    // asks for its texture every frame, so it appears once it is ready.
+    Fixture f;
+    int calls = 0;
+    Luma::TextureHandle ready = 0;
+    MenuBuilder b;
+    b.AddEntry("SM_Rock", Luma::Slate::MenuIcon::Thumbnail([&] { ++calls; return ready; },
+                                                           Luma::Slate::Icon::StaticMesh),
+               [] {});
+    MenuOptions options;
+    options.iconSize = 32.0f;
+    f.ui.OpenMenuBelow(Context::ID("picker"), Rect{100, 100, 200, 22}, b.Build(), options);
+    f.Frame();
+    f.Frame();
+    CHECK(calls >= 2);
+    const auto before = f.ui.drawList().vertexCount();
+    ready = 7;  // the thumbnail finished
+    f.Frame();
+    CHECK(calls >= 3);
+    (void)before;
+    CHECK(f.ui.AnyMenuOpen());
+}
+
+TEST_CASE("A long menu is capped at its maximum height and scrolls", "[slate][menu]") {
+    Fixture f;
+    MenuBuilder b;
+    for (int i = 0; i < 80; ++i) b.AddEntry("Material " + std::to_string(i), {}, [] {});
+    MenuOptions options;
+    options.maxHeight = 300.0f;
+    f.ui.OpenMenuBelow(Context::ID("picker"), Rect{100, 100, 200, 22}, b.Build(), options);
+    f.Frame();
+    const Rect r = f.ui.menus().LevelRect(0);
+    CHECK(r.h <= 300.0f);
+    CHECK(r.h > 200.0f);
+    CHECK(r.y >= 122.0f);  // still opens below its anchor
+
+    MenuBuilder c;
+    for (int i = 0; i < 80; ++i) c.AddEntry("Material " + std::to_string(i), {}, [] {});
+    f.ui.OpenMenuBelow(Context::ID("picker2"), Rect{100, 100, 200, 22}, c.Build());
+    f.Frame();
+    CHECK(f.ui.menus().LevelRect(0).h > 600.0f);  // no cap: as tall as the window allows
+}

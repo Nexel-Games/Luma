@@ -9,9 +9,9 @@ namespace Luma {
 VulkanTexture::VulkanTexture(VkPhysicalDevice physical, VkDevice device,
                              VkCommandPool uploadPool, VkQueue uploadQueue,
                              u32 width, u32 height, const void* pixels,
-                             VkDescriptorPool pool,
-                             VkDescriptorSetLayout layout, VkSampler sampler)
-    : m_device(device), m_pool(pool) {
+                             VkDescriptorSet set, VkDescriptorPool setPool,
+                             VkSampler sampler)
+    : m_device(device), m_pool(setPool), m_set(set) {
     const VkDeviceSize imageSize =
         static_cast<VkDeviceSize>(width) * height * 4;
 
@@ -93,13 +93,6 @@ VulkanTexture::VulkanTexture(VkPhysicalDevice physical, VkDevice device,
     viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &m_view));
-
-    VkDescriptorSetAllocateInfo setAlloc{};
-    setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    setAlloc.descriptorPool = pool;
-    setAlloc.descriptorSetCount = 1;
-    setAlloc.pSetLayouts = &layout;
-    VK_CHECK(vkAllocateDescriptorSets(device, &setAlloc, &m_set));
 
     VkDescriptorImageInfo imgInfo{};
     imgInfo.sampler = sampler;

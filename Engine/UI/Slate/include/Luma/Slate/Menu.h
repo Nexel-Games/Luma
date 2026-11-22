@@ -31,12 +31,16 @@
 namespace Luma::Slate {
 
 class Context;
+struct Theme;
 
 // Leading glyph of a menu row: a procedural Icon, or a texture (drawn
 // tinted like the label) with an optional procedural fallback.
 struct MenuIcon {
     Icon glyph = Icon::None;
     TextureHandle texture = 0;
+    // Asked every frame the entry is drawn (asset thumbnails that may still
+    // be generating); 0 shows `glyph`. Drawn untinted (full colour).
+    std::function<TextureHandle()> thumbnail;
 
     MenuIcon() = default;
     MenuIcon(Icon g) : glyph(g) {}  // NOLINT(google-explicit-constructor)
@@ -46,7 +50,13 @@ struct MenuIcon {
         m.texture = tex;
         return m;
     }
-    bool Empty() const { return glyph == Icon::None && texture == 0; }
+    static MenuIcon Thumbnail(std::function<TextureHandle()> provider, Icon fallback = Icon::None) {
+        MenuIcon m;
+        m.glyph = fallback;
+        m.thumbnail = std::move(provider);
+        return m;
+    }
+    bool Empty() const { return glyph == Icon::None && texture == 0 && !thumbnail; }
 };
 
 // Optional per-entry presentation/state.
@@ -101,6 +111,12 @@ struct MenuOptions {
     bool searchable = false;
     std::string searchHint = "Search";
     f32 minWidth = 0.0f;  // 0 = Theme::menu.minWidth
+    // Icon box size; 0 = Theme::menu.iconSize. Asset pickers use ~32 for
+    // thumbnails (entry rows grow to fit).
+    f32 iconSize = 0.0f;
+    // Tallest the list may be (px); 0 = as tall as the window allows. Longer
+    // lists scroll.
+    f32 maxHeight = 0.0f;
 };
 
 // One search result: the matching action and the path of the submenus /
@@ -169,6 +185,8 @@ private:
 
     void BuildRows(Context& ctx, Level& level) const;
     f32 MeasureWidth(Context& ctx, const Level& level) const;
+    f32 IconSize(const Theme& t) const;
+    f32 EntryRowHeight(const Theme& t) const;
     void PlaceRoot(Context& ctx, Level& level);
     void PlaceChild(Context& ctx, const Level& parent, Level& child) const;
     int RowAt(const Level& level, Vec2 p) const;

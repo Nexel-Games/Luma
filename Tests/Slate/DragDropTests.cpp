@@ -141,3 +141,20 @@ TEST_CASE("A press outside the source starts no drag", "[slate][dragdrop]") {
     f.Move(450, 130);
     CHECK_FALSE(f.ui.IsDragging("material"));
 }
+
+TEST_CASE("The active drag's payload is readable while dragging", "[slate][dragdrop]") {
+    DragFixture f;
+    CHECK(f.ui.ActiveDrag() == nullptr);
+    f.Press(140, 140);
+    CHECK(f.ui.ActiveDrag() == nullptr);  // not past the threshold yet
+    f.Move(200, 140);
+    const DragPayload* active = f.ui.ActiveDrag();
+    REQUIRE(active != nullptr);
+    CHECK(active->type == "material");
+    CHECK(active->data == "/Game/Materials/M_Wood");
+    f.ui.OnKey(kKeyEscape, true);
+    f.Frame();
+    f.ui.OnKey(kKeyEscape, false);
+    f.Frame();
+    CHECK(f.ui.ActiveDrag() == nullptr);  // Escape cancelled it
+}

@@ -52,6 +52,14 @@ bool ExtIn(const std::string_view ext, const Arr& arr) {
 AssetType AssetTypeFromExtension(std::string_view ext) noexcept {
     if (ext.empty()) return AssetType::Unknown;
     if (ext.front() == '.') ext.remove_prefix(1);
+    char lowered[16];
+    if (ext.size() >= sizeof(lowered)) return AssetType::Unknown;
+    for (size_t i = 0; i < ext.size(); ++i) {
+        char c = ext[i];
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        lowered[i] = c;
+    }
+    ext = std::string_view(lowered, ext.size());
     if (ExtIn(ext, TypeExtensions{}.texture)) return AssetType::Texture;
     if (ExtIn(ext, TypeExtensions{}.mesh)) return AssetType::Mesh;
     if (ExtIn(ext, TypeExtensions{}.material)) return AssetType::Material;

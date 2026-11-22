@@ -1,11 +1,13 @@
 #include "Luma/Scene/SceneSerializer.h"
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <sstream>
 
 #include "Luma/Scene/ComponentReflection.h"
 #include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/Hierarchy.h"
 #include "Luma/Serialization/Json.h"
 #include "Luma/Serialization/Reflection.h"
 
@@ -102,14 +104,20 @@ std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
     // NameComponent marks the canonical scene objects. Walk its storage in packed
     // order: loading emplaces Names in file order, so a load -> save round trip
     // keeps the entity order (EnTT views iterate the packed array backwards).
+    std::vector<Entity> order;
     if (const auto* names = scene.Registry().storage<NameComponent>()) {
         const Entity* packed = names->data();
-        const usize count = names->size();
-        for (usize i = 0; i < count; ++i) {
-            SerialValue entity = SerialValue::MakeObject();
-            entity["components"] = WriteComponents(scene, packed[i], registry, owners);
-            entities.PushBack(std::move(entity));
+        order.assign(packed, packed + names->size());
+    }
+    for (usize index = 0; index < order.size(); ++index) {
+        const Entity e = order[index];
+        SerialValue entity = SerialValue::MakeObject();
+        if (Entity parent = ParentOf(scene, e); parent != kNullEntity) {
+            const auto it = std::find(order.begin(), order.end(), parent);
+            if (it != order.end()) entity["parent"] = static_cast<i64>(it - order.begin());
         }
+        entity["components"] = WriteComponents(scene, e, registry, owners);
+        entities.PushBack(std::move(entity));
     }
     if (owners.Size() > 0) {
         // Sorted by component id so the output does not depend on entity order.
@@ -165,10 +173,14 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
     reg.clear();  // replace any existing contents
     if (outLegacy) outLegacy->clear();
 
+    std::vector<Entity> created;
+    std::vector<i64> parents;
     for (const SerialValue& entity : entities.Elements()) {
         const SerialValue* comps = entity.Find("components");
         if (!comps || !comps->IsObject()) continue;
         entt::entity e = reg.create();
+        created.push_back(e);
+        parents.push_back(entity.Find("parent") ? entity.Find("parent")->AsInt(-1) : -1);
         UnresolvedComponents unresolved;
         for (const auto& member : comps->Members()) {
             const std::string& key = member.first;
@@ -184,6 +196,11 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
         if (!unresolved.payloads.empty()) {
             reg.emplace<UnresolvedComponents>(e, std::move(unresolved));
         }
+    }
+    for (usize index = 0; index < created.size(); ++index) {
+        const i64 parentIndex = parents[index];
+        if (parentIndex < 0 || static_cast<usize>(parentIndex) >= created.size()) continue;
+        SetParent(scene, created[index], created[static_cast<usize>(parentIndex)]);
     }
     return true;
 }

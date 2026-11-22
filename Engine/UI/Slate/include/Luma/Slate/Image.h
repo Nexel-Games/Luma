@@ -30,7 +30,8 @@ struct Image {
 };
 
 // Loads a PNG/JPG/etc. (via stb_image) and uploads it as an RGBA8 texture.
-Image LoadImage(Renderer& renderer, const std::string& path);
+Image LoadImage(Renderer& renderer, const std::string& path,
+                std::vector<u8>* decodedPixels = nullptr);
 
 // Loads raw RGBA8 pixels from an image file (for e.g. window icons). Returns
 // false on failure; on success `outPixels` has width*height*4 bytes.

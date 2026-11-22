@@ -9,6 +9,8 @@
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Editor/Panels/FileSystemTree.h"
+#include "Luma/Editor/Panels/ThumbnailBudget.h"
+#include "Luma/Tasks/TaskManager.h"
 #include "Luma/RHI/Renderer.h"
 #include "PanelContext.h"
 #include "Luma/Slate/Context.h"
@@ -87,6 +89,11 @@ public:
     std::filesystem::path CurrentFolder() const noexcept {
         return m_currentFolder;
     }
+
+    // Folder under the pointer on the last Draw: a tree row, a folder tile,
+    // a breadcrumb, or the open folder. Empty when the pointer is elsewhere.
+    // OS file drops import into this folder.
+    std::filesystem::path ImportDropFolder() const noexcept { return m_importDropFolder; }
     
     // Thumbnail helpers
     u64 GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer);
@@ -131,7 +138,12 @@ private:
     // Right-click target resolved by the grid this frame: the asset under
     // the cursor (invalid = empty space -> folder menu).
     AssetId m_contextTarget{};
+    AssetId m_soundPress{};
     bool m_hovered = false;
+    std::filesystem::path m_importDropFolder;
+    std::string m_pendingMoveSource;
+    std::filesystem::path m_pendingMoveFolder;
+    bool m_rescan = false;
     // Set when a menu action starts an inline rename; the rename field takes
     // keyboard focus on the next frame it is drawn.
     bool m_renameFocusPending = false;
@@ -154,6 +166,9 @@ private:
     
     // Thumbnail cache (asset ID -> texture handle)
     std::unordered_map<AssetId, u64> m_thumbnailCache;
+    ThumbnailBudget m_thumbBudget;
+    Tasks::TaskToken m_thumbTask;  // "Generating thumbnails" while tiles wait
+    void UpdateThumbnailTask(PanelContext& ctx);
 
     // Layout constants.
     static constexpr f32 kToolbarH = 36.0f;
@@ -164,7 +179,7 @@ private:
     static constexpr f32 kTileGap = 6.0f;
 
     // Draw helpers (called from Draw).
-    void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect);
+    void DrawToolbar(Slate::Context& ui, const Slate::Rect& rect, PanelContext& ctx);
     void DrawGridPane(Slate::Context& ui, const Slate::Rect& rect,
                       PanelContext& ctx);
     // Menus (Slate::MenuBuilder; drawn + input-handled by the Slate menu
@@ -196,8 +211,14 @@ private:
     static u64 NowMs() noexcept;
 
     // Inline rename lifecycle.
-    void CommitRename(const AssetData& a);
+    void CommitRename(const AssetData& a, PanelContext& ctx);
     void CancelRename() noexcept;
+    void DrawRenameField(Slate::Context& ui, const Slate::Rect& nameR, const AssetData& asset,
+                         PanelContext& ctx);
+    const Slate::DragPayload* AcceptAssetDrop(Slate::Context& ui, const Slate::Rect& target) const;
+    void MoveDropped(const Slate::DragPayload& drop, const std::filesystem::path& folder,
+                     PanelContext& ctx);
+    void FinishMutations(PanelContext& ctx);
 };
 
 }  // namespace Luma::Editor::Panels

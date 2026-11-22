@@ -40,9 +40,8 @@ MeshPrimitive ToPrimitive(PreviewShape shape) {
 }  // namespace
 
 MaterialPreview::MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
-                                 Material::MaterialLibrary& library,
-                                 const AssetRegistry& registry)
-    : m_renderer(renderer), m_library(library), m_registry(registry) {
+                                 Material::MaterialLibrary& library)
+    : m_renderer(renderer), m_library(library) {
     m_actor = m_scene.CreateEntity("PreviewActor");
     m_scene.Registry().emplace<MeshRendererComponent>(m_actor);
 
@@ -62,7 +61,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
                                   f32 deltaSeconds) {
     width = std::max(width, 1u);
     height = std::max(height, 1u);
-    m_bridge.Sync(m_scene, m_renderer, m_library, m_registry);
+    m_bridge.Sync(m_scene, m_renderer, m_library);
     m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
 
     // Frame the actor's bounding sphere.
@@ -70,7 +69,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     Math::Vec3 center{0.0f, 0.0f, 0.0f};
     f32 radius = 0.75f;  // unit primitives
     if (mr.UsesMeshAsset()) {
-        if (const Editor::MeshBounds* b = m_bridge.Bounds(mr.meshAsset)) {
+        if (const Editor::MeshBounds* b = m_bridge.Bounds(mr.mesh)) {
             center = (b->min + b->max) * 0.5f;
             const Math::Vec3 extent = (b->max - b->min) * 0.5f;
             radius = std::max(std::sqrt(Math::Dot(extent, extent)), 1e-3f);
@@ -124,7 +123,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
 TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShape shape,
                                       f32 yaw, f32 pitch, u32 width, u32 height, bool sky) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
-    mr.meshAsset = AssetId{};
+    mr.mesh.clear();
     mr.primitive = ToPrimitive(shape);
     mr.materials = {std::string(materialPath)};
     m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
@@ -177,7 +176,7 @@ bool MaterialPreview::CaptureSquare(u32 size, std::vector<u8>& outRgba) {
 bool MaterialPreview::CaptureMaterial(std::string_view materialPath, u32 size,
                                       std::vector<u8>& outRgba) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
-    mr.meshAsset = AssetId{};
+    mr.mesh.clear();
     mr.primitive = MeshPrimitive::Sphere;
     mr.materials = {std::string(materialPath)};
     u32 w = 0, h = 0;
@@ -188,14 +187,14 @@ bool MaterialPreview::CaptureMaterial(std::string_view materialPath, u32 size,
     return CaptureSquare(size, outRgba);
 }
 
-bool MaterialPreview::CaptureMesh(const AssetId& mesh, u32 size, std::vector<u8>& outRgba) {
+bool MaterialPreview::CaptureMesh(std::string_view meshPath, u32 size, std::vector<u8>& outRgba) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
-    mr.meshAsset = mesh;
+    mr.mesh = std::string(meshPath);
     mr.materials.clear();
     u32 w = 0, h = 0;
     CaptureExtent(w, h);
     RenderFrame(kThumbnailYaw, kThumbnailPitch, w, h, 0.0f);
-    if (!m_bridge.Bounds(mesh)) return false;  // mesh failed to load
+    if (!m_bridge.Bounds(meshPath)) return false;  // mesh failed to load
     RenderFrame(kThumbnailYaw, kThumbnailPitch, w, h, 0.0f);
     return CaptureSquare(size, outRgba);
 }

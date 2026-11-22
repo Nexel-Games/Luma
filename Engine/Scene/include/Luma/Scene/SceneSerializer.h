@@ -12,7 +12,10 @@
 //
 //   { "version": 3,
 //     "componentOwners": { "RigidBody": "Luma.Physics.PhysX" },   // only if any
-//     "entities": [ { "components": { "Name": {...}, "Transform": {...}, ... } } ] }
+//     "entities": [ { "parent": <index>, "components": { "Name": {...}, ... } } ] }
+//
+// "parent" is optional. It is the index of the parent in this entities array.
+// Transforms stay in world space across that link.
 //
 // Only entities carrying a NameComponent (the canonical scene objects) are
 // written. Components are written and read through the runtime ComponentRegistry
