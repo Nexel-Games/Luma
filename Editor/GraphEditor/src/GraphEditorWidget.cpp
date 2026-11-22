@@ -261,7 +261,8 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
     const f32 z = m_view.Zoom();
     const Rect r = m_view.RectToScreen(g.body, m_origin);
     const bool selected = m_controller.Sel().Has(n.id);
-    const bool text = z >= 0.5f;
+    const bool text = z >= 0.5f;        // titles
+    const bool pinText = z >= 0.85f;    // pin labels (fonts do not scale with zoom)
     const f32 pinR = std::max(4.5f * z, 2.0f);
 
     auto drawPin = [&](Vec2 anchor, const PinView& pin, bool linked) {
@@ -288,14 +289,14 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
     }
     for (u32 i = 0; i < n.inputs.size(); ++i) {
         drawPin(g.inputs[i], n.inputs[i], pins.count(i) != 0);
-        if (text && !n.inputs[i].name.empty()) {
+        if (pinText && !n.inputs[i].name.empty()) {
             const Vec2 s = m_view.ToScreen(g.inputs[i], m_origin);
             ui.LabelIn({s.x + 10.0f, s.y - 9.0f, r.w * 0.5f, 18.0f}, n.inputs[i].name, t.textDim);
         }
     }
     for (u32 i = 0; i < n.outputs.size(); ++i) {
         drawPin(g.outputs[i], n.outputs[i], pins.count(1000 + i) != 0);
-        if (text && !n.outputs[i].name.empty()) {
+        if (pinText && !n.outputs[i].name.empty()) {
             const Vec2 s = m_view.ToScreen(g.outputs[i], m_origin);
             ui.LabelIn({s.x - 10.0f - r.w * 0.5f, s.y - 9.0f, r.w * 0.5f, 18.0f}, n.outputs[i].name, t.textDim,
                        Align::Right);
