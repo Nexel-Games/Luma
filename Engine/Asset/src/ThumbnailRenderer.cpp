@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Core/Log.h"
@@ -51,35 +52,17 @@ void ThumbnailManager::Initialize() {
 }
 
 void ThumbnailManager::InitializeRenderTypeArray() {
-    // Register default rendering info for texture assets
-    ThumbnailRenderingInfo textureInfo;
-    textureInfo.assetType = AssetType::Texture;
-    textureInfo.rendererName = "TextureThumbnailRenderer";
-    textureInfo.useCheckerboard = true;
-    textureInfo.defaultWidth = 128;
-    textureInfo.defaultHeight = 128;
-    m_renderingInfo[AssetType::Texture] = textureInfo;
-    
-    // Register default rendering info for mesh assets
-    ThumbnailRenderingInfo meshInfo;
-    meshInfo.assetType = AssetType::Mesh;
-    meshInfo.rendererName = "MeshThumbnailRenderer";
-    meshInfo.useDefaultPrimitive = false;
-    meshInfo.defaultWidth = 128;
-    meshInfo.defaultHeight = 128;
-    m_renderingInfo[AssetType::Mesh] = meshInfo;
-
-    // Register default rendering info for material assets
-    ThumbnailRenderingInfo materialInfo;
-    materialInfo.assetType = AssetType::Material;
-    materialInfo.rendererName = "MaterialThumbnailRenderer";
-    materialInfo.useDefaultPrimitive = true;
-    materialInfo.defaultWidth = 128;
-    materialInfo.defaultHeight = 128;
-    m_renderingInfo[AssetType::Material] = materialInfo;
-    
-    LUMA_LOG_INFO("ThumbnailManager", "Initialized default rendering info for {} asset types", 
-                  m_renderingInfo.size());
+    for (const auto& desc : AssetTypes().All()) {
+        if (desc->builtin == AssetType::Unknown || !desc->createThumbnailRenderer) continue;
+        auto renderer = desc->createThumbnailRenderer();
+        ThumbnailRenderingInfo info;
+        info.assetType = desc->builtin;
+        info.rendererName = renderer->GetRendererName();
+        info.useDefaultPrimitive = desc->useDefaultThumbnailPrimitive;
+        renderer->GetPreferredSize(info.defaultWidth, info.defaultHeight);
+        RegisterRenderingInfo(desc->builtin, info);
+        RegisterRenderer(desc->builtin, std::move(renderer));
+    }
 }
 
 void ThumbnailManager::RegisterRenderer(AssetType type, std::unique_ptr<ThumbnailRenderer> renderer) {
@@ -319,9 +302,16 @@ bool ThumbnailManager::GenerateThumbnail(const AssetId& assetId,
     // One extension table for the whole engine (AssetType.cpp): textures
     // (incl. PSD/HDR/EXR), .lmesh, materials, sounds.
     std::string ext = nativePath.extension().string();
-    AssetType type = AssetTypeFromExtension(ext);
+    const auto desc = AssetTypes().FindByExtension(ext);
+    if (desc && desc->thumbnail) {
+        std::error_code ec;
+        std::filesystem::create_directories(outputPath.parent_path(), ec);
+        return !ec && desc->thumbnail(nativePath, outputPath, settings.width, settings.height) &&
+               std::filesystem::is_regular_file(outputPath, ec);
+    }
+    AssetType type = desc ? desc->builtin : AssetType::Unknown;
     // Instances render through the material preview.
-    if (type == AssetType::MaterialInstance) type = AssetType::Material;
+    if (desc && desc->thumbnailSource != AssetType::Unknown) type = desc->thumbnailSource;
     
     if (type == AssetType::Unknown) {
         LUMA_LOG_WARN("ThumbnailManager", "Unknown asset type for file: {} (ext: {})", nativePath.string(), ext);

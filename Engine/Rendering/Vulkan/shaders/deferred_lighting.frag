@@ -101,7 +101,7 @@ void main() {
             vec3 worldPos = ReconstructWorldPos(vUV, depth);
             vec3 viewDirection = normalize(worldPos - lighting.camPos.xyz);
             // Linear HDR radiance; the post chain exposes + tone-maps it.
-            outColor = vec4(SampleEnvironment(viewDirection), 1.0);
+            outColor = vec4(SampleEnvironmentLod(viewDirection, lighting.params.w - 1.0), 1.0);
         } else if (lighting.atmo.ozoneSky.y > 0.0) {
             vec3 worldPos = ReconstructWorldPos(vUV, depth);
             outColor = vec4(RenderSkyRadiance(worldPos, lighting.camPos.xyz, lighting.atmo), 1.0);

@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/AssetImport/ImportSession.h"
 #include "Luma/AssetImport/SourceWatch.h"
 #include "Luma/AssetImport/Translators/ModelTranslator.h"
@@ -14,27 +15,17 @@ void RestoreSettings(PipelineStack& settings, const SerialValue& stored, AssetTy
         settings.FromJson(stored);
         return;
     }
-    switch (type) {
-        case AssetType::Mesh:
-            settings.Meshes().FromJson(stored);
-            break;
-        case AssetType::Material:
-            settings.Materials().FromJson(stored);
-            break;
-        case AssetType::Texture:
-            settings.Textures().FromJson(stored);
-            break;
-        case AssetType::Sound:
-            settings.Audio().FromJson(stored);
-            break;
-        default:
-            break;
+    const auto desc = AssetTypes().FindBuiltin(type);
+    if (desc && !desc->importSection.empty()) {
+        auto sections = SerialValue::MakeObject();
+        sections[desc->importSection] = stored;
+        settings.FromJson(sections);
     }
 }
 
 }  // namespace
 
-ImportSession::ImportSession() : m_registry(TranslatorRegistry::CreateDefault()) {}
+ImportSession::ImportSession() : m_registry(Translators()) {}
 
 ImportSession::~ImportSession() {
     Cancel();
@@ -49,7 +40,7 @@ bool ImportSession::Translate(const std::vector<std::filesystem::path>& files, s
     }
     m_scene = ImportScene{};
     for (const std::filesystem::path& file : files) {
-        ITranslator* translator = m_registry.Find(file);
+        auto translator = m_registry.Acquire(file);
         if (translator == nullptr) {
             const std::string message = "No importer for '" + file.filename().string() + "'";
             if (err != nullptr) {

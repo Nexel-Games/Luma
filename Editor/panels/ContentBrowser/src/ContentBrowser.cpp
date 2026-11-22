@@ -1,3 +1,5 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
+#include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 
 #include <algorithm>
@@ -124,21 +126,10 @@ std::vector<std::filesystem::path> ContentBrowserPanel::BreadcrumbSegments()
     return segs;
 }
 
-Slate::Icon ContentBrowserPanel::IconForType(AssetType t) noexcept {
-    switch (t) {
-        case AssetType::Texture: return Icon::Image;
-        case AssetType::Mesh: return Icon::StaticMesh;
-        case AssetType::Material: return Icon::Sphere;
-        case AssetType::MaterialInstance: return Icon::MaterialInstance;
-        case AssetType::Shader: return Icon::Shader;
-        case AssetType::Script: return Icon::Script;
-        case AssetType::Prefab: return Icon::Cube;
-        case AssetType::Scene: return Icon::Scene;
-        case AssetType::Sound: return Icon::Sound;
-        case AssetType::Font: return Icon::Font;
-        case AssetType::Folder: return Icon::Folder;
-        default: return Icon::File;
-    }
+static AssetTypeRegistry::Description Describe(const AssetData& asset) {
+    if (asset.type != AssetType::Unknown) return AssetTypes().FindBuiltin(asset.type);
+    if (auto desc = AssetTypes().FindByExtension(asset.extension)) return desc;
+    return AssetTypes().FindBuiltin(AssetType::Unknown);
 }
 
 std::vector<const AssetData*> ContentBrowserPanel::CurrentEntries() const {
@@ -150,7 +141,10 @@ std::vector<const AssetData*> ContentBrowserPanel::CurrentEntries() const {
         // When at root, filter by the root directory to show only direct children
         dir = m_registry->Roots()[0];
     }
-    return m_registry->Filter(m_typeFilter, dir, m_nameFilter);
+    auto filter = AssetTypes().Find(m_typeFilter);
+    auto entries = m_registry->Filter(std::nullopt, dir, m_nameFilter);
+    if (filter) std::erase_if(entries, [&](const AssetData* asset) { return Describe(*asset)->id != filter->id; });
+    return entries;
 }
 
 void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
@@ -525,6 +519,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
 
     for (usize i = 0; i < entries.size(); ++i) {
         const auto* a = entries[i];
+        const auto desc = Describe(*a);
         int row = static_cast<int>(i) / cols;
         int col = static_cast<int>(i) % cols;
         f32 tx = startX + col * colW;
@@ -551,17 +546,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             Slate::DragPayload payload;
             payload.sourcePath = a->packagePath.string();
             payload.label = a->assetName;
-            if (a->IsFolder()) {
-                payload.type = "asset/folder";
-            } else if (a->type == AssetType::Texture) {
-                payload.type = "asset/texture";
-            } else if (a->type == AssetType::Mesh) {
-                payload.type = "asset/mesh";
-            } else if (a->type == AssetType::Material || a->type == AssetType::MaterialInstance) {
-                payload.type = "asset/material";
-            } else {
-                payload.type = "asset/file";
-            }
+            payload.type = desc->dragType;
             if (!a->IsFolder() && ctx.virtualPathOf) payload.data = ctx.virtualPathOf(a->packagePath);
             if (payload.data.empty()) payload.data = payload.sourcePath;
             if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {
@@ -650,8 +635,6 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             Rect thumbImg = thumb.Inset(2.0f, 2.0f);
             ui.Image(thumbTex, thumbImg);
         } else {
-            Slate::Icon icon = isFolder ? Icon::Folder
-                                         : IconForType(a->type);
             Slate::Color iconColor = isFolder
                                          ? Slate::Color{255, 178, 92, 255}
                                          : t.textDim;
@@ -664,7 +647,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             } else if (isFolder && m_texFolder) {
                 ui.Image(m_texFolder, iconR, iconColor);
             } else {
-                Slate::DrawIcon(ui, iconR, icon, iconColor);
+                DrawNamedIcon(ui, iconR, desc->icon, iconColor);
             }
         }
 
@@ -698,7 +681,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         }
         // Asset type (smaller, dimmer, centered at bottom). Skipped for folders.
         if (!isFolder) {
-            std::string_view typeName = AssetTypeName(a->type);
+            std::string_view typeName = desc->displayName;
             f32 typeY = card.y + kTileH - 16.0f;  // Position at bottom of card
             ui.LabelIn({nameX, typeY, nameW, 12.0f},
                        soundTile ? SoundCaption(a->packagePath) : std::string(typeName),
@@ -953,28 +936,17 @@ void ContentBrowserPanel::BeginRename(const AssetData& asset) {
 }
 
 std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFilterMenu() {
-    struct Item {
-        const char* label;
-        std::optional<AssetType> type;  // nullopt = All
-        Slate::Icon icon;
-    };
-    static const Item kItems[] = {
-        {"All Assets", std::nullopt, Slate::Icon::None},
-        {"Mesh (3D model)", AssetType::Mesh, Slate::Icon::StaticMesh},
-        {"Material", AssetType::Material, Slate::Icon::Sphere},
-        {"Texture", AssetType::Texture, Slate::Icon::Image},
-        {"Scene", AssetType::Scene, Slate::Icon::Scene},
-        {"Shader", AssetType::Shader, Slate::Icon::Shader},
-        {"Audio", AssetType::Sound, Slate::Icon::Sound},
-    };
     Slate::MenuBuilder b;
     b.BeginSection("Filter by Type");
-    for (const Item& it : kItems) {
-        Slate::MenuEntryOptions o;
-        o.checked = (m_typeFilter == it.type);
-        const std::optional<AssetType> type = it.type;
-        b.AddEntry(it.label, it.icon, [this, type] { m_typeFilter = type; }, o);
-        if (!it.type.has_value()) b.AddSeparator();
+    Slate::MenuEntryOptions all;
+    all.checked = !AssetTypes().Find(m_typeFilter);
+    b.AddEntry("All", Icon::None, [this] { m_typeFilter.clear(); }, all);
+    for (const auto& desc : AssetTypes().All()) {
+        if (desc->extensions.empty()) continue;
+        Slate::MenuEntryOptions option;
+        option.checked = m_typeFilter == desc->id;
+        b.AddEntry(desc->displayName, MenuIconByName(desc->icon),
+                   [this, id = desc->id] { m_typeFilter = id; }, option);
     }
     return b.Build();
 }
@@ -1106,16 +1078,18 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
         asset.type == AssetType::Material || asset.type == AssetType::MaterialInstance;
     const std::string virtualPath =
         ctx.virtualPathOf && !isFolder ? ctx.virtualPathOf(path) : std::string{};
+    const auto desc = Describe(asset);
+    if (desc->open) {
+        AssetOpenContext openContext;
+        if (ctx.onOpenAsset && !virtualPath.empty())
+            openContext.openMaterial = [open = ctx.onOpenAsset, virtualPath](const auto&) { open(virtualPath); };
+        Slate::MenuEntryOptions options;
+        options.enabled = !isMaterial || static_cast<bool>(openContext.openMaterial);
+        b.AddEntry("Open", MenuIconByName(desc->icon), [id = desc->id, path, openContext] {
+            if (auto current = AssetTypes().Find(id); current && current->open) current->open(path, openContext);
+        }, options);
+    }
     if (isMaterial && !virtualPath.empty()) {
-        auto open = ctx.onOpenAsset;
-        Slate::MenuEntryOptions o;
-        o.enabled = static_cast<bool>(open);
-        o.tooltip = "Open in the Material Editor.";
-        b.AddEntry("Open", IconForType(asset.type),
-                   [open, virtualPath] {
-                       if (open) open(virtualPath);
-                   },
-                   o);
         auto create = ctx.onCreateMaterialInstance;
         Slate::MenuEntryOptions oi;
         oi.enabled = static_cast<bool>(create);

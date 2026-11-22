@@ -145,7 +145,7 @@ void MaterialEditorPanel::Draw(Context& ui, const Rect& rect, PanelContext& ctx)
         return;
     }
     // Ctrl+S saves the asset under the pointer (the tab being worked in).
-    if (rect.Contains(ui.rawMouse()) && ui.ctrlDown() && ui.keyPressed(83) &&
+    if (ctx.canSave && rect.Contains(ui.rawMouse()) && ui.ctrlDown() && ui.keyPressed(83) &&
         !ui.textFieldFocused()) {
         std::string error;
         if (Save(&error)) {
@@ -171,7 +171,7 @@ void MaterialEditorPanel::DrawToolbar(Context& ui, const Rect& bar, PanelContext
 
     const Rect save{x, y, 74.0f, h};
     if (ui.IconTextButton(Context::ID("mated.save." + m_path), save, Slate::Icon::Save, "Save",
-                          t.text)) {
+                          ctx.canSave ? t.text : t.textDisabled) && ctx.canSave) {
         std::string error;
         if (Save(&error)) {
             LUMA_USER_INFO("Materials", "Saved '{}'", m_path);
@@ -179,7 +179,7 @@ void MaterialEditorPanel::DrawToolbar(Context& ui, const Rect& bar, PanelContext
             LUMA_USER_ERROR("Materials", "Failed to save '{}': {}", m_path, error);
         }
     }
-    ui.Tooltip(Context::ID("mated.save.tip"), save, "Save (Ctrl+S)\nWrite this asset to disk.");
+    ui.Tooltip(Context::ID("mated.save.tip"), save, ctx.canSave ? "Save (Ctrl+S)\nWrite this asset to disk." : "Stop play before saving");
     x += save.w + 4.0f;
 
     const Rect browse{x, y, 92.0f, h};

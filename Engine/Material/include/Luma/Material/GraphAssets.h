@@ -95,6 +95,11 @@ public:
     static i64 ProbeVersion(const std::filesystem::path&);
 };
 
+// A graph as JSON text (the "graph" object of a .lmat) - the graph editor's
+// clipboard format.
+std::string GraphToJsonText(const MaterialGraph::Graph& graph);
+bool GraphFromJsonText(std::string_view text, MaterialGraph::Graph& graph, std::string* err);
+
 inline constexpr i64 kGraphMaterialVersion = 4;
 // Instances share version 4 with materials: Phase-1 instance files were
 // written as version 3, so anything below 4 is the legacy format.

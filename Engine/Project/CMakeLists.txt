@@ -8,6 +8,6 @@ add_library(Luma::Project ALIAS LumaProject)
 target_include_directories(LumaProject
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_link_libraries(LumaProject PUBLIC Luma::Core)
+target_link_libraries(LumaProject PUBLIC Luma::Core Luma::Serialization)
 
 set_target_properties(LumaProject PROPERTIES FOLDER "Engine")

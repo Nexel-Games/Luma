@@ -17,6 +17,7 @@
 #pragma warning(pop)
 #endif
 
+#include "Luma/Asset/ImageDecode.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Math/MathUtils.h"
 #include "Luma/Mesh/Mesh.h"
@@ -104,7 +105,7 @@ f32 HalfToFloat(u16 h) {
 VulkanDeferredRenderer::VulkanDeferredRenderer(
     VkPhysicalDevice physicalDevice, VkDevice device, VkQueue graphicsQueue,
     uint32_t graphicsQueueFamilyIndex, VulkanUIPass& uiPass,
-    const std::string& shaderDir, bool useEnvironment)
+    const std::string& shaderDir, bool useEnvironment, std::string environmentPath)
     : m_physicalDevice(physicalDevice)
     , m_device(device)
     , m_graphicsQueue(graphicsQueue)
@@ -112,6 +113,7 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
     , m_uiPass(uiPass)
     , m_shaderDir(shaderDir)
     , m_useEnvironment(useEnvironment)
+    , m_environmentPath(std::move(environmentPath))
     , m_initialized(false)
     , m_lightingPipeline(VK_NULL_HANDLE)
     , m_lightingLayout(VK_NULL_HANDLE)
@@ -517,9 +519,10 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Eye adaptation failed to initialize");
         return false;
     }
-    if (!CreateEnvironmentTexture(m_useEnvironment
-            ? std::string(LUMA_CONTENT_DIR) + "/skybox/braustuble_alley_2k.hdr"
-            : std::string{})) {
+    if (m_useEnvironment && m_environmentPath.empty()) {
+        m_environmentPath = std::string(LUMA_CONTENT_DIR) + "/skybox/braustuble_alley_2k.hdr";
+    }
+    if (!CreateEnvironmentTexture(m_useEnvironment ? m_environmentPath : std::string{})) {
         LUMA_LOG_WARN("VulkanDeferredRenderer",
                       "HDR environment unavailable; using fallback sky");
     }
@@ -546,6 +549,9 @@ bool VulkanDeferredRenderer::Initialize(int32_t width, int32_t height) {
     // Editor overlay (transform gizmo), drawn onto the final display image.
     m_overlayPass = std::make_unique<VulkanOverlayLinePass>(
         m_physicalDevice, m_device, m_shaderDir, kLightFormat);
+    // Depth-tested world lines (SceneView::lines, e.g. DebugDraw).
+    m_depthLinePass = std::make_unique<VulkanOverlayLinePass>(
+        m_physicalDevice, m_device, m_shaderDir, kLightFormat, kDepthFormat);
     // Selection outline over the final image (sized to the viewport).
     m_selectionPass = std::make_unique<VulkanSelectionOutlinePass>(
         m_physicalDevice, m_device, m_shaderDir, static_cast<u32>(width),
@@ -1011,36 +1017,36 @@ bool VulkanDeferredRenderer::CreateSampler() {
 }
 
 bool VulkanDeferredRenderer::CreateEnvironmentTexture(const std::string& path) {
-    int width = 0;
-    int height = 0;
-    int channels = 0;
-    float* hdr = path.empty()
-        ? nullptr
-        : stbi_loadf(path.c_str(), &width, &height, &channels, STBI_rgb);
-    if (path.empty() || !hdr || width <= 0 || height <= 0) {
-        if (hdr) stbi_image_free(hdr);
-        width = 1;
-        height = 1;
-    }
-
-    std::vector<u16> pixels(static_cast<size_t>(width) * height * 4);
-    if (hdr) {
-        for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
-            // Preserve scene-linear HDR values for material illumination.
-            pixels[i * 4 + 0] = FloatToHalf(std::max(hdr[i * 3 + 0], 0.0f));
-            pixels[i * 4 + 1] = FloatToHalf(std::max(hdr[i * 3 + 1], 0.0f));
-            pixels[i * 4 + 2] = FloatToHalf(std::max(hdr[i * 3 + 2], 0.0f));
-            pixels[i * 4 + 3] = FloatToHalf(1.0f);
-        }
-        stbi_image_free(hdr);
-    } else {
-        pixels = {FloatToHalf(0.12f), FloatToHalf(0.15f),
-                  FloatToHalf(0.20f), FloatToHalf(1.0f)};
-        if (!path.empty()) {
-            LUMA_LOG_WARN("VulkanDeferredRenderer",
-                          "Failed to load HDR environment: {}", path);
+    // Equirectangular HDR (.hdr / .exr / LDR) -> RGBA16F with a full mip
+    // chain: lighting samples mip 0, the background a blurred mip.
+    u32 width = 1, height = 1;
+    std::vector<u16> pixels;
+    if (!path.empty()) {
+        std::string error;
+        if (auto image = Import::DecodeImageFile(path, &error)) {
+            width = image->width;
+            height = image->height;
+            pixels.resize(static_cast<size_t>(width) * height * 4);
+            for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+                for (int c = 0; c < 3; ++c) {
+                    // Preserve scene-linear HDR values for material illumination.
+                    const f32 v = image->isFloat ? image->pixelsF[i * 4 + c]
+                                                 : std::pow(image->pixels8[i * 4 + c] / 255.0f, 2.2f);
+                    pixels[i * 4 + c] = FloatToHalf(std::max(v, 0.0f));
+                }
+                pixels[i * 4 + 3] = FloatToHalf(1.0f);
+            }
+        } else {
+            LUMA_LOG_WARN("VulkanDeferredRenderer", "Failed to load HDR environment {}: {}", path, error);
         }
     }
+    if (pixels.empty()) {
+        width = height = 1;
+        pixels = {FloatToHalf(0.12f), FloatToHalf(0.15f), FloatToHalf(0.20f), FloatToHalf(1.0f)};
+    }
+    u32 mips = 1;
+    while ((std::max(width, height) >> mips) > 0) ++mips;
+    m_environmentMips = mips;
 
     const VkDeviceSize imageSize = pixels.size() * sizeof(u16);
     GpuBuffer staging = CreateBuffer(
@@ -1048,17 +1054,18 @@ bool VulkanDeferredRenderer::CreateEnvironmentTexture(const std::string& path) {
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         true);
     if (staging.buffer == VK_NULL_HANDLE) return false;
-    std::memcpy(staging.mapped, pixels.data(), pixels.size());
+    std::memcpy(staging.mapped, pixels.data(), static_cast<size_t>(imageSize));
 
     VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    imageInfo.extent = {static_cast<u32>(width), static_cast<u32>(height), 1};
-    imageInfo.mipLevels = 1;
+    imageInfo.extent = {width, height, 1};
+    imageInfo.mipLevels = mips;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                      VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (vkCreateImage(m_device, &imageInfo, nullptr, &m_environmentImage) != VK_SUCCESS) {
         DestroyBuffer(m_device, staging);
@@ -1081,30 +1088,51 @@ bool VulkanDeferredRenderer::CreateEnvironmentTexture(const std::string& path) {
     vkBindImageMemory(m_device, m_environmentImage, m_environmentMemory, 0);
 
     VkCommandBuffer cmd = BeginOneTimeCommands(m_device, m_commandPool);
-    VkImageMemoryBarrier toTransfer{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toTransfer.image = m_environmentImage;
-    toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                         nullptr, 1, &toTransfer);
+    auto barrier = [&](u32 mip, u32 count, VkImageLayout from, VkImageLayout to, VkAccessFlags src,
+                       VkAccessFlags dst, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = m_environmentImage;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
+        b.srcAccessMask = src;
+        b.dstAccessMask = dst;
+        vkCmdPipelineBarrier(cmd, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    barrier(0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageExtent = {static_cast<u32>(width), static_cast<u32>(height), 1};
+    copy.imageExtent = {width, height, 1};
     vkCmdCopyBufferToImage(cmd, staging.buffer, m_environmentImage,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-    VkImageMemoryBarrier toShader = toTransfer;
-    toShader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    toShader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toShader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    toShader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
-                         0, nullptr, 1, &toShader);
+    // Mip chain by successive linear blits (box-ish downsample = blur).
+    i32 mw = static_cast<i32>(width), mh = static_cast<i32>(height);
+    for (u32 mip = 1; mip < mips; ++mip) {
+        barrier(mip - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT);
+        const i32 nw = std::max(mw / 2, 1), nh = std::max(mh / 2, 1);
+        VkImageBlit blit{};
+        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, 0, 1};
+        blit.srcOffsets[1] = {mw, mh, 1};
+        blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, 1};
+        blit.dstOffsets[1] = {nw, nh, 1};
+        vkCmdBlitImage(cmd, m_environmentImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_environmentImage,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        mw = nw;
+        mh = nh;
+    }
+    if (mips > 1) {
+        barrier(0, mips - 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    }
+    barrier(mips - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     EndOneTimeCommands(m_device, m_commandPool, m_graphicsQueue, cmd);
     DestroyBuffer(m_device, staging);
 
@@ -1112,7 +1140,7 @@ bool VulkanDeferredRenderer::CreateEnvironmentTexture(const std::string& path) {
     viewInfo.image = m_environmentImage;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
     if (vkCreateImageView(m_device, &viewInfo, nullptr,
                           &m_environmentView) != VK_SUCCESS) {
         DestroyEnvironmentTexture();
@@ -1126,7 +1154,7 @@ bool VulkanDeferredRenderer::CreateEnvironmentTexture(const std::string& path) {
     sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler.maxLod = 0.0f;
+    sampler.maxLod = static_cast<f32>(mips - 1);
     if (vkCreateSampler(m_device, &sampler, nullptr,
                         &m_environmentSampler) != VK_SUCCESS) {
         DestroyEnvironmentTexture();
@@ -1683,7 +1711,13 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
 
     lighting.params[1] = sunShadows ? 1.0f : 0.0f;
     lighting.params[2] = 1.0f / static_cast<f32>(kShadowSize);
-    lighting.params[3] = m_useEnvironment ? 1.0f : 0.0f;
+    // w > 0.5: HDR environment on (background + IBL); w - 1 = background blur mip.
+    {
+        const f32 blur = m_environmentBlurLod >= 0.0f
+            ? m_environmentBlurLod
+            : std::max(static_cast<f32>(m_environmentMips) - 8.0f, 0.0f);  // ~128 px wide
+        lighting.params[3] = (m_useEnvironment && source.sky.enabled) ? 1.0f + blur : 0.0f;
+    }
     lighting.shadowParams[0] = params.shadowSoftness;
     lighting.shadowParams[1] = static_cast<f32>(cascades.count);
     lighting.shadowParams[2] = params.shadowBias;
@@ -1903,6 +1937,8 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         const bool outline = m_selectionPass && m_selectionPass->Valid() && anySelected;
         const bool overlay = m_overlayPass && m_overlayPass->Valid() && source.overlayLines &&
                              source.overlayLineVertexCount >= 2;
+        const bool depthLines = m_depthLinePass && m_depthLinePass->Valid() && source.lines &&
+                                source.lineVertexCount >= 2;
         if (outline) {
             m_selectionPass->RecordMask(m_commandBuffer, [&](VkCommandBuffer) {
                 BindMaterialSets(m_mainViewOffset);
@@ -1912,7 +1948,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                 }
             });
         }
-        if (outline || overlay) {
+        if (outline || overlay || depthLines) {
             VkImageMemoryBarrier toColor{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             toColor.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
             toColor.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
@@ -1936,6 +1972,22 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             finalRendering.layerCount = 1;
             finalRendering.colorAttachmentCount = 1;
             finalRendering.pColorAttachments = &finalColor;
+            if (depthLines) {
+                // World lines tested (not written) against the scene depth, in
+                // their own scope: its pipelines carry a depth format.
+                VkRenderingAttachmentInfo sceneDepth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+                sceneDepth.imageView = m_gBuffer.depth.view;
+                sceneDepth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                sceneDepth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                sceneDepth.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+                VkRenderingInfo depthRendering = finalRendering;
+                depthRendering.pDepthAttachment = &sceneDepth;
+                vkCmdBeginRendering(m_commandBuffer, &depthRendering);
+                m_depthLinePass->Record(m_commandBuffer, source.lines, source.lineVertexCount,
+                                        scene.viewProjectionMatrix, static_cast<u32>(m_gBuffer.width),
+                                        static_cast<u32>(m_gBuffer.height));
+                vkCmdEndRendering(m_commandBuffer);
+            }
             vkCmdBeginRendering(m_commandBuffer, &finalRendering);
             if (outline) m_selectionPass->RecordOutline(m_commandBuffer);
             if (overlay) {

@@ -23,10 +23,8 @@ std::string_view ImageTranslator::Name() const {
     return "Luma.Import.Image";
 }
 
-bool ImageTranslator::CanTranslate(const std::filesystem::path& file) const {
-    const std::string ext = ExtensionOf(file);
-    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" ||
-           ext == ".psd" || ext == ".hdr" || ext == ".exr";
+std::vector<std::string> ImageTranslator::Extensions() const {
+    return {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".hdr", ".exr"};
 }
 
 bool ImageTranslator::Translate(const std::filesystem::path& file, ImportScene& out, std::string* error) {

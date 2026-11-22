@@ -455,9 +455,8 @@ std::string_view ModelTranslator::Name() const {
     return "Luma.Import.Model";
 }
 
-bool ModelTranslator::CanTranslate(const std::filesystem::path& file) const {
-    const std::string ext = ExtensionOf(file);
-    return ext == ".gltf" || ext == ".glb" || ext == ".fbx" || ext == ".obj";
+std::vector<std::string> ModelTranslator::Extensions() const {
+    return {".gltf", ".glb", ".fbx", ".obj"};
 }
 
 bool ModelTranslator::Translate(const std::filesystem::path& file, ImportScene& out, std::string* error) {

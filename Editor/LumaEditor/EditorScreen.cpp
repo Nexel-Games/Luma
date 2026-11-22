@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "EditorScreen.h"
 
 #include <atomic>
@@ -6,6 +7,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <map>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -22,6 +25,11 @@
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Editor/EditorIcons.h"
+#include "Luma/Editor/MenuRegistry.h"
+#include "Luma/Editor/PanelRegistry.h"
+#include "Luma/Editor/SettingsPageRegistry.h"
+#include "Luma/Serialization/Json.h"
 #include "Luma/Scene/AssetReferences.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Scene/Hierarchy.h"
@@ -30,6 +38,8 @@
 #include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
+#include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/EntityTemplates.h"
 #include "Luma/VFS/VFS.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
@@ -79,16 +89,14 @@ bool IsWatchedAssetFile(const std::filesystem::path& p) {
     return false;
 }
 
-// Returns `base` unchanged when no entity in the scene shares that name;
-// otherwise appends the lowest free number (base 1, base 2, ...) so the first
-// of a kind stays unnumbered and duplicates get distinguished.
-std::string UniqueEntityName(Luma::Scene& scene, const std::string& base) {
-    return scene.UniqueEntityName(base);
-}
 }  // namespace
 
 EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
     : m_preferences(m_viewportPanel.Settings(), m_gizmo.Snap(), Editor::Panels::PreferencesPanel::UserFile()) {
+    m_panelHost = std::make_unique<Editor::EditorPanelHost>(
+        Editor::EditorPanels(), m_dock, [this] { return BuildPanelContext(); });
+    m_panelHost->onStateChanged = [this] { SavePanelLayout(); };
+    RegisterEditorUi();
     std::string err;
     m_project = Project::Load(projectFile, &err);
     if (m_project) {
@@ -102,8 +110,18 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
     m_assetPaths.SetEngineRoot(EngineContentRoot());
     m_materials = std::make_unique<Material::MaterialLibrary>(m_assetPaths);
 
+    LoadPanelLayout();
+    if (m_project) {
+        // Project Settings pages read their Config/ sections before anything
+        // uses them (e.g. Maps & Modes picks the scene to open).
+        m_settingsStore = std::make_unique<Editor::Panels::ProjectSettingsStore>(
+            Editor::SettingsPages(), m_project->ConfigDir());
+        m_settingsStore->LoadAll();
+        m_projectSettings.SetStore(m_settingsStore.get());
+        m_scenePath = Editor::Panels::EditorStartupScenePath(*m_project, m_mapsAndModes);
+    }
     if (!LoadScene()) {
-        CreateEnvironment();
+        EnsureAutoCreatedEntities(ActiveScene());
         // New projects already declare a startup scene path. Materialize the
         // default environment scene on first open so the editor and runtime
         // operate on the same persisted scene instead of an in-memory fallback.
@@ -134,7 +152,13 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
 }
 
 EditorScreen::~EditorScreen() {
+    StopPlay();
     m_preferences.SaveChanges();
+    // Unsaved Project Settings edits are written on the way out.
+    if (m_projectSettings.IsOpen()) m_projectSettings.Close();
+    if (m_settingsStore) m_settingsStore->SaveAll();
+    // Unregister before the members the registrations point at go away.
+    m_uiRegistrations.Reset();
     // The thumbnail manager outlives the editor; drop the callback into it.
     ThumbnailManager::Get().SetRenderCallback({});
 }
@@ -169,19 +193,14 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
         });
 }
 
-void EditorScreen::CreateEnvironment() {
-    m_environment = m_scene.CreateEntity("Environment");
-    m_scene.Registry().emplace<EnvironmentComponent>(m_environment);
-}
-
 bool EditorScreen::LoadScene() {
     if (!m_project) return false;
-    std::filesystem::path path = m_project->StartupScenePath();
+    const std::filesystem::path path = m_scenePath;
     std::error_code ec;
-    if (!std::filesystem::exists(path, ec)) return false;
+    if (path.empty() || !std::filesystem::exists(path, ec)) return false;
     std::string err;
     LegacyMaterialList legacy;
-    if (!SceneSerializer::LoadFromFile(m_scene, path, &err, &legacy)) {
+    if (!SceneSerializer::LoadFromFile(ActiveScene(), path, &err, &legacy)) {
         LUMA_USER_ERROR("Scene", "Failed to load scene '{}': {}", ProjectRelative(path),
                        err);
         return false;
@@ -191,12 +210,13 @@ bool EditorScreen::LoadScene() {
     ShowAllActors();
     m_outlinerPanel.ClearSelection();
     m_inspectorPanel.ClosePopups();
-    auto envView = m_scene.Registry().view<EnvironmentComponent>();
-    if (envView.begin() == envView.end()) CreateEnvironment();
+    // Scene setup: every auto-created template (e.g. the sky) the scene lacks.
+    EnsureAutoCreatedEntities(ActiveScene());
     LUMA_USER_INFO("Scene", "Loaded scene '{}'", ProjectRelative(path));
+    ReportMissingComponentPlugins();
     // Version-1 scenes carried a color per mesh; move those onto material
     // assets (in memory until the scene is saved).
-    if (!legacy.empty()) MigrateLegacyMaterials(m_scene, legacy, *m_materials);
+    if (!legacy.empty()) MigrateLegacyMaterials(ActiveScene(), legacy, *m_materials);
     return true;
 }
 
@@ -220,7 +240,7 @@ bool EditorScreen::CapturePreview(const std::string& materialPath,
 }
 
 bool EditorScreen::SelectEntityByName(const std::string& name) {
-    auto view = m_scene.Registry().view<const NameComponent>();
+    auto view = ActiveScene().Registry().view<const NameComponent>();
     for (Entity e : view) {
         if (view.get<const NameComponent>(e).name == name) {
             SelectOnly(e);
@@ -235,6 +255,7 @@ std::vector<std::string> EditorScreen::UnsavedAssets() const {
 }
 
 void EditorScreen::RequestClose() {
+    StopPlay();
     if (UnsavedAssets().empty()) {
         m_closeConfirmed = true;
     } else {
@@ -289,6 +310,7 @@ void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
 }
 
 void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
+    if (OpenGraphMaterialEditor(assetPath)) return;  // node-graph editors
     const std::string id = "mated:" + assetPath;
     if (m_dock.HasPanel(id)) {
         m_dock.FocusPanel(id);
@@ -302,14 +324,26 @@ void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
     panel->Bind(*m_materials);
     Editor::Panels::MaterialEditorPanel* raw = panel.get();
     m_materialEditors.push_back(std::move(panel));
+    DockMaterialEditor(raw);
+    LUMA_USER_INFO("Materials", "Opened '{}' in the Material Editor", assetPath);
+}
+
+void EditorScreen::DockMaterialEditor(Editor::Panels::MaterialEditorPanel* raw) {
+    const std::string assetPath = raw->AssetPath();
+    const std::string id = "mated:" + assetPath;
     m_dock.AddPanel(id, raw->Title(),
                     [this, raw](Slate::Context& c, const Rect& r) {
                         auto ctx = BuildPanelContext();
                         raw->Draw(c, r, ctx);
                     },
                     m_icons.tabDetails);
+    // Asset editors open as tabs beside the viewport (the dock root panel).
     m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
     m_dock.SetCloseHandler(id, [this, assetPath, raw] {
+        if (raw->IsDirty() && m_runner.PlayScene()) {
+            LUMA_USER_WARN("Materials", "Stop play before closing a modified material");
+            return false;
+        }
         if (raw->IsDirty()) {
             m_closingEditor = assetPath;  // ask Save / Don't Save / Cancel
             return false;
@@ -318,7 +352,119 @@ void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
         m_editorsToDelete.push_back(assetPath);
         return true;
     });
-    LUMA_USER_INFO("Materials", "Opened '{}' in the Material Editor", assetPath);
+}
+
+void EditorScreen::LoadMaterialEditorAssets() {
+    if (m_materialEditorAssetsLoaded || !m_renderer) return;
+    m_materialEditorAssetsLoaded = true;
+    // Content/Editor sits above Fonts/<family>/<file> (staged next to the exe).
+    std::filesystem::path editorRoot = std::filesystem::path(m_uiFontPath).parent_path().parent_path().parent_path();
+    std::error_code ec;
+    if (!std::filesystem::exists(editorRoot / "MaterialEditor", ec)) editorRoot = "Content/Editor";
+    // Icons: amber -> deep orange gradient (the editor's icon theme).
+    m_materialEditorIcons.Load(*m_renderer, editorRoot / "MaterialEditor" / "Icons", Slate::Color{255, 196, 64, 255},
+                               Slate::Color{232, 88, 12, 255});  // (RGB is a Windows macro here)
+    auto watermark = std::make_unique<Slate::Font>();
+    if (watermark->LoadFromFile(*m_renderer, (editorRoot / "Fonts/RubikIso/RubikIso-Regular.ttf").string(), 64.0f)) {
+        m_materialWatermarkFont = std::move(watermark);
+    }
+    // Small sizes of the UI font so zoomed-out graph nodes stay legible.
+    if (!m_uiFontPath.empty()) {
+        for (f32 px : {6.0f, 7.5f, 9.0f, 10.5f, 12.0f, 14.0f}) {
+            auto f = std::make_unique<Slate::Font>();
+            if (f->LoadFromFile(*m_renderer, m_uiFontPath, px)) m_materialGraphFonts.push_back(std::move(f));
+        }
+    }
+}
+
+MaterialEditors::MaterialEditorServices EditorScreen::MakeMaterialEditorServices() {
+    LoadMaterialEditorAssets();
+    MaterialEditors::MaterialEditorServices s;
+    s.renderPreview = [this](const MaterialEditors::PreviewRequest& q) -> TextureHandle {
+        if (!m_preview) return 0;
+        const int shape = std::min(static_cast<int>(q.shape), 3);
+        return m_preview->Render(q.materialPath, static_cast<PreviewShape>(shape), q.yaw, q.pitch, q.width, q.height,
+                                 q.sky, q.floor);
+    };
+    auto listOf = [this](std::initializer_list<AssetType> types) {
+        std::vector<std::string> out;
+        for (AssetType type : types)
+            for (const AssetData* a : m_assetRegistry.FilterByType(type))
+                if (auto path = m_assetPaths.ToVirtual(a->packagePath)) out.push_back(*path);
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    s.listMaterials = [listOf] { return listOf({AssetType::Material, AssetType::MaterialInstance}); };
+    s.listMeshes = [listOf] { return listOf({AssetType::Mesh}); };
+    s.listTextures = [listOf] { return listOf({AssetType::Texture}); };
+    s.browseToAsset = [this](const std::string& path) {
+        auto ctx = BuildPanelContext();
+        if (ctx.onBrowseToAsset) ctx.onBrowseToAsset(path);
+    };
+    s.openAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
+    s.compileErrors = [this](std::string_view path) { return std::string(m_bridge.Errors(path)); };
+    s.pendingCompiles = [this] { return m_bridge.PendingCompiles(); };
+    s.thumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
+    s.icons = &m_materialEditorIcons;
+    s.watermarkFont = m_materialWatermarkFont.get();
+    for (const auto& f : m_materialGraphFonts) s.graphFonts.push_back(f.get());
+    return s;
+}
+
+bool EditorScreen::IsGraphEditor(const std::string& assetPath) const {
+    return std::any_of(m_graphEditors.begin(), m_graphEditors.end(),
+                       [&](const auto& e) { return e->AssetPath() == assetPath; }) ||
+           std::any_of(m_instanceEditors.begin(), m_instanceEditors.end(),
+                       [&](const auto& e) { return e->AssetPath() == assetPath; });
+}
+
+bool EditorScreen::SaveGraphEditor(const std::string& assetPath, std::string* error) {
+    for (const auto& e : m_graphEditors)
+        if (e->AssetPath() == assetPath) return e->Save(error);
+    for (const auto& e : m_instanceEditors)
+        if (e->AssetPath() == assetPath) return e->Save(error);
+    return false;
+}
+
+bool EditorScreen::OpenGraphMaterialEditor(const std::string& assetPath) {
+    const std::string id = "graphmated:" + assetPath;
+    if (m_dock.HasPanel(id)) {
+        m_dock.FocusPanel(id);
+        return true;
+    }
+    const bool instance = m_materials->GetGraphInstance(assetPath) != nullptr;
+    const bool material = !instance && m_materials->GetGraphMaterial(assetPath) != nullptr;
+    if (!instance && !material) return false;  // legacy asset: the Phase-1 panel
+    MaterialEditors::MaterialEditorServices services = MakeMaterialEditorServices();
+    std::function<std::string()> title;
+    std::function<bool()> dirty;
+    if (instance) {
+        auto editor = std::make_unique<MaterialEditors::MaterialInstanceEditor>(assetPath, *m_materials, services);
+        MaterialEditors::MaterialInstanceEditor* raw = editor.get();
+        m_instanceEditors.push_back(std::move(editor));
+        m_dock.AddPanel(id, raw->Title(), [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); },
+                        m_icons.tabDetails);
+        dirty = [raw] { return raw->IsDirty(); };
+    } else {
+        auto editor = std::make_unique<MaterialEditors::MaterialGraphEditor>(assetPath, *m_materials, services);
+        MaterialEditors::MaterialGraphEditor* raw = editor.get();
+        m_graphEditors.push_back(std::move(editor));
+        m_dock.AddPanel(id, raw->Title(), [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); },
+                        m_icons.tabDetails);
+        dirty = [raw] { return raw->IsDirty() || raw->HasUnappliedChanges(); };
+    }
+    m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
+    m_dock.SetCloseHandler(id, [this, assetPath, dirty] {
+        if (dirty()) {
+            m_closingEditor = assetPath;  // ask Save / Don't Save / Cancel
+            return false;
+        }
+        m_editorsToDelete.push_back(assetPath);
+        return true;
+    });
+    LUMA_USER_INFO("Materials", "Opened '{}' in the {}", assetPath,
+                   instance ? "Material Instance Editor" : "Material Editor");
+    return true;
 }
 
 void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
@@ -338,13 +484,15 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
         for (const auto& e : m_materialEditors) {
             if (e->AssetPath() == path) e->ClosePopups();
         }
-        m_dock.ClosePanel("mated:" + path);
+        m_dock.ClosePanel((IsGraphEditor(path) ? "graphmated:" : "mated:") + path);
         m_editorsToDelete.push_back(path);
         m_closingEditor.clear();
     };
     if (ui.Button(id ^ 0x5A5Eull, save, "Save")) {
         std::string err;
-        if (m_materials->Save(m_closingEditor, &err)) {
+        const bool saved = IsGraphEditor(m_closingEditor) ? SaveGraphEditor(m_closingEditor, &err)
+                                                          : m_materials->Save(m_closingEditor, &err);
+        if (saved) {
             LUMA_USER_INFO("Materials", "Saved '{}'", m_closingEditor);
             close();
         } else {
@@ -464,7 +612,7 @@ void EditorScreen::CreateMaterialFromTextures(const std::filesystem::path& textu
 std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math::Vec3& origin,
                                                                      const Math::Vec3& dir) const {
     using namespace Math;
-    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto& reg = const_cast<Scene&>(ActiveScene()).Registry();
     auto transformPoint = [](const Mat4& m, const Vec3& p) {
         return Vec3(m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
                     m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
@@ -553,10 +701,10 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
         in.boundsMax = {0.5f, 0.5f, 0.5f};
         position = Editor::Panels::ComputeMeshPlacement(in);
     }
-    const std::string name = UniqueEntityName(m_scene, Editor::Panels::AssetNameOf(mesh));
-    const Entity e = m_scene.CreateEntity(name);
-    m_scene.Registry().get<TransformComponent>(e).position = position;
-    auto& mr = m_scene.Registry().emplace<MeshRendererComponent>(e);
+    const std::string name = UniqueEntityName(ActiveScene(), Editor::Panels::AssetNameOf(mesh));
+    const Entity e = ActiveScene().CreateEntity(name);
+    ActiveScene().Registry().get<TransformComponent>(e).position = position;
+    auto& mr = ActiveScene().Registry().emplace<MeshRendererComponent>(e);
     Editor::Panels::AssignStaticMesh(mr, mesh);
     SelectOnly(e);
     LUMA_USER_INFO("Level", "Placed '{}'", name);
@@ -565,7 +713,7 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
 void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) {
     const Entity e = PickEntity(origin, dir);
-    auto* mesh = m_scene.IsValid(e) ? m_scene.Registry().try_get<MeshRendererComponent>(e)
+    auto* mesh = ActiveScene().IsValid(e) ? ActiveScene().Registry().try_get<MeshRendererComponent>(e)
                                     : nullptr;
     if (!mesh) {
         LUMA_USER_WARN("Materials", "Drop '{}' onto a mesh actor to assign it", path);
@@ -574,7 +722,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
     Editor::Panels::AssignMaterialSlot(*mesh, 0, path);
     SelectOnly(e);
     LUMA_USER_INFO("Materials", "Assigned '{}' to '{}'", path,
-                   m_scene.Registry().get<NameComponent>(e).name);
+                   ActiveScene().Registry().get<NameComponent>(e).name);
 }
 
 TextureHandle EditorScreen::AssetThumbnail(const std::string& assetPath) {
@@ -668,6 +816,10 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
 }
 
 void EditorScreen::SaveScene() {
+    if (m_runner.PlayScene()) {
+        LUMA_USER_WARN("Scene", "Stop play before saving the scene");
+        return;
+    }
     if (!m_project) return;
     if (!SaveMaterialAssets()) {
         // The scene may reference unsaved instances (e.g. migrated colors):
@@ -675,11 +827,12 @@ void EditorScreen::SaveScene() {
         LUMA_USER_ERROR("Scene", "Scene not saved: fix the material save errors above first");
         return;
     }
-    std::filesystem::path path = m_project->StartupScenePath();
+    const std::filesystem::path path =
+        m_scenePath.empty() ? m_project->StartupScenePath() : m_scenePath;
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     std::string err;
-    if (SceneSerializer::SaveToFile(m_scene, path, &err)) {
+    if (SceneSerializer::SaveToFile(ActiveScene(), path, &err)) {
         LUMA_USER_INFO("Scene", "Saved scene '{}'", ProjectRelative(path));
     } else {
         LUMA_USER_ERROR("Scene", "Failed to save scene '{}': {}", ProjectRelative(path),
@@ -741,82 +894,29 @@ void EditorScreen::FinalizeProjectPreview() {
     std::filesystem::remove(fullPath, ec);
 }
 
-void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
-    int index = m_nextNumber++;
-
-    // --- Primitives / Empty -------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::Empty) {
-        Entity e =
-            m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
-        SelectOnly(e);
+void EditorScreen::CreateActor(const std::string& templateId) {
+    const EntityTemplate* t = EntityTemplates().Find(templateId);
+    if (!t) {
+        LUMA_USER_ERROR("Scene", "Cannot create '{}': no such entity template", templateId);
         return;
     }
-    if (kind == Editor::Panels::CreateActorKind::Cube ||
-        kind == Editor::Panels::CreateActorKind::Plane ||
-        kind == Editor::Panels::CreateActorKind::Sphere ||
-        kind == Editor::Panels::CreateActorKind::Cylinder) {
-        const char* names[] = {"Cube", "Plane", "Sphere", "Cylinder"};
-        const MeshPrimitive prims[] = {MeshPrimitive::Cube, MeshPrimitive::Plane,
-                                       MeshPrimitive::Sphere,
-                                       MeshPrimitive::Cylinder};
-        int i = static_cast<int>(kind) - static_cast<int>(Editor::Panels::CreateActorKind::Cube);
-        Entity e =
-            m_scene.CreateEntity(UniqueEntityName(m_scene, names[i]));
-        auto& mesh = m_scene.Registry().emplace<MeshRendererComponent>(e);
-        mesh.primitive = prims[i];  // empty material slots: Default Material
-        auto& tf = m_scene.Registry().get<TransformComponent>(e);
-        tf.position = Math::Vec3(static_cast<f32>(index - 1) * 2.0f, 1.0f, 0.0f);
-        SelectOnly(e);
-        return;
-    }
+    SelectOnly(Instantiate(ActiveScene(), *t, {m_nextNumber++}));
+}
 
-    // --- Lights -------------------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::DirectionalLight ||
-        kind == Editor::Panels::CreateActorKind::PointLight ||
-        kind == Editor::Panels::CreateActorKind::SpotLight ||
-        kind == Editor::Panels::CreateActorKind::TubeLight) {
-        const char* names[] = {"Directional Light", "Point Light",
-                               "Spot Light", "Tube Light"};
-        const LightType types[] = {LightType::Directional, LightType::Point,
-                                   LightType::Spot, LightType::Tube};
-        int i = static_cast<int>(kind) - static_cast<int>(Editor::Panels::CreateActorKind::DirectionalLight);
-        Entity e =
-            m_scene.CreateEntity(UniqueEntityName(m_scene, names[i]));
-        auto& light = m_scene.Registry().emplace<LightComponent>(e);
-        light.type = types[i];
-        auto& tf = m_scene.Registry().get<TransformComponent>(e);
-        // Lights sit above the origin. Directional defaults to a three-quarter
-        // sun angle (pitch down, yawed) so the ground and meshes both catch
-        // light instead of a horizon-grazing identity rotation.
-        tf.position = Math::Vec3(static_cast<f32>(index - 1) * 3.0f, 4.0f, 2.0f);
-        if (types[i] == LightType::Directional) {
-            tf.rotationEuler = Math::Vec3(-50.0f, 35.0f, 0.0f);
+void EditorScreen::ReportMissingComponentPlugins() {
+    // Components kept for plugins that are not loaded: tell the user once per
+    // load which plugins the scene needs (their data stays in the scene).
+    std::map<std::string, usize> byOwner;
+    for (auto [e, kept] : ActiveScene().Registry().view<UnresolvedComponents>().each()) {
+        for (const UnresolvedComponent& c : kept.payloads) {
+            ++byOwner[c.owner.empty() ? std::string("an unknown plugin") : c.owner];
         }
-        SelectOnly(e);
-        return;
     }
-
-    // --- Environment --------------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::Environment) {
-        auto envView = m_scene.Registry().view<EnvironmentComponent>();
-        if (envView.begin() == envView.end()) {
-            Entity e = m_scene.CreateEntity("Environment");
-            m_scene.Registry().emplace<EnvironmentComponent>(e);
-            SelectOnly(e);
-        } else {
-            // Only one environment per scene — select the existing one.
-            SelectOnly(*envView.begin());
-        }
-        return;
-    }
-
-    // --- Post Process Volume -------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::PostProcessVolume) {
-        Entity e = m_scene.CreateEntity(
-            UniqueEntityName(m_scene, "Post Process Volume"));
-        m_scene.Registry().emplace<PostProcessComponent>(e);
-        SelectOnly(e);
-        return;
+    for (const auto& [owner, count] : byOwner) {
+        LUMA_USER_WARN("Scene",
+                       "{} component(s) need {}, which is not loaded; their data is kept and "
+                       "saved unchanged",
+                       count, owner);
     }
 }
 
@@ -824,7 +924,8 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     Editor::Panels::PanelContext ctx;
     ctx.renderer = m_renderer;
     ctx.assetRegistry = &m_assetRegistry;
-    ctx.scene = &m_scene;
+    ctx.scene = &ActiveScene();
+    ctx.canSave = !m_runner.PlayScene();
     ctx.selected = &m_selected;
     ctx.camYaw = &m_camYaw;
     ctx.camPitch = &m_camPitch;
@@ -836,9 +937,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.view = &m_view;
     ctx.gizmoScale = &m_gizmoScale;
     ctx.gizmo = &m_gizmo;
-    ctx.onCreateActor = [this](Editor::Panels::CreateActorKind kind) {
-        CreateActor(kind);
-    };
+    ctx.onCreateEntity = [this](const std::string& templateId) { CreateActor(templateId); };
     ctx.onSaveScene = [this] { SaveScene(); };
     ctx.onImportAssets = [this](const std::filesystem::path& folder) {
         ImportAssetsInto(folder);
@@ -870,8 +969,8 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onHideEntities = [this](Entity e) { HideEntities(e); };
     ctx.onShowAllActors = [this] { ShowAllActors(); };
     ctx.isEntityHidden = [this](Entity e) { return IsHidden(e); };
-    ctx.entityHasChildren = [this](Entity e) { return !ChildrenOf(m_scene, e).empty(); };
-    ctx.entityIsRoot = [this](Entity e) { return ParentOf(m_scene, e) == kNullEntity; };
+    ctx.entityHasChildren = [this](Entity e) { return !ChildrenOf(ActiveScene(), e).empty(); };
+    ctx.entityIsRoot = [this](Entity e) { return ParentOf(ActiveScene(), e) == kNullEntity; };
     ctx.selection = &m_selection;
     ctx.onPickRay = [this](const Math::Vec3& origin, const Math::Vec3& dir) {
         SelectOnly(PickEntity(origin, dir));
@@ -880,7 +979,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.jobs = m_jobs;
     ctx.tasks = m_tasks;
     ctx.sectionCount = [this](Entity e) -> u32 {
-        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        const auto* mesh = ActiveScene().Registry().try_get<MeshRendererComponent>(e);
         return mesh ? m_bridge.SectionCount(*mesh) : 1u;
     };
     ctx.renderMaterialPreview = [this](const std::string& path, int shape, f32 yaw, f32 pitch,
@@ -902,7 +1001,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     };
     ctx.meshSections = [this](Entity e) {
         std::vector<Editor::Panels::MeshSlotInfo> out;
-        const auto* mesh = m_scene.Registry().try_get<MeshRendererComponent>(e);
+        const auto* mesh = ActiveScene().Registry().try_get<MeshRendererComponent>(e);
         if (!mesh || !mesh->UsesMeshAsset()) return out;
         if (const auto* sections = m_bridge.Sections(mesh->mesh)) {
             for (const Editor::MeshSectionInfo& s : *sections) out.push_back({s.slotName, s.defaultMaterial});
@@ -933,7 +1032,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onAssetRenamed = [this](const std::string& oldPath, const std::string& newPath) {
         // Unreal leaves a redirector; Luma fixes the open scene up directly.
         // Scenes that are not open keep the old path (see GOAL.md 5.6).
-        const u32 changed = RetargetAssetReferences(m_scene, oldPath, newPath);
+        const u32 changed = RetargetAssetReferences(ActiveScene(), oldPath, newPath);
         m_bridge.OnMeshFileChanged(oldPath);
         if (m_preview) m_preview->OnMeshFileChanged(oldPath);
         if (changed > 0) {
@@ -976,9 +1075,9 @@ SceneView EditorScreen::BuildSceneView() {
     // the field of view.
     {
         f32 dist = m_camDistance;
-        if (m_scene.IsValid(m_selected) &&
-            m_scene.Registry().all_of<TransformComponent>(m_selected)) {
-            const Vec3 d = m_scene.Registry().get<TransformComponent>(m_selected).position - eye;
+        if (ActiveScene().IsValid(m_selected) &&
+            ActiveScene().Registry().all_of<TransformComponent>(m_selected)) {
+            const Vec3 d = ActiveScene().Registry().get<TransformComponent>(m_selected).position - eye;
             dist = std::sqrt(Dot(d, d));
         }
         const f32 fovScale = std::tan(m_viewportPanel.Settings().fovYRadians * 0.5f) /
@@ -990,9 +1089,9 @@ SceneView EditorScreen::BuildSceneView() {
     // through the renderer's SceneRenderer; the selection draws normally
     // (the selection outline marks it).
     if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
-        m_bridge.Sync(m_scene, *sceneRenderer, *m_materials);
+        m_bridge.Sync(ActiveScene(), *sceneRenderer, *m_materials);
     }
-    m_bridge.BuildInstances(m_scene, m_selected, m_instances);
+    m_bridge.BuildInstances(ActiveScene(), m_selected, m_instances);
 
     // The first directional light is the scene's sun: it drives the sky
     // atmosphere, the sun disk, cascaded shadows and the directional term in
@@ -1003,9 +1102,9 @@ SceneView EditorScreen::BuildSceneView() {
     bool hasSun = false;
     SceneLight sun;
     auto lightView =
-        m_scene.Registry().view<TransformComponent, LightComponent>();
+        ActiveScene().Registry().view<TransformComponent, LightComponent>();
     for (Entity e : lightView) {
-        if (m_scene.Registry().all_of<EditorHiddenComponent>(e)) continue;
+        if (ActiveScene().Registry().all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = lightView.get<TransformComponent>(e);
         const auto& lc = lightView.get<LightComponent>(e);
         Mat4 mtx = tf.Matrix();
@@ -1042,7 +1141,7 @@ SceneView EditorScreen::BuildSceneView() {
     }
 
     SceneView scene;
-    auto envView = m_scene.Registry().view<const EnvironmentComponent>();
+    auto envView = ActiveScene().Registry().view<const EnvironmentComponent>();
     for (Entity e : envView) {
         const auto& env = envView.get<const EnvironmentComponent>(e);
         // --- Sky (physical atmosphere) ---
@@ -1095,7 +1194,7 @@ SceneView EditorScreen::BuildSceneView() {
     // applied globally (like Unreal's "Infinite Extent (Unbound)" volumes).
     {
         const PostProcessComponent* active = nullptr;
-        auto ppView = m_scene.Registry().view<const PostProcessComponent>();
+        auto ppView = ActiveScene().Registry().view<const PostProcessComponent>();
         for (Entity e : ppView) {
             const auto& pp = ppView.get<const PostProcessComponent>(e);
             if (pp.enabled && (!active || pp.priority > active->priority)) active = &pp;
@@ -1142,54 +1241,356 @@ SceneView EditorScreen::BuildSceneView() {
     scene.lights = m_lights.data();
     scene.lightCount = static_cast<u32>(m_lights.size());
 
-    if (m_scene.IsValid(m_selected) &&
-        m_scene.Registry().all_of<TransformComponent>(m_selected)) {
-        const auto& tf = m_scene.Registry().get<TransformComponent>(m_selected);
+    // Overlay lines: the gizmo plus DebugDraw overlay shapes; depth-tested
+    // DebugDraw shapes go to SceneView::lines (editor tools and PIE systems).
+    m_overlayLines.clear();
+    if (ActiveScene().IsValid(m_selected) &&
+        ActiveScene().Registry().all_of<TransformComponent>(m_selected)) {
+        const auto& tf = ActiveScene().Registry().get<TransformComponent>(m_selected);
         GizmoTransform gt{tf.position, tf.rotationEuler, tf.scale};
         const auto& lines = m_gizmo.BuildLines(gt, m_gizmoScale, m_view);
-        scene.overlayLines = lines.data();
-        scene.overlayLineVertexCount = static_cast<u32>(lines.size());
+        m_overlayLines.assign(lines.begin(), lines.end());
     }
+    const auto& debugOverlay = DebugDrawer().Lines(DebugDraw::Mode::Overlay);
+    m_overlayLines.insert(m_overlayLines.end(), debugOverlay.begin(), debugOverlay.end());
+    if (!m_overlayLines.empty()) {
+        scene.overlayLines = m_overlayLines.data();
+        scene.overlayLineVertexCount = static_cast<u32>(m_overlayLines.size());
+    }
+    const auto& debugLines = DebugDrawer().Lines(DebugDraw::Mode::DepthTested);
+    m_debugLines.assign(debugLines.begin(), debugLines.end());
+    if (!m_debugLines.empty()) {
+        scene.lines = m_debugLines.data();
+        scene.lineVertexCount = static_cast<u32>(m_debugLines.size());
+    }
+    // Shapes are per frame: everything added since the last view is in this one.
+    DebugDrawer().Clear();
     return scene;
 }
 
-void EditorScreen::BuildDock() {
-    m_dock.AddPanel("outliner", "World Outliner",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_outlinerPanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabOutliner);
-    m_dock.AddPanel("viewport", "Viewport",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_viewportPanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabViewport);
-    m_dock.AddPanel("inspector", "Inspector",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_inspectorPanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabDetails);
-    m_dock.AddPanel("console", "Console",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_consolePanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabOutputLog);
-    m_dock.AddPanel("content", "Content Browser",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_contentBrowser.Draw(c, r, ctx);
-                    },
-                    m_icons.tabContent);
-    m_dock.DockRoot("viewport");
-    m_dock.DockWith("console", "viewport", Slate::DockDir::Down, 0.28f);
-    m_dock.DockWith("outliner", "viewport", Slate::DockDir::Left, 0.2f);
-    m_dock.DockWith("inspector", "viewport", Slate::DockDir::Right, 0.24f);
-    m_dock.DockWith("content", "outliner", Slate::DockDir::Down, 0.45f);
-    m_dockBuilt = true;
+void EditorScreen::SetEditorIcons(const IconSet& icons) {
+    m_icons = icons;
+    m_viewportPanel.SetIcons(icons.viewport);
+    m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
+    const std::pair<const char*, TextureHandle> tabs[] = {
+        {"TabOutliner", icons.tabOutliner}, {"TabDetails", icons.tabDetails},
+        {"TabViewport", icons.tabViewport}, {"TabContent", icons.tabContent},
+        {"TabOutputLog", icons.tabOutputLog},
+    };
+    for (const auto& [name, texture] : tabs) {
+        if (Editor::EditorImages().Contains(name)) continue;  // set once per editor
+        m_uiRegistrations.Add(
+            Editor::EditorImages().Register(name, texture, Slate::Icon::None, "Engine"));
+    }
+}
+
+void EditorScreen::BeginPlay() {
+    if (m_runner.PlayScene()) {
+        m_runner.SetPaused(false);
+        return;
+    }
+    std::string error;
+    if (!m_runner.Begin(m_authoringScene, m_simulation, &error)) {
+        LUMA_USER_ERROR("Scene", "Cannot start Play in Editor: {}", error);
+        return;
+    }
+    m_authoringSelected = m_selected;
+    m_authoringSelection = m_selection;
+    m_authoringClipboard = std::move(m_clipboard);
+    m_authoringNextNumber = m_nextNumber;
+    m_clipboard.Clear();
+    std::erase_if(m_selection, [this](Entity e) { return !ActiveScene().IsValid(e); });
+    if (!ActiveScene().IsValid(m_selected)) m_selected = kNullEntity;
+    m_inspectorPanel.ClosePopups();
+    m_outlinerPanel.ClearSelection();
+    m_bridge.ClearPlacementPreview();
+    LUMA_LOG_INFO("Scene", "Started Play in Editor");
+}
+
+void EditorScreen::StopPlay() {
+    if (!m_runner.PlayScene()) return;
+    m_inspectorPanel.ClosePopups();
+    m_outlinerPanel.ClearSelection();
+    m_bridge.ClearPlacementPreview();
+    m_runner.End();
+    m_selection = std::move(m_authoringSelection);
+    std::erase_if(m_selection, [this](Entity e) { return !m_authoringScene.IsValid(e); });
+    m_selected = m_authoringScene.IsValid(m_authoringSelected) ? m_authoringSelected : kNullEntity;
+    m_clipboard = std::move(m_authoringClipboard);
+    m_nextNumber = m_authoringNextNumber;
+    LUMA_LOG_INFO("Scene", "Stopped Play in Editor");
+}
+
+void EditorScreen::RegisterEditorUi() {
+    using Editor::MenuEntryDesc;
+    using Editor::PanelDesc;
+    Editor::MenuRegistry& menus = Editor::Menus();
+    Editor::PanelRegistry& panels = Editor::EditorPanels();
+    RegistrationSet& reg = m_uiRegistrations;
+
+    // --- Menu bar ---------------------------------------------------------------
+    reg.Add(menus.RegisterMenu({"File", "File", 0, "Engine"}));
+    reg.Add(menus.RegisterMenu({"Edit", "Edit", 100, "Engine"}));
+    reg.Add(menus.RegisterMenu({"Assets", "Assets", 200, "Engine"}));
+    reg.Add(menus.RegisterMenu({"Tools", "Tools", 800, "Engine"}));  // plugin tools
+    reg.Add(menus.RegisterMenu({"Window", "Window", 900, "Engine"}));
+
+    auto entry = [](std::string id, std::string menu, std::string section, std::string label,
+                    std::string icon, i32 order, std::function<void()> run) {
+        MenuEntryDesc e;
+        e.id = std::move(id);
+        e.menu = std::move(menu);
+        e.section = std::move(section);
+        e.label = std::move(label);
+        e.icon = std::move(icon);
+        e.order = order;
+        e.owner = "Engine";
+        e.execute = std::move(run);
+        return e;
+    };
+    auto hasProject = [this] { return m_project.has_value(); };
+    auto hasSelection = [this] { return ActiveScene().IsValid(m_selected); };
+
+    {
+        MenuEntryDesc e = entry("File.SaveScene", "File", "Scene", "Save Scene", "Save", 0,
+                                [this] { SaveScene(); });
+        e.tooltip = "Write the open scene to disk.";
+        e.shortcut = "Ctrl+S";
+        e.isEnabled = [this] { return m_project.has_value() && !m_runner.PlayScene(); };
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("File.ShowProject", "File", "Project", "Show Project in Explorer",
+                                "Browse", 100, [this] {
+                                    if (m_project) {
+                                        RevealInExplorer(m_project->AssetsDir().parent_path());
+                                    }
+                                });
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    // Cut / Copy keep one-per-scene holders (e.g. the Environment) in the scene.
+    auto canCopySelection = [this] {
+        return ActiveScene().IsValid(m_selected) && !OnePerSceneComponentOf(ActiveScene(), m_selected);
+    };
+    {
+        MenuEntryDesc e = entry("Edit.Cut", "Edit", "Selection", "Cut", "", -30,
+                                [this] { CutEntities(m_selected); });
+        e.shortcut = "Ctrl+X";
+        e.isEnabled = canCopySelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Copy", "Edit", "Selection", "Copy", "", -20,
+                                [this] { CopyEntities(m_selected); });
+        e.shortcut = "Ctrl+C";
+        e.isEnabled = canCopySelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Paste", "Edit", "Selection", "Paste", "", -10, [this] {
+            PasteEntities(ActiveScene().IsValid(m_selected) ? m_selected : kNullEntity, false);
+        });
+        e.shortcut = "Ctrl+V";
+        e.tooltip = "Paste as a sibling of the selection, or at the scene root.";
+        e.isEnabled = [this] { return !m_clipboard.Empty(); };
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.EditorPreferences", "Edit", "Configuration",
+                                "Editor Preferences", "Gear", 190,
+                                [this] { m_preferencesOpen = true; });
+        e.tooltip = "Your own editor settings (all projects).";
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Duplicate", "Edit", "Selection", "Duplicate", "Duplicate", 0,
+                                [this] { DuplicateEntity(m_selected); });
+        e.shortcut = "Ctrl+D";
+        e.isEnabled = [this] {
+            return ActiveScene().IsValid(m_selected) && !OnePerSceneComponentOf(ActiveScene(), m_selected);
+        };
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Delete", "Edit", "Selection", "Delete", "Trash", 10,
+                                [this] { DeleteEntity(m_selected); });
+        e.shortcut = "Delete";
+        e.isEnabled = hasSelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Focus", "Edit", "Selection", "Focus in Viewport", "Focus", 20,
+                                [this] { FocusEntity(m_selected); });
+        e.shortcut = "F";
+        e.isEnabled = hasSelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Assets.Import", "Assets", "Content", "Import...", "Import", 0,
+                                [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); });
+        e.tooltip = "Import files into the open Content Browser folder.";
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Assets.Refresh", "Assets", "Content", "Refresh Content",
+                                "Refresh", 10, [this] {
+                                    m_assetRegistry.Scan();
+                                    if (m_sourceWatch) m_sourceWatch->InvalidateAll();
+                                });
+        e.tooltip = "Rescan the project's content from disk.";
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.ProjectSettings", "Edit", "Configuration",
+                                "Project Settings...", "Gear", 200,
+                                [this] { m_projectSettings.Open(); });
+        e.tooltip = "Settings stored in this project's Config folder.";
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    auto play = entry("Tools.Play", "Tools", "Simulation", "Play", "Play", 0, [this] { BeginPlay(); });
+    play.isEnabled = [this] { return !m_runner.PlayScene() || m_runner.Paused(); };
+    reg.Add(menus.RegisterEntry(std::move(play)));
+    auto pause = entry("Tools.Pause", "Tools", "Simulation", "Pause / Resume", "Pause", 1,
+                       [this] { m_runner.SetPaused(!m_runner.Paused()); });
+    pause.isEnabled = [this] { return m_runner.PlayScene() != nullptr; };
+    reg.Add(menus.RegisterEntry(std::move(pause)));
+    auto step = entry("Tools.Step", "Tools", "Simulation", "Single Step", "Play", 2, [this] { m_runner.Step(); });
+    step.isEnabled = [this] { return m_runner.Paused(); };
+    reg.Add(menus.RegisterEntry(std::move(step)));
+    auto stop = entry("Tools.Stop", "Tools", "Simulation", "Stop", "Stop", 3, [this] { StopPlay(); });
+    stop.isEnabled = [this] { return m_runner.PlayScene() != nullptr; };
+    reg.Add(menus.RegisterEntry(std::move(stop)));
+    reg.Add(Editor::Panels::RegisterSimulationPage(Editor::SettingsPages(), m_simulation));
+    reg.Add(Editor::Panels::RegisterMapsAndModesPage(
+        Editor::SettingsPages(), m_mapsAndModes, [this] {
+            // Every scene file under Assets/, as a project-relative path.
+            std::vector<std::string> scenes;
+            if (!m_project) return scenes;
+            std::error_code ec;
+            for (auto it = std::filesystem::recursive_directory_iterator(m_project->AssetsDir(), ec);
+                 !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+                if (it->is_regular_file(ec) && it->path().extension() == Project::kSceneExtension) {
+                    scenes.push_back(
+                        std::filesystem::relative(it->path(), m_project->RootDir(), ec)
+                            .generic_string());
+                }
+            }
+            std::sort(scenes.begin(), scenes.end());
+            return scenes;
+        }));
+    {
+        Editor::MenuSectionDesc s;
+        s.id = "Window.Panels";
+        s.menu = "Window";
+        s.section = "Panels";
+        s.owner = "Engine";
+        s.order = 0;
+        s.fill = [this](Slate::MenuBuilder& b) { m_panelHost->FillWindowMenu(b); };
+        reg.Add(menus.RegisterSection(std::move(s)));
+    }
+    {
+        MenuEntryDesc e = entry("Window.ResetLayout", "Window", "Layout", "Reset Layout", "Reset",
+                                100, [this] {
+                                    m_panelHost->ResetLayout();
+                                    // Asset editor tabs survive a layout reset.
+                                    for (const auto& editor : m_materialEditors) {
+                                        DockMaterialEditor(editor.get());
+                                    }
+                                });
+        e.tooltip = "Restore the default panel arrangement.";
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+
+    // --- Dock panels (registration order = default layout build order) ----------
+    auto panel = [](std::string id, std::string title, std::string icon, std::string tooltip,
+                    std::string nextTo, Slate::DockDir dir, f32 ratio,
+                    std::function<void(Slate::Context&, const Rect&,
+                                       Editor::Panels::PanelContext&)> draw) {
+        PanelDesc p;
+        p.id = std::move(id);
+        p.title = std::move(title);
+        p.icon = std::move(icon);
+        p.tooltip = std::move(tooltip);
+        p.owner = "Engine";
+        p.dockNextTo = std::move(nextTo);
+        p.dockDir = dir;
+        p.dockRatio = ratio;
+        p.draw = std::move(draw);
+        return p;
+    };
+    {
+        PanelDesc viewport = panel("viewport", "Viewport", "TabViewport", "The 3D scene view.", "",
+                                   Slate::DockDir::Center, 1.0f,
+                                   [this](Slate::Context& c, const Rect& r,
+                                          Editor::Panels::PanelContext& ctx) {
+                                       m_viewportPanel.Draw(c, r, ctx);
+                                   });
+        viewport.closable = false;  // the dock root; asset editors tab beside it
+        reg.Add(panels.Register(std::move(viewport)));
+    }
+    reg.Add(panels.Register(panel(
+        "console", "Console", "TabOutputLog", "Project messages and engine logs.", "viewport",
+        Slate::DockDir::Down, 0.28f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_consolePanel.Draw(c, r, ctx);
+        })));
+    reg.Add(panels.Register(panel(
+        "outliner", "World Outliner", "TabOutliner", "Every object in the scene.", "viewport",
+        Slate::DockDir::Left, 0.2f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_outlinerPanel.Draw(c, r, ctx);
+        })));
+    reg.Add(panels.Register(panel(
+        "inspector", "Inspector", "TabDetails", "Components of the selected object.", "viewport",
+        Slate::DockDir::Right, 0.24f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_inspectorPanel.Draw(c, r, ctx);
+        })));
+    reg.Add(panels.Register(panel(
+        "content", "Content Browser", "TabContent", "The project's assets.", "outliner",
+        Slate::DockDir::Down, 0.45f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_contentBrowser.Draw(c, r, ctx);
+        })));
+}
+
+std::filesystem::path EditorScreen::LayoutStatePath() const {
+    if (!m_project) return {};
+    return m_project->RootDir() / "Saved" / "Config" / "EditorLayout.json";
+}
+
+void EditorScreen::LoadPanelLayout() {
+    const std::filesystem::path path = LayoutStatePath();
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::exists(path, ec)) return;
+    std::ifstream in(path, std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string error;
+    const auto doc = ParseJson(text, &error);
+    if (!doc) {
+        LUMA_USER_WARN("Editor", "Ignoring the saved panel layout '{}': {}",
+                       ProjectRelative(path), error);
+        return;
+    }
+    if (const SerialValue* panels = doc->Find("panels")) m_panelHost->LoadState(*panels);
+}
+
+void EditorScreen::SavePanelLayout() {
+    const std::filesystem::path path = LayoutStatePath();
+    if (path.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    SerialValue doc = SerialValue::MakeObject();
+    doc["version"] = 1;
+    doc["panels"] = m_panelHost->SaveState();
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out || !(out << WriteJson(doc, true))) {
+        LUMA_USER_WARN("Editor", "Could not save the panel layout to '{}'",
+                       ProjectRelative(path));
+    }
 }
 
 Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
@@ -1299,7 +1700,7 @@ void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& 
     std::filesystem::path target = m_contentBrowser.ImportDropFolder();
     if (target.empty()) target = m_contentBrowser.CurrentFolder();
     if (target.empty()) target = m_project->AssetsDir();
-    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    auto& registry = Import::Translators();
     std::vector<std::filesystem::path> supported;
     for (const std::filesystem::path& file : files) CollectImportFiles(file, registry, supported);
     OpenImport(supported, target, false);
@@ -1308,7 +1709,7 @@ void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& 
 void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
     if (!m_project) return;
     std::filesystem::path target = folder.empty() ? m_project->AssetsDir() : folder;
-    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    auto& registry = Import::Translators();
     const std::vector<char> filter = ImportFileFilter(registry);
     std::vector<std::filesystem::path> picked;
 #ifdef _WIN32
@@ -1517,6 +1918,8 @@ void EditorScreen::PollImport() {
 }
 
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
+    ui.drawList().SetAntiAliased(true);       // smooth (anti-aliased) edges across the editor UI
+    m_uiFontPath = ui.theme().type.uiRegular;  // the material editors load extra sizes of it
     PollTranslate();
     PollImport();
     if (m_sourceWatch) m_sourceWatch->Update();
@@ -1530,7 +1933,10 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     }
     if (!ui.isMouseDown(0)) m_preferences.SaveChanges();
     Slate::Theme& t = ui.theme();
-    if (!m_dockBuilt) BuildDock();
+    if (!m_layoutBuilt) {
+        m_panelHost->BuildLayout();
+        m_layoutBuilt = true;
+    }
     ui.Panel({0, 0, width, height}, t.windowBg);
 
     Rect menu{0, 0, width, 32};
@@ -1540,15 +1946,19 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     ui.LogoMark({20, 16}, 12.0f);
     f32 mx = 42.0f;
 
-    // Main menu bar (Unreal-style): each title drops a Slate menu.
-    const char* items[] = {"File", "Edit", "Assets", "Window"};
-    constexpr int kMenuCount = static_cast<int>(std::size(items));
-    u64 ids[kMenuCount];
-    Rect rects[kMenuCount];
+    // Main menu bar (Unreal-style): every registered menu with entries, in
+    // order; each title drops a Slate menu built from the menu registry.
+    std::vector<const Editor::MenuDesc*> barMenus;
+    for (const Editor::MenuDesc* m : Editor::Menus().Menus()) {
+        if (Editor::Menus().HasEntries(m->id)) barMenus.push_back(m);
+    }
+    const int menuCount = static_cast<int>(barMenus.size());
+    std::vector<u64> ids(barMenus.size());
+    std::vector<Rect> rects(barMenus.size());
     int openIndex = -1;
-    for (int i = 0; i < kMenuCount; ++i) {
-        f32 w = ui.uiFont().Measure(items[i]).x + 22.0f;
-        ids[i] = Slate::Context::ID(items[i]) ^ 0x4D454E55ull;
+    for (int i = 0; i < menuCount; ++i) {
+        f32 w = ui.uiFont().Measure(barMenus[i]->label).x + 22.0f;
+        ids[i] = Slate::Context::ID("menubar." + barMenus[i]->id) ^ 0x4D454E55ull;
         rects[i] = {mx, 4, w, 24};
         if (ui.IsMenuOpen(ids[i])) openIndex = i;
         mx += w + 2.0f;
@@ -1556,23 +1966,25 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     // While one bar menu is open, hovering another title switches to it
     // (the bar reads the raw pointer: widgets are input-blocked by the menu).
     if (openIndex >= 0) {
-        for (int i = 0; i < kMenuCount; ++i) {
+        for (int i = 0; i < menuCount; ++i) {
             if (i != openIndex && rects[i].Contains(ui.rawMouse())) {
                 const Rect& r = rects[i];
-                ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f}, BuildMainMenu(i));
+                ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f},
+                                 Editor::Menus().Build(barMenus[i]->id));
                 openIndex = i;
                 break;
             }
         }
     }
-    for (int i = 0; i < kMenuCount; ++i) {
+    for (int i = 0; i < menuCount; ++i) {
         const Rect& r = rects[i];
-        if (ui.MenuButton(ids[i], r, items[i])) {
-            ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f}, BuildMainMenu(i));
+        if (ui.MenuButton(ids[i], r, barMenus[i]->label)) {
+            ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f},
+                             Editor::Menus().Build(barMenus[i]->id));
         }
         if (i == openIndex) {
             ui.drawList().AddRectFilledRounded(r, t.menu.hoverFill, t.radius.sm);
-            ui.LabelIn(r, items[i], t.text, Slate::Align::Center);
+            ui.LabelIn(r, barMenus[i]->label, t.text, Slate::Align::Center);
         }
     }
 
@@ -1604,22 +2016,30 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     const Rect playR{width / 2 - 46, 35, 30, 28};
     const Rect pauseR{width / 2 - 14, 35, 30, 28};
     const Rect stopR{width / 2 + 18, 35, 30, 28};
-    ui.IconButton(Slate::Context::ID("play"), playR, m_iconPlay);
-    ui.IconButton(Slate::Context::ID("pause"), pauseR, m_iconPause);
-    ui.IconButton(Slate::Context::ID("stop"), stopR, m_iconStop);
-    ui.Tooltip(Slate::Context::ID("tip.play"), playR,
-               "Play\nPlay-in-editor is not implemented yet.");
-    ui.Tooltip(Slate::Context::ID("tip.pause"), pauseR,
-               "Pause\nPlay-in-editor is not implemented yet.");
-    ui.Tooltip(Slate::Context::ID("tip.stop"), stopR,
-               "Stop\nPlay-in-editor is not implemented yet.");
+    if (ui.IconButton(Slate::Context::ID("play"), playR, m_iconPlay)) BeginPlay();
+    if (ui.IconButton(Slate::Context::ID("pause"), pauseR, m_iconPause)) m_runner.SetPaused(!m_runner.Paused());
+    if (ui.IconButton(Slate::Context::ID("stop"), stopR, m_iconStop)) StopPlay();
+    ui.Tooltip(Slate::Context::ID("tip.play"), playR, "Play in Editor");
+    ui.Tooltip(Slate::Context::ID("tip.pause"), pauseR, m_runner.Paused() ? "Resume" : "Pause");
+    ui.Tooltip(Slate::Context::ID("tip.stop"), stopR, "Stop and restore the authoring scene");
+    if (m_runner.PlayScene()) {
+        const Rect status{stopR.Right() + 6.0f, stopR.y, 64.0f, stopR.h};
+        if (m_runner.Paused()) {
+            if (ui.Button(Slate::Context::ID("play.step"), status, "Step")) m_runner.Step();
+        } else {
+            ui.LabelIn(status, "Playing", t.textDim);
+        }
+    }
 
     for (const auto& editor : m_materialEditors) {
         m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
     }
+    for (const auto& editor : m_graphEditors) m_dock.SetTitle("graphmated:" + editor->AssetPath(), editor->Title());
+    for (const auto& editor : m_instanceEditors) m_dock.SetTitle("graphmated:" + editor->AssetPath(), editor->Title());
     for (const auto& editor : m_materialEditors) editor->BeginFrame();
     constexpr f32 kStatusBarH = 24.0f;
     m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f - kStatusBarH});
+    m_panelHost->Sync();  // follow panel (un)registrations; after the dock applied closes
     // Status bar: background-task indicator on the right (Unreal-style).
     const Rect statusBar{0, height - kStatusBarH, width, kStatusBarH};
     ui.Panel(statusBar, t.surface1);
@@ -1629,6 +2049,8 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     for (const std::string& path : m_editorsToDelete) {
         std::erase_if(m_materialEditors,
                       [&](const auto& e) { return e->AssetPath() == path; });
+        std::erase_if(m_graphEditors, [&](const auto& e) { return e->AssetPath() == path; });
+        std::erase_if(m_instanceEditors, [&](const auto& e) { return e->AssetPath() == path; });
     }
     m_editorsToDelete.clear();
     HandleShortcuts(ui);
@@ -1640,8 +2062,13 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         m_contentBrowser.ClearActivated();
         if (const AssetData* data = activated.IsValid() ? m_assetRegistry.Lookup(activated)
                                                         : nullptr) {
-            if (data->type == AssetType::Material || data->type == AssetType::MaterialInstance) {
-                if (auto path = m_assetPaths.ToVirtual(data->packagePath)) OpenMaterialEditor(*path);
+            const auto desc = AssetTypes().FindByExtension(data->extension);
+            if (desc && desc->open) {
+                AssetOpenContext context;
+                context.openMaterial = [this](const auto& file) {
+                    if (auto path = m_assetPaths.ToVirtual(file)) OpenMaterialEditor(*path);
+                };
+                desc->open(data->packagePath, context);
             }
         }
     }
@@ -1652,8 +2079,11 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         auto ctx = BuildPanelContext();
         m_inspectorPanel.DrawFloatingPickers(ui, ctx);
         for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
+        for (const auto& editor : m_graphEditors) editor->DrawFloating(ui);
+        for (const auto& editor : m_instanceEditors) editor->DrawFloating(ui);
     }
     if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
+    m_projectSettings.Draw(ui, width, height);
     DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
     if (m_importDialog.IsOpen()) {
@@ -1663,7 +2093,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
 
 Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir) const {
     using namespace Math;
-    auto& reg = const_cast<Scene&>(m_scene).Registry();
+    auto& reg = const_cast<Scene&>(ActiveScene()).Registry();
     Entity best = kNullEntity;
     f32 bestT = 1e30f;
     // Slab test of a ray against an AABB; returns the entry parameter.
@@ -1769,19 +2199,19 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
         if (ui.keyPressed(kKeyR)) m_gizmo.SetMode(GizmoMode::Scale);
     }
     const bool overContent = m_contentBrowser.Hovered();
-    if (ctrl && ui.keyPressed(kKeyC) && !overContent && m_scene.IsValid(m_selected)) {
+    if (ctrl && ui.keyPressed(kKeyC) && !overContent && ActiveScene().IsValid(m_selected)) {
         CopyEntities(m_selected);
         return;
     }
-    if (ctrl && ui.keyPressed(kKeyX) && !overContent && m_scene.IsValid(m_selected)) {
+    if (ctrl && ui.keyPressed(kKeyX) && !overContent && ActiveScene().IsValid(m_selected)) {
         CutEntities(m_selected);
         return;
     }
     if (ctrl && ui.keyPressed(kKeyV) && !overContent && !m_clipboard.Empty()) {
-        PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+        PasteEntities(ActiveScene().IsValid(m_selected) ? m_selected : kNullEntity, false);
         return;
     }
-    if (!m_scene.IsValid(m_selected)) return;
+    if (!ActiveScene().IsValid(m_selected)) return;
     if (ctrl && ui.keyPressed(kKeyD)) {
         DuplicateEntity(m_selected);
     } else if (!ctrl && ui.keyPressed(kKeyF)) {
@@ -1795,36 +2225,41 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
 void EditorScreen::SelectOnly(Entity entity) {
     m_selection.clear();
     m_selected = entity;
-    if (m_scene.IsValid(entity)) m_selection.push_back(entity);
+    if (ActiveScene().IsValid(entity)) m_selection.push_back(entity);
 }
 
 std::vector<Entity> EditorScreen::ActionRoots(Entity clicked) const {
     const bool inSelection = std::find(m_selection.begin(), m_selection.end(), clicked) != m_selection.end();
-    if (inSelection && m_selection.size() > 1) return SelectionRoots(m_scene, m_selection);
-    if (!m_scene.IsValid(clicked)) return {};
+    if (inSelection && m_selection.size() > 1) return SelectionRoots(ActiveScene(), m_selection);
+    if (!ActiveScene().IsValid(clicked)) return {};
     return {clicked};
 }
 
 bool EditorScreen::IsHidden(Entity entity) const {
-    return m_scene.IsValid(entity) && m_scene.Registry().all_of<EditorHiddenComponent>(entity);
+    return ActiveScene().IsValid(entity) && ActiveScene().Registry().all_of<EditorHiddenComponent>(entity);
 }
 
 void EditorScreen::DuplicateEntity(Entity e) {
     std::vector<Entity> created;
     for (Entity root : ActionRoots(e)) {
-        if (m_scene.Registry().all_of<EnvironmentComponent>(root)) continue;
-        const std::string base = m_scene.Registry().get<NameComponent>(root).name;
-        Entity copy = DuplicateSubtree(m_scene, root);
+        // A one-per-scene holder (e.g. the Environment) stays unique.
+        if (const ComponentDesc* single = OnePerSceneComponentOf(ActiveScene(), root)) {
+            LUMA_USER_WARN("Scene", "A scene has a single {}; it can't be duplicated",
+                           single->displayName);
+            continue;
+        }
+        const std::string base = ActiveScene().Registry().get<NameComponent>(root).name;
+        Entity copy = DuplicateSubtree(ActiveScene(), root);
         if (copy == kNullEntity) continue;
         auto renameTree = [&](auto&& self, Entity entity) -> void {
-            auto& name = m_scene.Registry().get<NameComponent>(entity).name;
-            name = UniqueEntityName(m_scene, name);
-            for (Entity child : ChildrenOf(m_scene, entity)) self(self, child);
+            auto& name = ActiveScene().Registry().get<NameComponent>(entity).name;
+            name = UniqueEntityName(ActiveScene(), name);
+            for (Entity child : ChildrenOf(ActiveScene(), entity)) self(self, child);
         };
         renameTree(renameTree, copy);
         created.push_back(copy);
         LUMA_USER_INFO("Scene", "Duplicated '{}' as '{}'", base,
-                       m_scene.Registry().get<NameComponent>(copy).name);
+                       ActiveScene().Registry().get<NameComponent>(copy).name);
     }
     if (created.empty()) return;
     m_selection = created;
@@ -1836,24 +2271,24 @@ void EditorScreen::DeleteEntity(Entity e) {
     if (roots.empty()) return;
     m_inspectorPanel.ClosePopups();
     for (Entity root : roots) {
-        if (!m_scene.IsValid(root)) continue;
-        const bool selectedInSubtree = m_selected == root || IsDescendantOf(m_scene, root, m_selected);
-        const std::string name = m_scene.Registry().get<NameComponent>(root).name;
-        DestroySubtree(m_scene, root);
+        if (!ActiveScene().IsValid(root)) continue;
+        const bool selectedInSubtree = m_selected == root || IsDescendantOf(ActiveScene(), root, m_selected);
+        const std::string name = ActiveScene().Registry().get<NameComponent>(root).name;
+        DestroySubtree(ActiveScene(), root);
         if (selectedInSubtree) m_selected = kNullEntity;
         LUMA_USER_INFO("Scene", "Deleted '{}'", name);
     }
     std::vector<Entity> still;
     for (Entity entity : m_selection) {
-        if (m_scene.IsValid(entity)) still.push_back(entity);
+        if (ActiveScene().IsValid(entity)) still.push_back(entity);
     }
     m_selection = std::move(still);
-    if (!m_scene.IsValid(m_selected)) m_selected = m_selection.empty() ? kNullEntity : m_selection.back();
+    if (!ActiveScene().IsValid(m_selected)) m_selected = m_selection.empty() ? kNullEntity : m_selection.back();
 }
 
 void EditorScreen::FocusEntity(Entity e) {
-    if (!m_scene.IsValid(e) || !m_scene.Registry().all_of<TransformComponent>(e)) return;
-    const auto& tf = m_scene.Registry().get<TransformComponent>(e);
+    if (!ActiveScene().IsValid(e) || !ActiveScene().Registry().all_of<TransformComponent>(e)) return;
+    const auto& tf = ActiveScene().Registry().get<TransformComponent>(e);
     m_camTarget = tf.position;
     // Frame by the entity's largest scale axis (unit primitives).
     const f32 extent = std::max({std::fabs(tf.scale.x), std::fabs(tf.scale.y),
@@ -1863,13 +2298,13 @@ void EditorScreen::FocusEntity(Entity e) {
 }
 
 void EditorScreen::CopyEntities(Entity clicked) {
-    if (!m_clipboard.Copy(m_scene, ActionRoots(clicked))) {
+    if (!m_clipboard.Copy(ActiveScene(), ActionRoots(clicked))) {
         LUMA_USER_WARN("Scene", "Nothing to copy");
     }
 }
 
 void EditorScreen::CutEntities(Entity clicked) {
-    if (!m_clipboard.Cut(m_scene, ActionRoots(clicked))) {
+    if (!m_clipboard.Cut(ActiveScene(), ActionRoots(clicked))) {
         LUMA_USER_WARN("Scene", "Nothing to cut");
         return;
     }
@@ -1881,23 +2316,23 @@ void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
     Entity parent = kNullEntity;
     if (asChild) {
         parent = clicked;
-    } else if (m_scene.IsValid(clicked)) {
-        parent = ParentOf(m_scene, clicked);
+    } else if (ActiveScene().IsValid(clicked)) {
+        parent = ParentOf(ActiveScene(), clicked);
     }
     if (m_clipboard.IsCut()) {
         for (Entity source : m_clipboard.CutSources()) {
-            if (!m_scene.IsValid(source)) continue;
-            if (parent == source || IsDescendantOf(m_scene, source, parent)) {
+            if (!ActiveScene().IsValid(source)) continue;
+            if (parent == source || IsDescendantOf(ActiveScene(), source, parent)) {
                 LUMA_USER_WARN("Scene", "Can't paste a cut actor into itself");
                 return;
             }
         }
     }
     const std::vector<Entity> ignore = m_clipboard.IsCut() ? m_clipboard.CutSources() : std::vector<Entity>{};
-    const std::vector<Entity> created = m_clipboard.Paste(m_scene, parent, ignore);
+    const std::vector<Entity> created = m_clipboard.Paste(ActiveScene(), parent, ignore);
     if (created.empty()) return;
     if (m_clipboard.IsCut()) {
-        for (Entity source : m_clipboard.CutSources()) DestroySubtree(m_scene, source);
+        for (Entity source : m_clipboard.CutSources()) DestroySubtree(ActiveScene(), source);
         m_clipboard.Clear();
     }
     m_selection = created;
@@ -1906,14 +2341,14 @@ void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
 }
 
 void EditorScreen::CreateEmptyChild(Entity parent) {
-    if (!m_scene.IsValid(parent)) return;
-    Entity child = m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
-    SetParent(m_scene, child, parent);
+    if (!ActiveScene().IsValid(parent)) return;
+    Entity child = ActiveScene().CreateEntity(UniqueEntityName(ActiveScene(), "Empty Actor"));
+    SetParent(ActiveScene(), child, parent);
     SelectOnly(child);
 }
 
 void EditorScreen::SelectChildren(Entity parent) {
-    const std::vector<Entity> descendants = DescendantsOf(m_scene, parent);
+    const std::vector<Entity> descendants = DescendantsOf(ActiveScene(), parent);
     if (descendants.empty()) return;
     m_selection = descendants;
     m_selected = descendants.front();
@@ -1921,25 +2356,25 @@ void EditorScreen::SelectChildren(Entity parent) {
 
 void EditorScreen::MoveToRoot(Entity entity) {
     for (Entity root : ActionRoots(entity)) {
-        if (ParentOf(m_scene, root) == kNullEntity) continue;
-        SetParent(m_scene, root, kNullEntity);
+        if (ParentOf(ActiveScene(), root) == kNullEntity) continue;
+        SetParent(ActiveScene(), root, kNullEntity);
     }
 }
 
 void EditorScreen::HideEntities(Entity clicked) {
     for (Entity root : ActionRoots(clicked)) {
-        m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(root);
-        for (Entity child : DescendantsOf(m_scene, root)) {
-            m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(child);
+        ActiveScene().Registry().emplace_or_replace<EditorHiddenComponent>(root);
+        for (Entity child : DescendantsOf(ActiveScene(), root)) {
+            ActiveScene().Registry().emplace_or_replace<EditorHiddenComponent>(child);
         }
     }
 }
 
 void EditorScreen::ShowAllActors() {
     std::vector<Entity> hidden;
-    auto view = m_scene.Registry().view<EditorHiddenComponent>();
+    auto view = ActiveScene().Registry().view<EditorHiddenComponent>();
     for (Entity entity : view) hidden.push_back(entity);
-    for (Entity entity : hidden) m_scene.Registry().remove<EditorHiddenComponent>(entity);
+    for (Entity entity : hidden) ActiveScene().Registry().remove<EditorHiddenComponent>(entity);
 }
 
 void EditorScreen::CreateSceneAsset(const std::filesystem::path& folder) {
@@ -2000,97 +2435,6 @@ void EditorScreen::RevealInExplorer(const std::filesystem::path& path) {
 #else
     (void)path;
 #endif
-}
-
-std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
-    using Slate::Icon;
-    Slate::MenuBuilder b;
-    const bool hasSel = m_scene.IsValid(m_selected);
-    auto when = [](bool enabled, const char* tip = "") {
-        Slate::MenuEntryOptions o;
-        o.enabled = enabled;
-        o.tooltip = tip;
-        return o;
-    };
-    switch (index) {
-        case 0:  // File
-            b.BeginSection("Scene");
-            {
-                auto o = when(m_project.has_value(), "Write the open scene to disk.");
-                o.shortcut = "Ctrl+S";
-                b.AddEntry("Save Scene", Icon::Save, [this] { SaveScene(); }, o);
-            }
-            b.BeginSection("Project");
-            b.AddEntry("Show Project in Explorer", Icon::Browse,
-                       [this] {
-                           if (m_project) RevealInExplorer(m_project->AssetsDir().parent_path());
-                       },
-                       when(m_project.has_value()));
-            break;
-        case 1:  // Edit
-            b.BeginSection("Selection");
-            {
-                auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
-                o.shortcut = "Ctrl+X";
-                b.AddEntry("Cut", Icon::None, [this] { CutEntities(m_selected); }, o);
-            }
-            {
-                auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
-                o.shortcut = "Ctrl+C";
-                b.AddEntry("Copy", Icon::None, [this] { CopyEntities(m_selected); }, o);
-            }
-            {
-                auto o = when(!m_clipboard.Empty(),
-                              m_clipboard.Empty() ? "The clipboard is empty."
-                                                  : "Paste as a sibling of the selection, or at the scene root.");
-                o.shortcut = "Ctrl+V";
-                b.AddEntry("Paste", Icon::None, [this] {
-                    PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
-                }, o);
-            }
-            {
-                auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
-                o.shortcut = "Ctrl+D";
-                b.AddEntry("Duplicate", Icon::Duplicate, [this] { DuplicateEntity(m_selected); }, o);
-            }
-            {
-                auto o = when(hasSel);
-                o.shortcut = "Delete";
-                b.AddEntry("Delete", Icon::Trash, [this] { DeleteEntity(m_selected); }, o);
-            }
-            {
-                auto o = when(hasSel);
-                o.shortcut = "F";
-                b.AddEntry("Focus in Viewport", Icon::Focus, [this] { FocusEntity(m_selected); }, o);
-            }
-            b.BeginSection("Configuration");
-            b.AddEntry("Editor Preferences", Icon::Gear, [this] { m_preferencesOpen = true; });
-            break;
-        case 2:  // Assets
-            b.BeginSection("Content");
-            b.AddEntry("Import...", Icon::Import,
-                       [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); },
-                       when(m_project.has_value(), "Import files into the open Content Browser folder."));
-            b.AddEntry("Refresh Content", Icon::Refresh,
-                       [this] {
-                           m_assetRegistry.Scan();
-                           if (m_sourceWatch) m_sourceWatch->InvalidateAll();
-                       },
-                       when(true, "Rescan the project's content from disk."));
-            break;
-        case 3:  // Window
-            b.BeginSection("Layout");
-            b.AddEntry("Reset Layout", Icon::Reset,
-                       [this] {
-                           m_dock = Slate::DockSpace{};
-                           m_dockBuilt = false;
-                       },
-                       when(true, "Restore the default panel arrangement."));
-            break;
-        default:
-            break;
-    }
-    return b.Build();
 }
 
 }  // namespace Luma

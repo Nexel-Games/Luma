@@ -11,6 +11,6 @@ target_include_directories(LumaPanelWorldOutliner
         ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 target_link_libraries(LumaPanelWorldOutliner
-    PUBLIC Luma::Core Luma::Scene Luma::Slate)
+    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::EditorFramework)
 
 set_target_properties(LumaPanelWorldOutliner PROPERTIES FOLDER "Editor/Panels")

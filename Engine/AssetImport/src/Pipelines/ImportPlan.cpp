@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/AssetImport/Pipelines/ImportPlan.h"
 
 #include "Luma/AssetImport/Pipelines/AudioPipeline.h"
@@ -152,14 +153,9 @@ std::string SubfolderName(std::string_view requested) {
 }
 
 std::string SubfolderFor(const SettingsBlock& common, AssetType type) {
-    const char* key = "folderMeshes";
-    const char* fallback = "Meshes";
-    switch (type) {
-        case AssetType::Material: key = "folderMaterials"; fallback = "Materials"; break;
-        case AssetType::Texture: key = "folderTextures"; fallback = "Textures"; break;
-        case AssetType::Sound: key = "folderSounds"; fallback = "Sounds"; break;
-        default: break;
-    }
+    const auto desc = AssetTypes().FindBuiltin(type);
+    const std::string fallback = desc && !desc->importFolder.empty() ? desc->importFolder : "Meshes";
+    const std::string key = "folder" + fallback;
     std::string name = SubfolderName(common.GetString(key));
     return name.empty() ? std::string(fallback) : name;
 }

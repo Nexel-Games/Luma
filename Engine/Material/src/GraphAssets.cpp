@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <set>
 
+#include "Luma/Serialization/Json.h"
 #include "MaterialJson.h"
 
 namespace Luma::Material {
@@ -286,6 +287,14 @@ std::string NameOf(const SerialValue& doc) {
 }
 
 }  // namespace
+
+std::string GraphToJsonText(const Graph& graph) { return ::Luma::WriteJson(GraphToJson(graph), false); }
+
+bool GraphFromJsonText(std::string_view text, Graph& graph, std::string* err) {
+    auto doc = ::Luma::ParseJson(text, err);
+    if (!doc) return false;
+    return GraphFromJson(&*doc, graph, err);
+}
 
 // --- Serializer ---------------------------------------------------------------
 

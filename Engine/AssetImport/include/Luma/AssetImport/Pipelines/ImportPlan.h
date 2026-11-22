@@ -16,6 +16,8 @@ enum class ConflictPolicy : u8 { Overwrite, Skip, KeepBoth };
 
 struct AssetRequest {
     AssetType type = AssetType::Unknown;
+    // Registered asset type id (AssetTypes()); empty = the built-in id of `type`.
+    std::string typeId;
     std::filesystem::path destFile;
     std::vector<NodeId> sources;
     bool exists = false;

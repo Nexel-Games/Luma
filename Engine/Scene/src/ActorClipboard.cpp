@@ -1,34 +1,22 @@
 #include "Luma/Scene/ActorClipboard.h"
 
+#include <algorithm>
 #include <unordered_set>
 
 #include "Luma/Scene/Hierarchy.h"
+#include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/SceneSerializer.h"
 
 namespace Luma {
 namespace {
 
 bool Capture(const Scene& scene, Entity entity, ActorClipNode& out) {
     if (!scene.IsValid(entity)) return false;
-    if (scene.Registry().all_of<EnvironmentComponent>(entity)) return false;
+    if (OnePerSceneComponentOf(scene, entity)) return false;
     out = {};
     out.name = scene.Registry().get<NameComponent>(entity).name;
-    out.transform = scene.Registry().get<TransformComponent>(entity);
-    if (const auto* mesh = scene.Registry().try_get<MeshRendererComponent>(entity)) {
-        out.hasMesh = true;
-        out.mesh = *mesh;
-    }
-    if (const auto* light = scene.Registry().try_get<LightComponent>(entity)) {
-        out.hasLight = true;
-        out.light = *light;
-    }
-    if (const auto* camera = scene.Registry().try_get<CameraComponent>(entity)) {
-        out.hasCamera = true;
-        out.camera = *camera;
-    }
-    if (const auto* post = scene.Registry().try_get<PostProcessComponent>(entity)) {
-        out.hasPost = true;
-        out.post = *post;
-    }
+    out.owners = SerialValue::MakeObject();
+    out.components = SceneSerializer::WriteComponents(scene, entity, out.owners);
     for (Entity child : ChildrenOf(scene, entity)) {
         ActorClipNode node;
         if (Capture(scene, child, node)) out.children.push_back(std::move(node));
@@ -54,12 +42,10 @@ std::string UniqueIgnoring(const Scene& scene, const std::string& base,
 
 Entity PasteNode(Scene& scene, const ActorClipNode& node, Entity parent,
                  const std::unordered_set<Entity>& ignore) {
-    Entity entity = scene.CreateEntity(UniqueIgnoring(scene, node.name, ignore));
-    scene.Registry().get<TransformComponent>(entity) = node.transform;
-    if (node.hasMesh) scene.Registry().emplace<MeshRendererComponent>(entity, node.mesh);
-    if (node.hasLight) scene.Registry().emplace<LightComponent>(entity, node.light);
-    if (node.hasCamera) scene.Registry().emplace<CameraComponent>(entity, node.camera);
-    if (node.hasPost) scene.Registry().emplace<PostProcessComponent>(entity, node.post);
+    const std::string name = UniqueIgnoring(scene, node.name, ignore);
+    Entity entity = scene.CreateEntity(name);
+    SceneSerializer::ReadComponents(scene, entity, node.components, &node.owners);
+    scene.Registry().get<NameComponent>(entity).name = name;
     SetParent(scene, entity, parent);
     for (const ActorClipNode& child : node.children) PasteNode(scene, child, entity, ignore);
     return entity;
@@ -79,16 +65,18 @@ bool ActorClipboard::Copy(const Scene& scene, const std::vector<Entity>& roots) 
 }
 
 bool ActorClipboard::Cut(const Scene& scene, const std::vector<Entity>& roots) {
-    if (!Copy(scene, roots)) return false;
+    // Moving a partial subtree would destroy any omitted singleton on paste.
+    // Only cut roots whose complete subtree can be copied.
+    auto movable = SelectionRoots(scene, roots);
+    std::erase_if(movable, [&](Entity root) {
+        if (OnePerSceneComponentOf(scene, root)) return true;
+        for (Entity child : DescendantsOf(scene, root))
+            if (OnePerSceneComponentOf(scene, child)) return true;
+        return false;
+    });
+    if (!Copy(scene, movable)) return false;
     m_cut = true;
-    m_cutSources = SelectionRoots(scene, roots);
-    std::vector<Entity> kept;
-    for (Entity entity : m_cutSources) {
-        if (scene.IsValid(entity) && !scene.Registry().all_of<EnvironmentComponent>(entity)) {
-            kept.push_back(entity);
-        }
-    }
-    m_cutSources = std::move(kept);
+    m_cutSources = std::move(movable);
     return true;
 }
 

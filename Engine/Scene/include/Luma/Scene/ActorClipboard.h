@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "Luma/Scene/Components.h"
+#include "Luma/Serialization/SerialValue.h"
 #include "Luma/Scene/Scene.h"
 
 namespace Luma {
@@ -11,15 +11,8 @@ namespace Luma {
 // inside components are copied by value; there are no entity pointers.
 struct ActorClipNode {
     std::string name;
-    TransformComponent transform{};
-    bool hasMesh = false;
-    MeshRendererComponent mesh{};
-    bool hasLight = false;
-    LightComponent light{};
-    bool hasCamera = false;
-    CameraComponent camera{};
-    bool hasPost = false;
-    PostProcessComponent post{};
+    SerialValue components;
+    SerialValue owners;
     std::vector<ActorClipNode> children;
 };
 

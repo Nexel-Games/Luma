@@ -13,6 +13,6 @@ target_include_directories(LumaPanelInspector
         ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 target_link_libraries(LumaPanelInspector
-    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::Material Luma::Asset)
+    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::Material Luma::Asset Luma::EditorFramework)
 
 set_target_properties(LumaPanelInspector PROPERTIES FOLDER "Editor/Panels")
