@@ -21,5 +21,5 @@ Rendered to 40 px PNGs in Content/Editor/MaterialEditor/Icons (Luma name <- Godo
 
 Exception: Apply/Sphere/Cube/Plane/Cylinder/Mesh.png (the preview primitives) are the full-colour
 icon_MatEd_*_40x icons from ThirdParty/icons (UE4 editor pack), not Godot icons.
-- Details.png <- Edit.svg
+- Details.png <- Edit.svg (rotated 25 degrees clockwise)
 - Stats.png <- Performance.svg

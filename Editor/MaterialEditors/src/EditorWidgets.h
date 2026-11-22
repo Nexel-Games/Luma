@@ -101,16 +101,18 @@ inline Slate::Rect PanelTab(Slate::Context& ui, std::string_view id, const Slate
     // The tab: raised fill, orange outline all round, icon + name.
     constexpr f32 kIcon = 16.0f;
     const f32 textW = ui.uiFont().Measure(label).x;
-    const f32 tabW = std::min(textW + (icon ? kIcon + 8.0f : 0.0f) + 44.0f, area.w - 8.0f);
+    constexpr f32 kPadX = 14.0f, kGap = 6.0f;  // text sits right beside the icon
+    const f32 tabW = std::min(kPadX + (icon ? kIcon + kGap : 0.0f) + textW + kPadX + 4.0f, area.w - 8.0f);
     const Slate::Rect tab{well.x + 4.0f, well.y + 4.0f, tabW, well.h - 7.0f};
     ui.PanelRounded(tab, t.surface3, 4.0f);
     ui.drawList().AddRectOutlineRounded(tab, t.accent, 1.5f, 4.0f);
-    f32 x = tab.x + 14.0f;
+    f32 x = tab.x + kPadX;
     if (icon) {
         ui.Image(icon, {x, tab.y + (tab.h - kIcon) * 0.5f, kIcon, kIcon});
-        x += kIcon + 8.0f;
+        x += kIcon + kGap;
     }
-    ui.LabelIn({x, tab.y, tab.Right() - x - 8.0f, tab.h}, label, t.text);
+    // Drawn directly (LabelIn pads and clips), right at the icon's edge.
+    ui.drawList().AddText(ui.uiFont(), {x, tab.y + (tab.h - ui.uiFont().LineHeight()) * 0.5f}, label, t.text);
     ui.Panel({well.x, well.Bottom() - 1.0f, well.w, 1.0f}, kDividerColor);
     return well;
 }
