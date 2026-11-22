@@ -1,6 +1,8 @@
 #include "Luma/AssetImport/Factories/FactoryCommon.h"
 
 #include "Luma/Asset/AssetId.h"
+#include "Luma/Asset/AssetTypeRegistry.h"
+#include "Luma/Core/Log.h"
 #include "Luma/AssetImport/Factories/MaterialFactory.h"
 #include "Luma/AssetImport/Factories/MeshFactory.h"
 #include "Luma/AssetImport/Factories/SoundFactory.h"
@@ -213,18 +215,61 @@ FactoryResult CreateAsset(const AssetRequest& request, const FactoryContext& con
         result.file = request.destFile;
         return result;
     }
-    switch (request.type) {
-        case AssetType::Mesh:
-            return CreateMeshAsset(request, context);
-        case AssetType::Material:
-            return CreateMaterialAsset(request, context);
-        case AssetType::Texture:
-            return CreateTextureAsset(request, context);
-        case AssetType::Sound:
-            return CreateSoundAsset(request, context);
-        default:
-            return Failed("This asset type cannot be imported");
+    std::string id = request.typeId;
+    if (id.empty()) {
+        if (auto desc = AssetTypes().FindBuiltin(request.type)) id = desc->id;
     }
+    const AssetFactory factory = AssetFactories().Find(id);
+    if (!factory) return Failed("This asset type cannot be imported");
+    return factory(request, context);
+}
+
+RegistrationToken AssetFactoryRegistry::Register(std::string typeId, AssetFactory factory, std::string owner,
+                                                 std::string* error) {
+    auto reject = [&](std::string reason) {
+        if (error) *error = reason;
+        LUMA_LOG_ERROR("Import", "{}", reason);
+        return RegistrationToken{};
+    };
+    if (typeId.empty() || owner.empty() || !factory)
+        return reject("An asset factory requires a type id, an owner and a factory function");
+    std::lock_guard lock(m_entries->mutex);
+    for (const auto& entry : m_entries->items)
+        if (entry.id == typeId) return reject("Duplicate asset factory for type '" + typeId + "'");
+    m_entries->items.push_back({typeId, std::move(owner), std::move(factory)});
+    return RegistrationToken(m_entries, [entries = m_entries.get(), typeId] {
+        std::lock_guard guard(entries->mutex);
+        std::erase_if(entries->items, [&](const Entry& entry) { return entry.id == typeId; });
+    });
+}
+
+AssetFactory AssetFactoryRegistry::Find(std::string_view typeId) const {
+    std::lock_guard lock(m_entries->mutex);
+    for (const auto& entry : m_entries->items)
+        if (entry.id == typeId) return entry.factory;
+    return {};
+}
+
+std::vector<std::string> AssetFactoryRegistry::TypeIds() const {
+    std::lock_guard lock(m_entries->mutex);
+    std::vector<std::string> ids;
+    for (const auto& entry : m_entries->items) ids.push_back(entry.id);
+    return ids;
+}
+
+RegistrationSet RegisterBuiltinAssetFactories(AssetFactoryRegistry& registry) {
+    RegistrationSet tokens;
+    tokens.Add(registry.Register("mesh", &CreateMeshAsset, "Engine"));
+    tokens.Add(registry.Register("material", &CreateMaterialAsset, "Engine"));
+    tokens.Add(registry.Register("texture", &CreateTextureAsset, "Engine"));
+    tokens.Add(registry.Register("sound", &CreateSoundAsset, "Engine"));
+    return tokens;
+}
+
+AssetFactoryRegistry& AssetFactories() {
+    static AssetFactoryRegistry registry;
+    static RegistrationSet builtins = RegisterBuiltinAssetFactories(registry);
+    return registry;
 }
 
 }  // namespace Luma::Import
