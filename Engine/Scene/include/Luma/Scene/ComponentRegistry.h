@@ -51,6 +51,7 @@ struct ComponentDesc {
     std::function<bool(const Scene&, Entity)> has;
     std::function<void(const Scene&, Entity, SerialValue&)> write;  // component -> payload
     std::function<void(Scene&, Entity, const SerialValue&)> read;   // payload -> component
+    std::function<void(Scene&, Entity)> reset;   // restore defaults ("Reset to Defaults")
 
     // Drives the default (reflection-based) Inspector drawer. May be null for a
     // component that only has a custom drawer.
@@ -179,6 +180,11 @@ RegistrationToken ComponentRegistry::Register(ComponentDesc base, std::string* e
             T component{};
             DeserializeObject(in, component);
             scene.Registry().emplace_or_replace<T>(e, std::move(component));
+        };
+    }
+    if (!base.reset) {
+        base.reset = [](Scene& scene, Entity e) {
+            if (scene.Registry().all_of<T>(e)) scene.Registry().replace<T>(e, T{});
         };
     }
     if (!base.reflection) base.reflection = &GetTypeInfo<T>();

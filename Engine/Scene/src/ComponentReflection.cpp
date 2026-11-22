@@ -30,7 +30,10 @@ template <>
 const TypeInfo<MeshRendererComponent>& GetTypeInfo<MeshRendererComponent>() {
     static const TypeInfo<MeshRendererComponent> info = [] {
         TypeBuilder<MeshRendererComponent> b("MeshRenderer");
-        b.Property("primitive", &MeshRendererComponent::primitive).Category("Mesh");
+        b.Property("primitive", &MeshRendererComponent::primitive)
+            .Category("Mesh")
+            .DisplayName("Shape")
+            .Enum({"Cube", "Plane", "Sphere", "Cylinder"});
         b.Property("materials", &MeshRendererComponent::materials)
             .Category("Materials")
             .Tooltip("One material per mesh section (virtual asset paths)");
@@ -43,7 +46,9 @@ template <>
 const TypeInfo<CameraComponent>& GetTypeInfo<CameraComponent>() {
     static const TypeInfo<CameraComponent> info = [] {
         TypeBuilder<CameraComponent> b("Camera");
-        b.Property("projection", &CameraComponent::projection).Category("Camera");
+        b.Property("projection", &CameraComponent::projection)
+            .Category("Camera")
+            .Enum({"Perspective", "Orthographic"});
         b.Property("fovYDegrees", &CameraComponent::fovYDegrees)
             .Category("Camera")
             .Range(10.0, 170.0);
@@ -60,8 +65,10 @@ template <>
 const TypeInfo<LightComponent>& GetTypeInfo<LightComponent>() {
     static const TypeInfo<LightComponent> info = [] {
         TypeBuilder<LightComponent> b("Light");
-        b.Property("type", &LightComponent::type).Category("Light");
-        b.Property("color", &LightComponent::color).Category("Light");
+        b.Property("type", &LightComponent::type)
+            .Category("Light")
+            .Enum({"Directional", "Point", "Spot", "Tube"});
+        b.Property("color", &LightComponent::color).Category("Light").Color();
         b.Property("intensity", &LightComponent::intensity)
             .Category("Light")
             .Range(0.0, 100.0);
@@ -137,9 +144,9 @@ const TypeInfo<EnvironmentComponent>& GetTypeInfo<EnvironmentComponent>() {
         b.Property("skyIntensity", &EnvironmentComponent::skyIntensity).Category("Sky");
         b.Property("saturation", &EnvironmentComponent::saturation).Category("Sky");
         b.Property("exposure", &EnvironmentComponent::exposure).Category("Sky");
-        b.Property("skyTint", &EnvironmentComponent::skyTint).Category("Sky");
+        b.Property("skyTint", &EnvironmentComponent::skyTint).Category("Sky").Color();
         // Ground & Ambient
-        b.Property("groundColor", &EnvironmentComponent::groundColor).Category("Ground");
+        b.Property("groundColor", &EnvironmentComponent::groundColor).Category("Ground").Color();
         b.Property("iblIntensity", &EnvironmentComponent::iblIntensity).Category("Ambient");
         return b.Build();
     }();
@@ -165,9 +172,11 @@ const TypeInfo<PostProcessComponent>& GetTypeInfo<PostProcessComponent>() {
             .Category("Bloom").Range(0.0, 2.0);
         b.Property("bloomPasses", &PostProcessComponent::bloomPasses)
             .Category("Bloom").Range(3, 7);
-        b.Property("bloomTint", &PostProcessComponent::bloomTint).Category("Bloom");
+        b.Property("bloomTint", &PostProcessComponent::bloomTint).Category("Bloom").Color();
         // Tone Mapping
-        b.Property("toneMapper", &PostProcessComponent::toneMapper).Category("ToneMapping");
+        b.Property("toneMapper", &PostProcessComponent::toneMapper)
+            .Category("ToneMapping")
+            .Enum({"ACES", "Reinhard", "AgX", "Linear"});
         b.Property("exposure", &PostProcessComponent::exposure)
             .Category("ToneMapping").Range(0.01, 10.0);
         b.Property("autoExposure", &PostProcessComponent::autoExposure).Category("ToneMapping");
@@ -195,7 +204,9 @@ const TypeInfo<PostProcessComponent>& GetTypeInfo<PostProcessComponent>() {
         b.Property("motionBlurAmount", &PostProcessComponent::motionBlurAmount)
             .Category("MotionBlur").Range(0.0, 2.0);
         // DOF
-        b.Property("dofMethod", &PostProcessComponent::dofMethod).Category("DOF");
+        b.Property("dofMethod", &PostProcessComponent::dofMethod)
+            .Category("DOF")
+            .Enum({"Off", "Gaussian", "Circle Bokeh"});
         b.Property("dofFocalDistance", &PostProcessComponent::dofFocalDistance)
             .Category("DOF").Range(0.1, 10000.0);
         b.Property("dofScale", &PostProcessComponent::dofScale)
@@ -210,7 +221,7 @@ const TypeInfo<PostProcessComponent>& GetTypeInfo<PostProcessComponent>() {
         b.Property("colorGradingGamma", &PostProcessComponent::colorGradingGamma)
             .Category("ColorGrading").Range(0.1, 5.0);
         b.Property("colorGradingTint", &PostProcessComponent::colorGradingTint)
-            .Category("ColorGrading");
+            .Category("ColorGrading").Color();
         // Vignette
         b.Property("vignetteEnabled", &PostProcessComponent::vignetteEnabled)
             .Category("Vignette");

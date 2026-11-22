@@ -64,13 +64,20 @@ struct SerialTraits {
 
 // Editor/serialization metadata attached to a property.
 struct PropertyMeta {
+    std::string displayName;               // UI label; empty = derived from the name
     std::string category;
     std::string tooltip;
     bool hasRange = false;
     f64 rangeMin = 0.0;
     f64 rangeMax = 0.0;
     bool readOnly = false;
+    bool color = false;                    // a Vec3 holding a linear 0..1 RGB color
+    std::vector<std::string> enumNames;    // integer/enum values 0..N-1, shown as a combo
 };
+
+// "degreesPerSecond" -> "Degrees Per Second", "ssaoRadius" -> "Ssao Radius",
+// "castShadows" -> "Cast Shadows". Used when a property has no displayName.
+std::string PrettyPropertyName(std::string_view name);
 
 // Type-erased view of a reflected type: its name and each property's name and
 // metadata, without the typed accessors. Runtime systems that only see a type
@@ -166,6 +173,18 @@ public:
     }
     TypeBuilder& ReadOnly() {
         if (!m_info.m_props.empty()) m_info.m_props.back().meta.readOnly = true;
+        return *this;
+    }
+    TypeBuilder& DisplayName(std::string n) {
+        if (!m_info.m_props.empty()) m_info.m_props.back().meta.displayName = std::move(n);
+        return *this;
+    }
+    TypeBuilder& Color() {
+        if (!m_info.m_props.empty()) m_info.m_props.back().meta.color = true;
+        return *this;
+    }
+    TypeBuilder& Enum(std::vector<std::string> names) {
+        if (!m_info.m_props.empty()) m_info.m_props.back().meta.enumNames = std::move(names);
         return *this;
     }
 

@@ -43,6 +43,7 @@ bool Validate(const ComponentDesc& d, std::string* error) {
     if (!d.has) return Fail(error, who + " registration rejected: missing has callback");
     if (!d.write) return Fail(error, who + " registration rejected: missing write callback");
     if (!d.read) return Fail(error, who + " registration rejected: missing read callback");
+    if (!d.reset) return Fail(error, who + " registration rejected: missing reset callback");
     for (const ComponentVariant& v : d.variants) {
         if (v.displayName.empty() || !v.apply) {
             return Fail(error, who + " registration rejected: every variant needs a display "
@@ -218,6 +219,13 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry) {
         LightVariant("Spot Light", LightType::Spot,
                      "A cone of light with inner and outer angles."),
         LightVariant("Tube Light", LightType::Tube, "A linear emitter of a given length."),
+    };
+    // Reset keeps the light's type (the type is its identity).
+    light.reset = [](Scene& scene, Entity e) {
+        if (!scene.Registry().all_of<LightComponent>(e)) return;
+        LightComponent fresh;
+        fresh.type = scene.Registry().get<LightComponent>(e).type;
+        scene.Registry().replace<LightComponent>(e, fresh);
     };
     set.Add(registry.Register<LightComponent>(std::move(light)));
 

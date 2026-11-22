@@ -43,6 +43,7 @@ ComponentDesc ManualDesc(std::string id, std::vector<Entity>* storage) {
     };
     d.write = [](const Scene&, Entity, SerialValue& out) { out = SerialValue::MakeObject(); };
     d.read = [storage](Scene&, Entity e, const SerialValue&) { storage->push_back(e); };
+    d.reset = [](Scene&, Entity) {};
     return d;
 }
 
@@ -228,4 +229,25 @@ TEST_CASE("Built-in descriptors round-trip their component through write/read",
     REQUIRE(it != variants.end());
     it->apply(scene, v2);
     REQUIRE(scene.Registry().get<Luma::LightComponent>(v2).type == Luma::LightType::Point);
+}
+
+TEST_CASE("Reset restores defaults; Light keeps its type", "[scene][components]") {
+    Scene scene;
+    Entity e = scene.CreateEntity("Lamp");
+    const ComponentDesc* light = Luma::Components().Find("Light");
+    light->variants[1].apply(scene, e);  // Point Light
+    auto& lc = scene.Registry().get<Luma::LightComponent>(e);
+    lc.intensity = 42.0f;
+    REQUIRE(light->reset);
+    light->reset(scene, e);
+    const auto& after = scene.Registry().get<Luma::LightComponent>(e);
+    REQUIRE(after.type == Luma::LightType::Point);
+    REQUIRE(after.intensity == Luma::LightComponent{}.intensity);
+
+    const ComponentDesc* cam = Luma::Components().Find("Camera");
+    cam->add(scene, e);
+    scene.Registry().get<Luma::CameraComponent>(e).fovYDegrees = 12.0f;
+    cam->reset(scene, e);
+    REQUIRE(scene.Registry().get<Luma::CameraComponent>(e).fovYDegrees ==
+            Luma::CameraComponent{}.fovYDegrees);
 }
