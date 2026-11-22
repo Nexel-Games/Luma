@@ -41,10 +41,17 @@ public:
     u32 Load(Renderer& renderer, const std::filesystem::path& directory, Slate::Color top, Slate::Color bottom);
     Slate::Color Theme() const { return m_theme; }
     TextureHandle Get(EditorIcon icon) const { return m_textures[static_cast<usize>(icon)]; }
+    // Width / height of the icon's image (1 when missing).
+    f32 Aspect(EditorIcon icon) const { return m_aspects[static_cast<usize>(icon)]; }
 
 private:
     std::array<TextureHandle, static_cast<usize>(EditorIcon::Count)> m_textures{};
     Slate::Color m_theme = Slate::Color::RGB(255, 255, 255);
+    std::array<f32, static_cast<usize>(EditorIcon::Count)> m_aspects = [] {
+        std::array<f32, static_cast<usize>(EditorIcon::Count)> a{};
+        a.fill(1.0f);
+        return a;
+    }();
 };
 
 }  // namespace Luma::MaterialEditors

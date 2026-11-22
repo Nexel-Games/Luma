@@ -81,6 +81,7 @@ u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directo
             pixels[p + 2] = theme.b;
         }
         m_textures[i] = renderer.CreateTexture(w, h, pixels.data());
+        m_aspects[i] = static_cast<f32>(w) / static_cast<f32>(h);
         if (m_textures[i] != 0) ++loaded;
     }
     if (loaded < m_textures.size()) {

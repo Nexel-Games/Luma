@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "Luma/Asset/AssetPath.h"
+#include "Luma/Core/Events.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/MaterialEditors/MaterialGraphEditor.h"
@@ -171,6 +172,57 @@ int main(int argc, char** argv) {
     // Select the Tint node so Details shows node properties.
     for (const auto& n : graphEditor.Model().Material().graph.Nodes())
         if (n.type == "VectorParameter") graphEditor.Controller().SelectOnly(n.id);
+
+    // --interactive: a live window until it is closed. F1 = Material Editor,
+    // F2 = Material Instance Editor.
+    bool interactive = false;
+    for (int i = 1; i < argc; ++i) interactive |= std::string(argv[i]) == "--interactive";
+    if (interactive) {
+        bool running = true;
+        int page = 0;  // 0 graph editor, 1 instance editor
+        ui.SetClipboardHandlers([&window] { return window->GetClipboardText(); },
+                                [&window](const std::string& text) { window->SetClipboardText(text); });
+        window->SetEventCallback([&](Event& e) {
+            EventDispatcher d(e);
+            d.Dispatch<WindowCloseEvent>([&](WindowCloseEvent&) { running = false; return true; });
+            d.Dispatch<MouseMovedEvent>([&](MouseMovedEvent& m) { ui.OnMouseMove(m.X(), m.Y()); return false; });
+            d.Dispatch<MouseButtonPressedEvent>([&](MouseButtonPressedEvent& m) { ui.OnMouseButton(m.Button(), true); return false; });
+            d.Dispatch<MouseButtonReleasedEvent>([&](MouseButtonReleasedEvent& m) { ui.OnMouseButton(m.Button(), false); return false; });
+            d.Dispatch<MouseScrolledEvent>([&](MouseScrolledEvent& m) { ui.OnScroll(m.OffsetY()); return false; });
+            d.Dispatch<KeyTypedEvent>([&](KeyTypedEvent& k) { ui.OnText(k.Codepoint()); return false; });
+            d.Dispatch<KeyPressedEvent>([&](KeyPressedEvent& k) {
+                if (k.Keycode() == 290) page = 0;  // F1
+                if (k.Keycode() == 291) page = 1;  // F2
+                ui.OnKey(k.Keycode(), true);
+                return false;
+            });
+            d.Dispatch<KeyReleasedEvent>([&](KeyReleasedEvent& k) { ui.OnKey(k.Keycode(), false); return false; });
+        });
+        while (running && !window->ShouldClose()) {
+            window->PollEvents();
+            if (!renderer->BeginFrame()) continue;
+            const f32 w = static_cast<f32>(window->Width()), h = static_cast<f32>(window->Height());
+            ui.BeginFrame(w, h, 1.0f / 60.0f);
+            if (page == 0) graphEditor.Draw(ui, {0, 0, w, h});
+            else instanceEditor.Draw(ui, {0, 0, w, h});
+            ui.LabelIn({w - 330.0f, 8.0f, 320.0f, 18.0f}, "F1 Material Editor   F2 Instance Editor",
+                       ui.theme().textDim, Slate::Align::Right);
+            renderer->DrawUI(ui.EndFrame());
+            window->SetCursor(ui.RequestedCursor());
+            if (auto restore = ui.TakePointerRestore()) {
+                window->SetPointerLocked(false);
+                window->SetCursorPosition(restore->x, restore->y);
+                ui.WarpMouse(restore->x, restore->y);
+            } else {
+                window->SetPointerLocked(ui.PointerLockRequested());
+            }
+            renderer->EndFrame();
+        }
+        renderer->WaitIdle();
+        std::error_code ec;
+        fs::remove_all(root, ec);
+        return 0;
+    }
 
     const int kFrames = 20;
     for (int pass = 0; pass < 2; ++pass) {

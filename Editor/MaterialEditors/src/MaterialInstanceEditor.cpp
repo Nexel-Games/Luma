@@ -201,7 +201,8 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
 void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
     const Slate::Theme& t = ui.theme();
     ui.Panel(area, t.panelBg);
-    const Rect header = PanelTab(ui, "details.tab", area, "Details", IconTexture(m_services, EditorIcon::Details));
+    const Rect header = PanelTab(ui, "details.tab", area, "Details", IconTexture(m_services, EditorIcon::Details),
+                                 IconAspect(m_services, EditorIcon::Details));
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     const f32 x = view.x + 4.0f, w = view.w - 14.0f;

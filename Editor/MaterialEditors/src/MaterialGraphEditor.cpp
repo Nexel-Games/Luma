@@ -406,7 +406,8 @@ void MaterialGraphEditor::DrawNodeProperties(Context& ui, MaterialGraph::NodeId 
 void MaterialGraphEditor::DrawDetails(Context& ui, const Rect& area) {
     const Slate::Theme& t = ui.theme();
     ui.Panel(area, t.panelBg);
-    const Rect header = PanelTab(ui, "details.tab", area, "Details", IconTexture(m_services, EditorIcon::Details));
+    const Rect header = PanelTab(ui, "details.tab", area, "Details", IconTexture(m_services, EditorIcon::Details),
+                                 IconAspect(m_services, EditorIcon::Details));
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     const f32 x = view.x + 4.0f, w = view.w - 14.0f;
@@ -435,7 +436,8 @@ void MaterialGraphEditor::DrawDetails(Context& ui, const Rect& area) {
 void MaterialGraphEditor::DrawStats(Context& ui, const Rect& area) {
     const Slate::Theme& t = ui.theme();
     ui.Panel(area, t.panelBg);
-    const Rect header = PanelTab(ui, "stats.tab", area, "Stats", IconTexture(m_services, EditorIcon::Stats));
+    const Rect header = PanelTab(ui, "stats.tab", area, "Stats", IconTexture(m_services, EditorIcon::Stats),
+                                 IconAspect(m_services, EditorIcon::Stats));
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     f32 y = view.y + 4.0f - m_statsScroll;
