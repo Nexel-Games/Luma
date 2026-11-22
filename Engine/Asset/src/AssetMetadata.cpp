@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Asset/AssetMetadata.h"
 
 #include <fstream>
@@ -171,13 +172,8 @@ std::optional<AssetMetadata> Read(const std::filesystem::path& metaPath) {
     if (auto v = obj.Find("type"); v && v->IsString()) {
         std::string typeStr = v->AsString();
         // Convert string to AssetType (simplified - could be enhanced)
-        if (typeStr == "Mesh") meta.type = AssetType::Mesh;
-        else if (typeStr == "Texture") meta.type = AssetType::Texture;
-        else if (typeStr == "Material") meta.type = AssetType::Material;
-        else if (typeStr == "MaterialInstance") meta.type = AssetType::MaterialInstance;
-        else if (typeStr == "Shader") meta.type = AssetType::Shader;
-        else if (typeStr == "Audio") meta.type = AssetType::Sound;
-        else meta.type = AssetType::Unknown;
+        meta.type = AssetTypeFromName(typeStr);
+        if (meta.type == AssetType::Unknown) meta.typeId = typeStr;
     }
     
     // Read paths
@@ -215,7 +211,8 @@ bool Write(const std::filesystem::path& metaPath, const AssetMetadata& meta) {
     SerialValue obj = SerialValue::MakeObject();
     
     obj["guid"] = ToString(meta.guid);
-    obj["type"] = AssetTypeName(meta.type);
+    obj["type"] = meta.type == AssetType::Unknown && !meta.typeId.empty()
+        ? meta.typeId : AssetTypeName(meta.type);
     obj["sourcePath"] = meta.sourcePath.string();
     obj["nativePath"] = meta.nativePath.string();
     obj["importerVersion"] = meta.importerVersion;
@@ -244,28 +241,8 @@ std::filesystem::path MetaPathForSource(const std::filesystem::path& sourcePath)
 }
 
 std::filesystem::path NativePathForSource(const std::filesystem::path& sourcePath, AssetType type) {
-    std::string extension;
-    switch (type) {
-        case AssetType::Mesh:
-            extension = ".lmesh";
-            break;
-        case AssetType::Texture:
-            extension = ".ltex";
-            break;
-        case AssetType::Material:
-            extension = ".lmat";
-            break;
-        case AssetType::Shader:
-            extension = ".lshader";
-            break;
-        case AssetType::Sound:
-            extension = ".laudio";
-            break;
-        default:
-            extension = ".lasset";
-            break;
-    }
-    
+    const auto desc = AssetTypes().FindBuiltin(type);
+    const std::string extension = desc ? desc->nativeExtension : ".lasset";
     // Replace source extension with native extension
     auto stem = sourcePath.stem();
     auto parent = sourcePath.parent_path();

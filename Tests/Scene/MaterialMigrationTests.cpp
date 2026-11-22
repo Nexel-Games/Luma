@@ -169,7 +169,7 @@ TEST_CASE("Scene round trip keeps material slots", "[migration]") {
     const auto doc = Luma::ParseJson(json);
     REQUIRE(doc.has_value());
     CHECK(doc->Find("version")->AsInt() == SceneSerializer::kVersion);
-    CHECK(SceneSerializer::kVersion == 2);
+    CHECK(SceneSerializer::kVersion == 3);
     Scene loaded;
     std::vector<std::pair<Entity, LegacyMaterialValues>> legacy;
     REQUIRE(SceneSerializer::LoadFromString(loaded, json, nullptr, &legacy));

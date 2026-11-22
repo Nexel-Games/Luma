@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Luma/Core/Types.h"
+#include "Luma/Serialization/SerialValue.h"
 
 // The Luma project system. A project is a folder containing a `<Name>.luma`
 // descriptor plus standard subdirectories. Content lives directly at the
@@ -14,9 +15,19 @@
 // `Assets/`, scratch/cache data (thumbnails, logs, derived files) in
 // `Intermediate/`, plus `Config/` and `Source/`. There is no `Content/` or
 // `Saved/` folder inside a project.
-// The `.luma` file is an INI-style descriptor (parsed with Luma::Config);
-// JSON-style descriptors (projectName/defaultScene) are also accepted on
-// load.
+//
+// The `.luma` file is a JSON document (Luma::Serialization), file version 2:
+//
+//   { "fileVersion": 2, "name": "MyGame", "engineVersion": "0.1.0",
+//     "template": "Empty", "startupScene": "Assets/Scenes/Main.lscene",
+//     ...any other sections, e.g. "plugins": {...} }
+//
+// Keys the engine doesn't know are kept (in their order) and written back on
+// Save, so tools and plugins can store their own sections. Older descriptors
+// load and are converted in memory (written as version 2 on the next Save):
+// the INI form ([Project] name / engine_version / template / startup_scene)
+// and the version-1 JSON form (projectName / engineVersion / defaultScene).
+// Files with a newer fileVersion are rejected.
 
 namespace Luma {
 
@@ -43,6 +54,7 @@ class Project {
 public:
     static constexpr const char* kExtension = ".luma";
     static constexpr const char* kSceneExtension = ".lscene";
+    static constexpr int kFileVersion = 2;
 
     const std::string& Name() const { return m_name; }
     GameTemplate Template() const { return m_template; }
@@ -88,12 +100,33 @@ public:
     static std::optional<Project> Load(const std::filesystem::path& lumaFile,
                                        std::string* outError = nullptr);
 
+    // --- Document sections --------------------------------------------------
+    // A top-level section of the descriptor (null when absent), e.g. "plugins".
+    const SerialValue* Find(std::string_view key) const;
+    // Sets a top-level section (written by the next Save). The engine's own
+    // keys (fileVersion, name, engineVersion, template, startupScene) can't be
+    // set this way; returns false with *error then.
+    bool Set(std::string_view key, SerialValue value, std::string* error = nullptr);
+    void SetStartupScene(std::string path);
+    // The whole descriptor as it will be saved.
+    SerialValue Document() const;
+
+    // True when the descriptor file can be written (exists and not read-only).
+    bool IsWritable() const;
+    // Writes the descriptor (fileVersion 2) atomically (temp file + rename).
+    bool Save(std::string* outError = nullptr) const;
+
+    static bool IsReservedKey(std::string_view key);
+
 private:
     std::string m_name;
     GameTemplate m_template = GameTemplate::Empty;
     std::string m_engineVersion;
     std::string m_startupScene;  // e.g. Assets/Scenes/Main.lscene or Main.lscene
     std::filesystem::path m_projectFile;
+    // The loaded document (every key, in order); the reserved keys are
+    // refreshed from the fields above when saving.
+    SerialValue m_document = SerialValue::MakeObject();
 };
 
 // Finds `.luma` files one level below `searchRoot` (i.e. each direct child

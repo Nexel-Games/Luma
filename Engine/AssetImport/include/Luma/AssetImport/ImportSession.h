@@ -67,7 +67,7 @@ private:
     FactoryContext Context() const;
     void Record(ImportSummary& summary, const AssetRequest& request, const FactoryResult& result) const;
 
-    TranslatorRegistry m_registry;
+    TranslatorRegistry& m_registry;
     ImportScene m_scene;
     PipelineStack m_settings;
     ImportPlan m_plan;

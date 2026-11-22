@@ -1,111 +1,83 @@
 #pragma once
 
+#include "Luma/Scene/SceneSystems.h"
+
+#include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "PanelContext.h"
+#include "Luma/Core/Registration.h"
+#include "Luma/Editor/Panels/ProjectSettingsStore.h"
+#include "Luma/Editor/SettingsPageRegistry.h"
+#include "Luma/Project/Project.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Types.h"
 
-// Project Settings window — UE5-style dockable panel with a left sidebar
-// navigation tree and a content area on the right. Categories include:
-//   - Project (General, Maps & Modes)
-//   - Rendering (General, Shadows, Post Processing, Quality)
-//   - Editor (General)
-//   - Platforms (Windows)
-//
-// Each category has sub-categories that show different setting controls.
-// Settings are stored in a simple struct and persisted to project.ini.
+// Project Settings window (Edit → Project Settings), Unreal-style: a modal
+// window with the registered pages grouped by category in a left column and the
+// selected page on the right. Every page comes from the SettingsPageRegistry;
+// edits mark the page dirty and are written to the project's Config/ files by
+// ProjectSettingsStore (Save, or when the window closes).
 
 namespace Luma::Editor::Panels {
 
-// Rendering settings that control the deferred renderer
-struct RenderingSettings {
-    // General
-    bool msaaEnabled = true;
-    int msaaSamples = 4;         // 1, 2, 4, 8
-    bool fxaaEnabled = true;
-    bool bloomEnabled = true;
-    float bloomIntensity = 0.3f;
-    int bloomPasses = 5;         // 3-7
-
-    // Tone Mapping
-    int toneMappingMode = 0;     // 0=ACES, 1=Reinhard, 2=Linear
-    float exposure = 1.0f;
-    bool autoExposure = false;
-
-    // Shadows
-    bool shadowsEnabled = true;
-    int shadowMapSize = 2048;    // 512, 1024, 2048, 4096
-    int cascadeCount = 4;        // 1-4
-    float shadowDistance = 80.0f;
-    float shadowSoftness = 1.6f;
-
-    // Post Processing
-    bool ssaoEnabled = false;
-    float ssaoIntensity = 1.0f;
-    bool screenSpaceReflections = false;
-    bool motionBlur = false;
-    float motionBlurAmount = 0.5f;
-};
-
-// Project settings
-struct ProjectSettingsData {
-    std::string projectName = "My Project";
-    std::string projectVersion = "1.0.0";
-    std::string startupScene = "Scenes/Main.lscene";
-    RenderingSettings rendering;
-};
-
 class ProjectSettingsPanel {
 public:
-    ProjectSettingsPanel() = default;
+    explicit ProjectSettingsPanel(const SettingsPageRegistry& pages);
 
-    // Draw the project settings window. Returns true if the window is open.
-    bool Draw(Slate::Context& ui, f32 width, f32 height);
+    // The store the window saves through (owned by the editor; null = no
+    // project, nothing to edit).
+    void SetStore(ProjectSettingsStore* store) { m_store = store; }
 
-    // Open/close the window
-    void Open() { m_isOpen = true; }
-    void Close() { m_isOpen = false; }
+    void Open();
+    // Closes the window, saving dirty pages first.
+    void Close();
     bool IsOpen() const { return m_isOpen; }
 
-    // Access settings
-    ProjectSettingsData& GetSettings() { return m_settings; }
-    const ProjectSettingsData& GetSettings() const { return m_settings; }
+    // Draws the modal window when open.
+    void Draw(Slate::Context& ui, f32 width, f32 height);
 
-    // Save/load settings to project.ini
-    bool SaveSettings(const std::string& path);
-    bool LoadSettings(const std::string& path);
+    std::vector<std::string> Categories() const { return m_pages.Categories(); }
+    const std::string& SelectedPage() const { return m_selected; }
+    void SelectPage(std::string id) { m_selected = std::move(id); }
 
 private:
-    // Sidebar categories
-    struct SidebarItem {
-        std::string label;
-        int id;
-        bool isHeader = false;
-        bool isExpanded = true;
-        std::vector<SidebarItem> children;
-    };
-
-    void BuildSidebar();
+    void EnsureSelection();
     void DrawSidebar(Slate::Context& ui, const Slate::Rect& rect);
-    void DrawContent(Slate::Context& ui, const Slate::Rect& rect);
+    void SaveNow();
 
-    // Content renderers for each category
-    void DrawRenderingGeneral(Slate::Context& ui, const Slate::Rect& rect);
-    void DrawRenderingShadows(Slate::Context& ui, const Slate::Rect& rect);
-    void DrawRenderingPostProcess(Slate::Context& ui, const Slate::Rect& rect);
-    void DrawRenderingQuality(Slate::Context& ui, const Slate::Rect& rect);
-    void DrawProjectGeneral(Slate::Context& ui, const Slate::Rect& rect);
-    void DrawEditorGeneral(Slate::Context& ui, const Slate::Rect& rect);
-
+    const SettingsPageRegistry& m_pages;
+    ProjectSettingsStore* m_store = nullptr;
     bool m_isOpen = false;
-    int m_selectedCategory = 0;
-    float m_sidebarWidth = 220.0f;
-    float m_scrollY = 0.0f;
-    ProjectSettingsData m_settings;
-    std::vector<SidebarItem> m_sidebar;
+    std::string m_selected;
+    std::string m_status;       // last save result shown in the footer
+    bool m_statusError = false;
+    f32 m_scroll = 0.0f;
 };
+
+// --- Project > Maps & Modes (built-in page) -------------------------------------
+
+inline constexpr std::string_view kMapsAndModesPageId = "Project.MapsAndModes";
+
+struct MapsAndModesSettings {
+    // Project-relative scene the editor opens (empty = the descriptor's startup
+    // scene, which is also what the game starts with).
+    std::string editorStartupScene;
+};
+
+// The scene the editor opens for `project`: the Maps & Modes override when it
+// names an existing scene file, else the project's startup scene.
+std::filesystem::path EditorStartupScenePath(const Project& project,
+                                             const MapsAndModesSettings& settings);
+
+// Registers the Maps & Modes page (Config/Editor.json). `listScenes` returns the
+// project-relative scene paths offered in the picker.
+RegistrationToken RegisterMapsAndModesPage(SettingsPageRegistry& pages,
+                                           MapsAndModesSettings& settings,
+                                           std::function<std::vector<std::string>()> listScenes);
+
+RegistrationToken RegisterSimulationPage(SettingsPageRegistry& pages, SimulationSettings& settings);
 
 }  // namespace Luma::Editor::Panels

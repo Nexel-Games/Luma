@@ -207,3 +207,43 @@ TEST_CASE("PSD imports as PNG and maxSize downscales only when needed", "[import
     REQUIRE(scaled->width == 256);
     REQUIRE(scaled->height == 256);
 }
+
+TEST_CASE("Asset factories register by asset type id", "[import][factory][registry]") {
+    // Built-ins register through the same API plugins use.
+    for (const char* id : {"mesh", "material", "texture", "sound"}) CHECK(AssetFactories().Find(id) != nullptr);
+
+    bool called = false;
+    std::string error;
+    RegistrationToken token = AssetFactories().Register(
+        "plugin.foo",
+        [&called](const AssetRequest& request, const FactoryContext&) {
+            called = true;
+            FactoryResult result;
+            result.ok = true;
+            result.file = request.destFile;
+            return result;
+        },
+        "TestPlugin", &error);
+    REQUIRE(token.IsActive());
+    CHECK_FALSE(AssetFactories().Register("plugin.foo", [](const AssetRequest&, const FactoryContext&) {
+                    return FactoryResult{};
+                }, "Other", &error).IsActive());
+    CHECK(error.find("plugin.foo") != std::string::npos);
+    CHECK_FALSE(AssetFactories().Register("", [](const AssetRequest&, const FactoryContext&) { return FactoryResult{}; },
+                                          "Other", &error).IsActive());
+
+    ImportScene scene;
+    PipelineStack settings;
+    AssetPathResolver paths;
+    FactoryContext context{scene, settings, nullptr, paths, {}};
+    AssetRequest request;
+    request.typeId = "plugin.foo";
+    request.destFile = "Foo.lfoo";
+    const FactoryResult result = CreateAsset(request, context);
+    CHECK(called);
+    CHECK(result.ok);
+
+    token.Reset();
+    CHECK(AssetFactories().Find("plugin.foo") == nullptr);
+    CHECK_FALSE(CreateAsset(request, context).ok);
+}

@@ -7,6 +7,7 @@
 #include <fstream>
 
 #include "Luma/Asset/AssetRegistry.h"
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "PanelContext.h"
 #include "Luma/Slate/Context.h"
@@ -298,3 +299,31 @@ TEST_CASE("Right-click menu GET > Import invokes onImportAssets",
 }
 
 
+
+TEST_CASE("Plugin assets appear in browser filters for already indexed files", "[contentbrowser][asset]") {
+    TempDir dir;
+    dir.Touch("one.curve");
+    dir.Touch("two.png");
+    AssetRegistry index;
+    index.AddRoot(dir.Path());
+    index.Scan();
+    ContentBrowserPanel browser;
+    browser.SetRegistry(&index);
+    AssetTypeDesc curve{"plugin.curve", "Curve", "Image", "Plugin", {"CURVE"}};
+    auto token = AssetTypes().Register(curve);
+    REQUIRE(token);
+    REQUIRE(AssetTypes().FindByExtension(".Curve")->id == curve.id);
+    std::string error;
+    CHECK_FALSE(AssetTypes().Register(curve, &error));
+    CHECK_FALSE(error.empty());
+    curve.id = "other.curve";
+    CHECK_FALSE(AssetTypes().Register(curve, &error));
+    auto menu = browser.BuildFilterMenu();
+    auto row = std::find_if(menu.begin(), menu.end(), [](const auto& entry) { return entry.label == "Curve"; });
+    REQUIRE(row != menu.end());
+    row->action();
+    REQUIRE(browser.CurrentEntries().size() == 1);
+    CHECK(browser.CurrentEntries().front()->assetName == "one");
+    token.Reset();
+    CHECK_FALSE(AssetTypes().FindByExtension("curve"));
+}

@@ -13,13 +13,18 @@
 #include "Luma/Asset/AssetPath.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Asset/LumaMesh.h"
+#include "Luma/Core/Registration.h"
 #include "Luma/Editor/Panels/ImportDialog.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
+#include "Luma/Editor/PanelRegistry.h"
+#include "Luma/Editor/SettingsPageRegistry.h"
 #include "Luma/Editor/Panels/BackgroundTasks.h"
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/MaterialEditor.h"
+#include "Luma/Editor/Panels/ProjectSettings.h"
+#include "Luma/Editor/Panels/ProjectSettingsStore.h"
 #include "Luma/Editor/Panels/Viewport.h"
 #include "Luma/Editor/Panels/Preferences.h"
 #include "Luma/Editor/Panels/MeshPlacement.h"
@@ -32,6 +37,7 @@
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Math/Math.h"
 #include "Luma/Project/Project.h"
+#include "Luma/RHI/DebugDraw.h"
 #include "Luma/RHI/Renderer.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Scene/Scene.h"
@@ -63,6 +69,7 @@ public:
 
     // Builds the scene view (camera + grid + entity instances + gizmo overlay).
     SceneView BuildSceneView();
+    void TickSimulation(f64 seconds) { m_runner.Tick(seconds); }
 
     void Draw(Slate::Context& ui, f32 width, f32 height);
 
@@ -90,11 +97,9 @@ public:
         TextureHandle save = 0, error = 0, warning = 0;
         Editor::Panels::ViewportIcons viewport;
     };
-    void SetEditorIcons(const IconSet& icons) {
-        m_icons = icons;
-        m_viewportPanel.SetIcons(icons.viewport);
-        m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
-    }
+    // Also registers the tab textures as named editor images ("TabOutliner",
+    // "TabDetails", "TabViewport", "TabContent", "TabOutputLog").
+    void SetEditorIcons(const IconSet& icons);
 
     // Renders `materialPath` (virtual path) in the preview scene to a PNG
     // (the --preview-capture flag). False without a preview renderer.
@@ -161,31 +166,6 @@ public:
         m_outlinerPanel.SetSearchGlassIcon(icon);
     }
 
-    // Forwards the Create-menu category icons (Geometry / Lights /
-    // Environment — Unreal-style silhouettes, drawn gray in the menu).
-    // Zero handles fall back to the procedural glyphs.
-    void SetCategoryIcons(TextureHandle geometry, TextureHandle light,
-                          TextureHandle environment) {
-        m_outlinerPanel.SetCategoryIcons(geometry, light, environment);
-    }
-
-    // Forwards the primitive-actor icons for the Geometry submenu rows
-    // (Unreal primitive thumbnails, drawn gray). Zero handles fall back to
-    // the procedural glyphs.
-    void SetPrimitiveIcons(TextureHandle cube, TextureHandle plane,
-                           TextureHandle sphere, TextureHandle cylinder) {
-        m_outlinerPanel.SetPrimitiveIcons(cube, plane, sphere, cylinder);
-    }
-
-    // Forwards the outliner actor icons (light types + generic mesh) shown
-    // beside entity names in the World Outliner list. Zero handles fall back
-    // to no icon.
-    void SetOutlinerActorIcons(TextureHandle dirLight, TextureHandle pointLight,
-                               TextureHandle spotLight, TextureHandle mesh) {
-        m_outlinerPanel.SetOutlinerActorIcons(dirLight, pointLight, spotLight,
-                                              mesh);
-    }
-
     // Forwards Content Browser chrome icons to the panel. Missing textures
     // (any zero handle) fall back to procedural glyphs.
     void SetContentBrowserIcons(TextureHandle sortUp, TextureHandle sortDown,
@@ -201,10 +181,11 @@ public:
     }
 
 private:
-    // Spawns a new game object from the World Outliner's Create menu
-    // (Empty / primitives / Light > directional, point, spot, tube / Environment).
-    void CreateActor(Editor::Panels::CreateActorKind kind);
-    void CreateEnvironment();
+    // Spawns a game object from the EntityTemplates() entry `templateId` (the
+    // World Outliner's Place Actors menu) and selects it.
+    void CreateActor(const std::string& templateId);
+    // Warns once per scene load about components kept for missing plugins.
+    void ReportMissingComponentPlugins();
     bool LoadScene();
     void SaveScene();
     // Writes every unsaved material asset; false if any failed.
@@ -278,19 +259,34 @@ private:
     void CreateSceneAsset(const std::filesystem::path& folder);
     void DeleteAssetPath(const std::filesystem::path& path);
     void RevealInExplorer(const std::filesystem::path& path);
-    // Main menu bar menus (File / Edit / Assets / Window).
-    std::vector<Slate::MenuEntry> BuildMainMenu(int index);
-    void BuildDock();
+    // Registers the editor's built-in menus, menu entries and dock panels
+    // (through the same registries plugins use).
+    void RegisterEditorUi();
+    // Docks a Material Editor tab for an already-created editor.
+    void DockMaterialEditor(Editor::Panels::MaterialEditorPanel* editor);
+    // Open/closed panels persisted per project (Saved/Config/EditorLayout.json).
+    std::filesystem::path LayoutStatePath() const;
+    void LoadPanelLayout();
+    void SavePanelLayout();
 
     // ---- Shared state the panels read/write via PanelContext ----------------
     std::optional<Project> m_project;
     std::string m_title;
 
-    Scene m_scene;
+    Scene m_authoringScene;
+    SceneRunner m_runner;
+    SimulationSettings m_simulation;
+    Scene& ActiveScene() { return m_runner.PlayScene() ? *m_runner.PlayScene() : m_authoringScene; }
+    const Scene& ActiveScene() const { return m_runner.PlayScene() ? *m_runner.PlayScene() : m_authoringScene; }
+    void BeginPlay();
+    void StopPlay();
+    Entity m_authoringSelected = kNullEntity;
+    std::vector<Entity> m_authoringSelection;
+    ActorClipboard m_authoringClipboard;
+    int m_authoringNextNumber = 1;
     Entity m_selected = kNullEntity;
     std::vector<Entity> m_selection;
     ActorClipboard m_clipboard;
-    Entity m_environment = kNullEntity;
     int m_nextNumber = 1;
 
     TransformGizmo m_gizmo;
@@ -312,7 +308,20 @@ private:
     f32 m_gizmoScale = 1.0f;
 
     Slate::DockSpace m_dock;
-    bool m_dockBuilt = false;
+    // Hosts the registered panels (Editor::EditorPanels()) in m_dock.
+    std::unique_ptr<Editor::EditorPanelHost> m_panelHost;
+    bool m_layoutBuilt = false;
+    // Everything the editor registered (menus, panels, images, settings pages);
+    // released first when the editor goes away.
+    RegistrationSet m_uiRegistrations;
+
+    // Project Settings: the Maps & Modes page's values, the Config/ store and the
+    // window (Edit -> Project Settings).
+    Editor::Panels::MapsAndModesSettings m_mapsAndModes;
+    std::unique_ptr<Editor::Panels::ProjectSettingsStore> m_settingsStore;
+    Editor::Panels::ProjectSettingsPanel m_projectSettings{Editor::SettingsPages()};
+    // The scene file open in the editor (saved back to the same file).
+    std::filesystem::path m_scenePath;
 
     // Content Browser — wires to the project's Content/ folder so the
     // registry is populated before the panel is drawn each frame.
@@ -336,6 +345,8 @@ private:
     u64 m_importTotal = 0;
     Audio::AudioPreview* m_audioPreview = nullptr;
     Editor::MaterialSceneBridge m_bridge;
+    std::vector<LineVertex> m_overlayLines;  // gizmo + DebugDraw overlay, this frame
+    std::vector<LineVertex> m_debugLines;    // DebugDraw depth-tested lines, this frame
     VFS::FileWatcher m_assetWatcher;
     std::unordered_set<std::string> m_watchedFiles;
     usize m_watchedRegistrySize = 0;

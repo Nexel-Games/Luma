@@ -2,7 +2,13 @@
 
 #include <filesystem>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <string_view>
+#include <vector>
+
+#include "Luma/Core/Registration.h"
 
 #include "Luma/Asset/AssetPath.h"
 #include "Luma/AssetImport/Pipelines/ImportPlan.h"
@@ -33,6 +39,36 @@ struct FactoryResult {
     std::string error;
 };
 
+// Writes one native asset for a request. Factories are registered per asset
+// type id; the built-in mesh / material / texture / sound factories register
+// through the same API plugins use.
+using AssetFactory = std::function<FactoryResult(const AssetRequest&, const FactoryContext&)>;
+
+class AssetFactoryRegistry {
+public:
+    // Rejects an empty id or owner, a missing factory, and duplicate ids.
+    RegistrationToken Register(std::string typeId, AssetFactory factory, std::string owner,
+                               std::string* error = nullptr);
+    // The factory for a type id (empty when none is registered).
+    AssetFactory Find(std::string_view typeId) const;
+    std::vector<std::string> TypeIds() const;
+
+private:
+    struct Entry {
+        std::string id, owner;
+        AssetFactory factory;
+    };
+    struct Entries {
+        mutable std::mutex mutex;
+        std::vector<Entry> items;
+    };
+    std::shared_ptr<Entries> m_entries = std::make_shared<Entries>();
+};
+
+RegistrationSet RegisterBuiltinAssetFactories(AssetFactoryRegistry& registry);
+AssetFactoryRegistry& AssetFactories();
+
+// Dispatches to the registered factory for the request's type.
 FactoryResult CreateAsset(const AssetRequest& request, const FactoryContext& context);
 
 bool ImportCancelled(const FactoryContext& context);

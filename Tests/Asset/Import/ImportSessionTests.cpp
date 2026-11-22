@@ -196,3 +196,23 @@ TEST_CASE("A missing texture is a warning, not a failed import", "[import][sessi
     REQUIRE(paint->Input(Material::MaterialParameter::BaseColor).texture.empty());
     REQUIRE(paint->Input(Material::MaterialParameter::Normal).texture.empty());
 }
+
+TEST_CASE("Translator registration is atomic and releases claimed extensions", "[import][session]") {
+    class Curve final : public ITranslator {
+    public:
+        std::string_view Name() const override { return "Curve"; }
+        std::vector<std::string> Extensions() const override { return {".curve"}; }
+        bool Translate(const std::filesystem::path&, ImportScene&, std::string*) override { return true; }
+    };
+    auto& registry = Translators();
+    auto token = registry.Register(std::make_unique<Curve>(), "Curves");
+    REQUIRE(token);
+    CHECK(registry.Find("one.CURVE"));
+    ImportSession session;
+    CHECK(session.Translate({"one.curve"}, nullptr));
+    std::string error;
+    CHECK_FALSE(registry.Register(std::make_unique<Curve>(), "Another", &error));
+    CHECK_FALSE(error.empty());
+    token.Reset();
+    CHECK_FALSE(registry.Find("one.curve"));
+}

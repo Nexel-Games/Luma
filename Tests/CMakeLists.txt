@@ -13,6 +13,8 @@ add_executable(LumaTests
     Core/LayerStackTests.cpp
     Core/ApplicationTests.cpp
     Core/MemoryTests.cpp
+    Core/VersionTests.cpp
+    Core/RegistrationTests.cpp
     Jobs/JobSystemTests.cpp
     Material/GraphTests.cpp
     Material/ExpressionRegistryTests.cpp
@@ -28,6 +30,7 @@ add_executable(LumaTests
     Material/MaterialMigrationV4Tests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
+    Project/ProjectFileTests.cpp
     Serialization/SerialValueTests.cpp
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
@@ -36,7 +39,11 @@ add_executable(LumaTests
     Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
+    Scene/ComponentRegistryTests.cpp
+    Scene/UnresolvedComponentTests.cpp
+    Scene/EntityTemplateTests.cpp
     Scene/HierarchyTests.cpp
+    Scene/SceneSystemsTests.cpp
     Math/MathTests.cpp
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp
@@ -78,6 +85,10 @@ add_executable(LumaTests
     Editor/MaterialSceneBridgeTests.cpp
     Editor/MaterialEditorTests.cpp
     Editor/InspectorMaterialTests.cpp
+    Editor/InspectorRegistryTests.cpp
+    Editor/OutlinerRegistryTests.cpp
+    Editor/EditorFrameworkTests.cpp
+    Editor/ProjectSettingsTests.cpp
     Editor/StaticMeshSlotTests.cpp
     Editor/MeshPlacementTests.cpp
     Editor/TransformGizmoTests.cpp
@@ -96,12 +107,13 @@ add_executable(LumaTests
     Rendering/RHIAdapterTests.cpp
     Rendering/MeshGeometryTests.cpp
     Rendering/MaterialGpuDescTests.cpp
+    Rendering/DebugDrawTests.cpp
     Rendering/VulkanTextureCacheTests.cpp
     Rendering/VulkanUITextureTests.cpp
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::MaterialCompiler Luma::ShaderCompiler Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Luma::MaterialEditors Luma::GraphEditor Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::MaterialCompiler Luma::ShaderCompiler Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelProjectSettings Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Luma::MaterialEditors Luma::GraphEditor Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 

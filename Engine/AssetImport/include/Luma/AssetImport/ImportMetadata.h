@@ -14,6 +14,7 @@ namespace Luma::Import {
 struct ImportMetadata {
     AssetId guid;
     AssetType type = AssetType::Unknown;
+    std::string typeId;  // stable type id for custom or unavailable plugins
     std::string sourceFile;
     std::string sourceHash;
     i64 sourceMtime = 0;

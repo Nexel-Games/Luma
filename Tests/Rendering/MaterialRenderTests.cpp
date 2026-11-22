@@ -485,3 +485,34 @@ TEST_CASE("A post-process material with weight 0 is skipped", "[vulkan][render][
     CHECK(px[0] > 250);
     CHECK(r.f.ValidationErrors().empty());
 }
+
+TEST_CASE("Depth-tested debug lines hide behind geometry, overlay lines do not", "[vulkan][render][debugdraw]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 70, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const std::vector<SceneInstance> plate{Cube(white, 0.0f, 2.0f)};  // front face at z = 0.05
+    // A horizontal green line through the image centre, at depth z.
+    auto lineAt = [](f32 z) {
+        const Math::Vec3 g{0.0f, 1.0f, 0.0f};
+        return std::vector<LineVertex>{{{-0.5f, 0.0f, z}, g}, {{0.5f, 0.0f, z}, g}};
+    };
+    auto greenish = [](const std::array<u8, 4>& px) { return px[1] > px[0] + 40 && px[1] > px[2] + 40; };
+
+    // Behind the plate: hidden.
+    std::vector<LineVertex> behind = lineAt(-1.0f);
+    r.view.lines = behind.data();
+    r.view.lineVertexCount = static_cast<u32>(behind.size());
+    CHECK_FALSE(greenish(r.RenderScene(plate)));
+    // In front of the plate: drawn.
+    std::vector<LineVertex> front = lineAt(1.0f);
+    r.view.lines = front.data();
+    r.view.lineVertexCount = static_cast<u32>(front.size());
+    CHECK(greenish(r.RenderScene(plate)));
+    // Overlay (no depth test): drawn even behind the plate.
+    r.view.lines = nullptr;
+    r.view.lineVertexCount = 0;
+    r.view.overlayLines = behind.data();
+    r.view.overlayLineVertexCount = static_cast<u32>(behind.size());
+    CHECK(greenish(r.RenderScene(plate)));
+    CHECK(r.f.ValidationErrors().empty());
+}

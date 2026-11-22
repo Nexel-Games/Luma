@@ -17,6 +17,7 @@ FetchContent_MakeAvailable(stb_image)
 add_library(LumaAsset STATIC
     src/AssetId.cpp
     src/AssetType.cpp
+    src/AssetTypeRegistry.cpp
     src/AssetPath.cpp
     src/AssetData.cpp
     src/AssetRegistry.cpp

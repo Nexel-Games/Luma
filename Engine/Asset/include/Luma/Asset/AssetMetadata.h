@@ -21,6 +21,7 @@ struct AssetMetadata {
     
     // Asset type (Mesh, Texture, Material, etc.)
     AssetType type = AssetType::Unknown;
+    std::string typeId;  // stable type id for custom or unavailable plugins
     
     // Original source file path (absolute, normalized)
     std::filesystem::path sourcePath;

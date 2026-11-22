@@ -99,12 +99,16 @@ public:
     u64 GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer);
     void RequestThumbnail(const AssetId& assetId, const std::filesystem::path& nativePath);
 
+    std::vector<const AssetData*> CurrentEntries() const;
+
+    std::vector<Slate::MenuEntry> BuildFilterMenu();
+
 private:
     // Per-frame state mutated by Draw.
     AssetRegistry* m_registry = nullptr;
     std::filesystem::path m_currentFolder;  // empty = root of first root
     std::string m_nameFilter;
-    std::optional<AssetType> m_typeFilter;  // nullopt = all
+    std::string m_typeFilter;  // empty = all
     AssetId m_selected{};
     AssetId m_activated{};  // double-clicked this frame
 
@@ -184,7 +188,6 @@ private:
                       PanelContext& ctx);
     // Menus (Slate::MenuBuilder; drawn + input-handled by the Slate menu
     // host on top of every panel).
-    std::vector<Slate::MenuEntry> BuildFilterMenu();
     std::vector<Slate::MenuEntry> BuildFolderMenu(PanelContext& ctx);
     std::vector<Slate::MenuEntry> BuildAssetMenu(const AssetData& asset,
                                                  PanelContext& ctx);
@@ -196,15 +199,13 @@ private:
 
     // Returns the entries the right pane should currently show, applying
     // name + type + folder filters via the registry.
-    std::vector<const AssetData*> CurrentEntries() const;
 
     // Nav helpers.
     void NavigateTo(const std::filesystem::path& folder);
     void NavigateUp();
     std::vector<std::filesystem::path> BreadcrumbSegments() const;
 
-    // Helper: map AssetType -> Slate::Icon for the row / tile.
-    static Slate::Icon IconForType(AssetType t) noexcept;
+
 
     // Monotonic clock in milliseconds (only deltas are meaningful,
     // used for the rename timeout / click window if needed).
