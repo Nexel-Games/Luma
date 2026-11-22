@@ -1,6 +1,6 @@
 # T-0005 — Core extensibility: registries instead of hard-coded lists
 
-**Status:** Draft (lead + owner; not for the engine agent)
+**Status:** Done except step 11 (DebugDraw): BLOCKED until the material renderer work (Tasks 11–13) is merged into `dev` — it touches `Engine/Rendering/**`. Branch `agent/T-0005-core-extensibility` (local).
 **Assigned to:** lead (B13 rendering) + owner
 **Created:** 2026-11-21 by lead
 **Area / files:** `Engine/Scene`, `Engine/Project`, `Engine/Asset`, `Engine/Core` (version), `Editor/LumaEditor`,
@@ -53,8 +53,14 @@ public:
 };
 ComponentRegistry& Components();  // process-wide; built-ins registered by RegisterBuiltinComponents()
 
+// ComponentDesc also has: reset, variants, outlinerIcon, outlinerPriority.
+// EntityTemplates() — "Place Actors" / auto-created entities (e.g. the sky) by id.
+
 // Preserved payloads of components whose type is not registered (missing/disabled plugin).
-struct UnresolvedComponents { std::vector<std::pair<std::string, SerialValue>> payloads; };
+struct UnresolvedComponent { std::string id, owner; SerialValue payload; };
+struct UnresolvedComponents { std::vector<UnresolvedComponent> payloads; std::vector<std::string> keyOrder; };
+// SceneSerializer::WriteComponents / ReadComponents: the shared component form for scene files
+// and the actor clipboard (copy/paste keeps plugin and missing-plugin components).
 
 // Engine/Scene/include/Luma/Scene/SceneSystems.h — runtime update hooks (physics, audio, ...)
 class ISceneSystem {
@@ -67,12 +73,23 @@ public:
     virtual void OnPlayEnd(Scene&) {}
 };
 class SceneSystemRegistry { public: RegistrationToken Register(std::unique_ptr<ISceneSystem>, i32 order); /* ... */ };
-class SceneRunner { /* fixed timestep (default 1/60, max 8 substeps), pause, single step */ };
+class SceneRunner { /* fixed timestep (default 1/60, max 8 substeps; Project > Simulation page), pause, single step */ };
 
 // Engine/Asset/include/Luma/Asset/AssetTypeRegistry.h
-struct AssetTypeDesc { std::string id, displayName, icon, owner; std::vector<std::string> extensions; /* thumbnail + open hooks */ };
+struct AssetTypeDesc { std::string id, displayName, icon, owner; std::vector<std::string> extensions;
+    AssetType builtin; std::string nativeExtension, importSection, importFolder, dragType;
+    std::function<void(const path&, const AssetOpenContext&)> open;
+    std::function<std::unique_ptr<ThumbnailRenderer>()> createThumbnailRenderer; /* + thumbnail hook */ };
+AssetTypeRegistry& AssetTypes();  // Find / FindByExtension / FindBuiltin / All; built-ins by RegisterBuiltinAssetTypes
 
-// Editor/Framework/include/Luma/Editor/{MenuRegistry,PanelRegistry,SettingsPageRegistry,InspectorDrawers}.h
+// Engine/AssetImport: TranslatorRegistry::Register(std::unique_ptr<ITranslator>, owner, error) (duplicate
+// extensions rejected); AssetFactories() (AssetFactoryRegistry) — import factories by asset type id,
+// built-ins via RegisterBuiltinAssetFactories; AssetRequest::typeId for plugin types.
+
+// Editor/Framework (Luma::EditorFramework): Menus() (MenuRegistry, incl. Execute), EditorPanels() + EditorPanelHost,
+// SettingsPages(), InspectorDrawers() + InspectorRows, EditorImages() / IconByName.
+// Project Settings persist to Config/*.json via ProjectSettingsStore; panel open/closed state (not the dock
+// tree) persists in <Project>/Saved/Config/EditorLayout.json.
 //   Menus by id ("File", "Edit", "Window", "Tools", plugin menus) with sections and entries.
 //   Panels: id, title, icon, draw(Slate::Context&, Rect, PanelContext&), default dock slot, Window-menu entry.
 //   Project Settings pages: category, page, draw, load/save via the project's Config/ (real persistence).
@@ -98,11 +115,12 @@ class DebugDraw { public: void Line(...); void Box(...); void Sphere(...); void 
 
 ## Acceptance criteria
 
-- [ ] No component, menu, panel, settings page or asset type is listed in code outside its own registration call (grep check in review).
-- [ ] Unknown components survive save/load byte-identical; built-in scene files load unchanged.
-- [ ] Project Settings opens, saves to disk, reloads; `.luma` keeps unknown keys.
-- [ ] Play → systems tick on a copy → Stop restores the authored scene exactly.
-- [ ] Whole suite green; 0 Vulkan validation errors in a manual editor run.
+- [x] No component, menu, panel, settings page or asset type is listed in code outside its own registration call (grep check in review). Runtime per-asset Material Editor tabs are the documented exception (runtime panels).
+- [x] Unknown components survive save/load byte-identical; built-in scene files load unchanged.
+- [x] Project Settings opens, saves to disk, reloads; `.luma` keeps unknown keys.
+- [x] Play → systems tick on a copy → Stop restores the authored scene exactly.
+- [x] Whole suite green; 0 Vulkan validation errors in a manual editor run.
+- [ ] Step 11 DebugDraw — BLOCKED (material renderer not yet in `dev`).
 
 ## Out of scope
 

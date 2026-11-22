@@ -96,7 +96,10 @@ public:
 };
 // What a plugin may touch: the T-0005 registries, logging, its own manifest and config folder.
 // Registrations made through ctx are tracked per plugin and released automatically on shutdown/rollback.
-class PluginContext { /* Components(), SceneSystems(), AssetTypes(), Translators(), Editor() (null in runtime) */ };
+// Names as implemented by T-0005: Components() (+ EntityTemplates()), SceneSystems(), AssetTypes(),
+// AssetFactories(), TranslatorRegistry::Register; editor side: Menus(), EditorPanels(), SettingsPages(),
+// InspectorDrawers(), EditorImages(). Every Register returns a RegistrationToken (Luma/Core/Registration.h).
+class PluginContext { /* Components(), SceneSystems(), AssetTypes(), AssetFactories(), Translators(), Editor() (null in runtime) */ };
 
 // Registration of a compiled-in plugin (one per plugin target, via the generated source).
 #define LUMA_REGISTER_PLUGIN(Id, Type) /* registers a factory under the manifest id */
