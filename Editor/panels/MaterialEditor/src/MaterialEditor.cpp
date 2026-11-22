@@ -184,7 +184,7 @@ void MaterialEditorPanel::DrawToolbar(Context& ui, const Rect& bar, PanelContext
 
     const Rect browse{x, y, 92.0f, h};
     if (ui.IconTextButton(Context::ID("mated.browse." + m_path), browse,
-                          Slate::Icon::FolderOpen, "Browse", t.text) &&
+                          Slate::Icon::Browse, "Browse", Color::RGB(255, 255, 255)) &&
         ctx.onBrowseToAsset) {
         ctx.onBrowseToAsset(m_path);
     }
@@ -472,17 +472,17 @@ void MaterialEditorPanel::DrawInput(Context& ui, Layout& l, PanelContext& ctx,
                                : input.texture);
         }
         const Rect clear{pick.Right() + 2.0f, f.y, f.h, f.h};
-        if (ui.IconTextButton(Context::ID("mated.clear." + key), clear, Slate::Icon::Close, {},
-                              t.textDim) &&
+        if (ui.IconTextButton(Context::ID("mated.clear." + key), clear, Slate::Icon::Reset, {},
+                              input.texture.empty() ? t.textDisabled : Color::RGB(255, 255, 255)) &&
             !input.texture.empty()) {
             input.texture.clear();
             changed = true;
         }
         ui.Tooltip(Context::ID("mated.clear.tip." + key), clear,
-                   "Clear\nRemove the texture (use the value).");
+                   "Reset to Value\nRemove the texture and use the input value.");
         const Rect browse{clear.Right() + 2.0f, f.y, f.h, f.h};
         if (ui.IconTextButton(Context::ID("mated.browsetex." + key), browse,
-                              Slate::Icon::FolderOpen, {}, t.textDim) &&
+                              Slate::Icon::Browse, {}, input.texture.empty() ? t.textDisabled : Color::RGB(255, 255, 255)) &&
             !input.texture.empty() && ctx.onBrowseToAsset) {
             ctx.onBrowseToAsset(input.texture);
         }

@@ -1,58 +1,16 @@
-// Icon + Animate sanity tests. Each DrawIcon call should emit at least one
-// draw command; Animate should converge to its target.
-
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
 
-#include "Luma/Core/Types.h"
-#include "Luma/Slate/Context.h"
 #include "Luma/Slate/Icons.h"
-#include "Luma/Slate/Theme.h"
+#include "SlateTestHarness.h"
 
-using Luma::Slate::Context;
-using Luma::Slate::Color;
-using Luma::Slate::Icon;
-using Luma::Slate::Rect;
-using Luma::f32;
-
-namespace {
-// A typography that uses the system Segoe UI font so widget text rendering
-// can actually run.
-Luma::Slate::Typography TestTypography() {
-    Luma::Slate::Typography t;
-    t.uiRegular = "C:/Windows/Fonts/segoeui.ttf";
-    t.uiMedium = t.uiRegular;
-    t.uiSemiBold = t.uiRegular;
-    t.uiBold = t.uiRegular;
-    t.mono = t.uiRegular;
-    return t;
-}
-
-// Minimal Renderer stub — we only need a Context whose DrawList we can read.
-// No GPU, no atlas; fonts will simply emit no glyphs, which is fine for the
-// icon tests because every icon draws with lines/tris/circles.
-class NullRenderer final : public Luma::Renderer {
-public:
-    void OnResize(Luma::u32, Luma::u32) override {}
-    void SetClearColor(const Luma::ClearColor&) override {}
-    bool BeginFrame() override { return true; }
-    void EndFrame() override {}
-    void DrawUI(const Luma::UIDrawData&) override {}
-    Luma::TextureHandle CreateTexture(Luma::u32, Luma::u32,
-                                      const void*) override {
-        return 0;
-    }
-    void DestroyTexture(Luma::TextureHandle) override {}
-    void CaptureFrame(const std::string&) override {}
-    void WaitIdle() override {}
-};
-}  // namespace
+using namespace Luma;
+using namespace Luma::Slate;
 
 TEST_CASE("Animate converges to target over frames", "[slate][anim]") {
-    Context ctx;
-    NullRenderer r;
-    ctx.Init(r, TestTypography());
+    Test::Harness harness;
+    auto& ctx = harness.ctx;
     // First call: not hovered yet -> value stays at 0.
     f32 v0 = ctx.Animate(42, false, 14.0f);
     REQUIRE(v0 == 0.0f);
@@ -74,52 +32,22 @@ TEST_CASE("Animate converges to target over frames", "[slate][anim]") {
     REQUIRE(std::fabs(vFinal - 1.0f) < 1e-3f);
 }
 
-TEST_CASE("DrawIcon emits at least one draw command for every glyph",
-          "[slate][icon]") {
-    Context ctx;
-    NullRenderer r;
-    ctx.Init(r, TestTypography());
-    ctx.BeginFrame(800, 600, 0.0166f);
-
-    const Icon icons[] = {
-        Icon::ChevronRight, Icon::ChevronDown, Icon::ChevronUp, Icon::Search,
-        Icon::Gear, Icon::Folder, Icon::FolderOpen, Icon::Eye, Icon::EyeOff,
-        Icon::Lock, Icon::Plus, Icon::Close, Icon::Check, Icon::Save,
-        Icon::Play, Icon::Pause, Icon::Stop, Icon::Grip, Icon::Dot,
-        Icon::Trash, Icon::Camera, Icon::Cube, Icon::Sphere, Icon::Plane,
-        Icon::Cylinder, Icon::Refresh, Icon::ArrowLeft, Icon::Reset,
-    };
-    int prevCount = 0;
-    for (Icon i : icons) {
-        Luma::Slate::DrawIcon(ctx, {0, 0, 24, 24}, i, Color::RGB(255, 255, 255));
+TEST_CASE("Every editor icon samples its own tile in the packaged texture", "[slate][icon]") {
+    Test::Harness harness;
+    auto& ctx = harness.ctx;
+    REQUIRE(LoadIconAtlas(ctx, harness.renderer, std::string(LUMA_SOURCE_DIR) + "/Content/Editor/Icons/SlateIcons.png"));
+    const int count = static_cast<int>(Icon::Count) - 1;
+    for (int i = 0; i < count; ++i) {
+        CAPTURE(i);
+        ctx.BeginFrame(800, 600, 0.016f);
+        DrawIcon(ctx, {0, 0, 16, 16}, static_cast<Icon>(i + 1));
+        const auto& data = ctx.EndFrame();
+        REQUIRE(data.commandCount == 1);
+        REQUIRE(data.vertexCount == 4);
+        CHECK(data.commands[0].texture == ctx.IconAtlas());
+        CHECK(std::fabs(data.vertices[0].u - static_cast<f32>(i) / count) < 1e-6f);
     }
-    // After all icon draws, the draw list should have accumulated vertices.
-    REQUIRE(ctx.drawList().vertexCount() > static_cast<Luma::usize>(prevCount));
-    (void)prevCount;
-    ctx.EndFrame();
-}
-
-TEST_CASE("DrawIcon with Icon::None emits nothing", "[slate][icon]") {
-    Context ctx;
-    NullRenderer r;
-    ctx.Init(r, TestTypography());
-    ctx.BeginFrame(800, 600, 0.0166f);
-    auto before = ctx.drawList().vertexCount();
-    Luma::Slate::DrawIcon(ctx, {0, 0, 24, 24}, Icon::None,
-                          Color::RGB(255, 255, 255));
-    ctx.EndFrame();
-    REQUIRE(ctx.drawList().vertexCount() == before);
-}
-
-TEST_CASE("ArrowLeft, Reset and StaticMesh icons each draw geometry", "[slate][icons]") {
-    Context ctx;
-    NullRenderer r;
-    ctx.Init(r, TestTypography());
-    for (Icon icon : {Icon::ArrowLeft, Icon::Reset, Icon::StaticMesh}) {
-        ctx.BeginFrame(800, 600, 0.0166f);
-        const auto before = ctx.drawList().vertexCount();
-        Luma::Slate::DrawIcon(ctx, {0, 0, 16, 16}, icon, Color::RGB(255, 255, 255));
-        CHECK(ctx.drawList().vertexCount() > before);
-        ctx.EndFrame();
-    }
+    ctx.BeginFrame(800, 600, 0.016f);
+    DrawIcon(ctx, {0, 0, 16, 16}, Icon::None);
+    CHECK(ctx.EndFrame().vertexCount == 0);
 }

@@ -148,20 +148,20 @@ public:
 
 
     // Forwards the Create-menu header button icon to the outliner panel.
-    // A zero handle falls back to a procedural plus glyph.
+    // A zero handle falls back to a pack plus glyph.
     void SetCreateButtonIcon(TextureHandle icon) {
         m_outlinerPanel.SetCreateButtonIcon(icon);
     }
 
     // Forwards the Create-menu search-glass texture (from the ThirdParty
-    // Unreal icon pack). A zero handle falls back to the procedural glyph.
+    // Unreal icon pack). A zero handle falls back to the pack glyph.
     void SetSearchGlassIcon(TextureHandle icon) {
         m_outlinerPanel.SetSearchGlassIcon(icon);
     }
 
     // Forwards the Create-menu category icons (Geometry / Lights /
     // Environment — Unreal-style silhouettes, drawn gray in the menu).
-    // Zero handles fall back to the procedural glyphs.
+    // Zero handles fall back to the pack glyphs.
     void SetCategoryIcons(TextureHandle geometry, TextureHandle light,
                           TextureHandle environment) {
         m_outlinerPanel.SetCategoryIcons(geometry, light, environment);
@@ -169,7 +169,7 @@ public:
 
     // Forwards the primitive-actor icons for the Geometry submenu rows
     // (Unreal primitive thumbnails, drawn gray). Zero handles fall back to
-    // the procedural glyphs.
+    // the pack glyphs.
     void SetPrimitiveIcons(TextureHandle cube, TextureHandle plane,
                            TextureHandle sphere, TextureHandle cylinder) {
         m_outlinerPanel.SetPrimitiveIcons(cube, plane, sphere, cylinder);
@@ -185,7 +185,7 @@ public:
     }
 
     // Forwards Content Browser chrome icons to the panel. Missing textures
-    // (any zero handle) fall back to procedural glyphs.
+    // (any zero handle) fall back to pack glyphs.
     void SetContentBrowserIcons(TextureHandle sortUp, TextureHandle sortDown,
                                 TextureHandle searchGlass,
                                 TextureHandle folder, TextureHandle reload,

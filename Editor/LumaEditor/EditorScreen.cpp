@@ -2021,7 +2021,7 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
                 b.AddEntry("Save Scene", Icon::Save, [this] { SaveScene(); }, o);
             }
             b.BeginSection("Project");
-            b.AddEntry("Show Project in Explorer", Icon::FolderOpen,
+            b.AddEntry("Show Project in Explorer", Icon::Browse,
                        [this] {
                            if (m_project) RevealInExplorer(m_project->AssetsDir().parent_path());
                        },
@@ -2051,7 +2051,7 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
             {
                 auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
                 o.shortcut = "Ctrl+D";
-                b.AddEntry("Duplicate", Icon::Plus, [this] { DuplicateEntity(m_selected); }, o);
+                b.AddEntry("Duplicate", Icon::Duplicate, [this] { DuplicateEntity(m_selected); }, o);
             }
             {
                 auto o = when(hasSel);
@@ -2061,14 +2061,14 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
             {
                 auto o = when(hasSel);
                 o.shortcut = "F";
-                b.AddEntry("Focus in Viewport", Icon::Eye, [this] { FocusEntity(m_selected); }, o);
+                b.AddEntry("Focus in Viewport", Icon::Focus, [this] { FocusEntity(m_selected); }, o);
             }
             b.BeginSection("Configuration");
             b.AddEntry("Editor Preferences", Icon::Gear, [this] { m_preferencesOpen = true; });
             break;
         case 2:  // Assets
             b.BeginSection("Content");
-            b.AddEntry("Import...", Icon::Plus,
+            b.AddEntry("Import...", Icon::Import,
                        [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); },
                        when(m_project.has_value(), "Import files into the open Content Browser folder."));
             b.AddEntry("Refresh Content", Icon::Refresh,
@@ -2080,7 +2080,7 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
             break;
         case 3:  // Window
             b.BeginSection("Layout");
-            b.AddEntry("Reset Layout", Icon::Grip,
+            b.AddEntry("Reset Layout", Icon::Reset,
                        [this] {
                            m_dock = Slate::DockSpace{};
                            m_dockBuilt = false;

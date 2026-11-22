@@ -431,7 +431,7 @@ std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
         o.tooltip = tip;
         b.AddEntry(label, icon, run, o);
     };
-    command("Duplicate", "Ctrl+D", Icon::Plus, static_cast<bool>(ctx.onDuplicateEntity) && !isEnvironment,
+    command("Duplicate", "Ctrl+D", Icon::Duplicate, static_cast<bool>(ctx.onDuplicateEntity) && !isEnvironment,
             isEnvironment ? "A scene has a single Environment." : "Copy this actor and its children.",
             [dup = ctx.onDuplicateEntity, e] { if (dup) dup(e); });
     command("Cut", "Ctrl+X", Icon::None, static_cast<bool>(ctx.onCutEntities) && !isEnvironment,
@@ -462,7 +462,7 @@ std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
             [move = ctx.onMoveToRoot, e] { if (move) move(e); });
 
     b.BeginSection("View");
-    command("Focus in Viewport", "F", Icon::Eye,
+    command("Focus in Viewport", "F", Icon::Focus,
             hasTransform && static_cast<bool>(ctx.onFocusEntity),
             "Move the viewport camera to frame this actor.",
             [focus = ctx.onFocusEntity, e] { if (focus) focus(e); });

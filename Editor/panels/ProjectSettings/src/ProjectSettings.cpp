@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "Luma/Slate/Icons.h"
+
 namespace Luma::Editor::Panels {
 
 namespace {
@@ -111,7 +113,7 @@ bool ProjectSettingsPanel::Draw(Slate::Context& ui, f32 width, f32 height) {
 
     // Close button (X)
     Rect closeBtn{winX + winW - 36.0f, winY + 8.0f, 24.0f, 24.0f};
-    if (ui.Button(Slate::Context::ID("ps.close"), closeBtn, "X")) {
+    if (ui.IconTextButton(Slate::Context::ID("ps.close"), closeBtn, Slate::Icon::Close, {}, t.text)) {
         m_isOpen = false;
         return false;
     }
@@ -154,8 +156,8 @@ void ProjectSettingsPanel::DrawSidebar(Slate::Context& ui, const Slate::Rect& re
         }
 
         // Expand/collapse arrow
-        const char* arrow = section.isExpanded ? "▼" : "▶";
-        ui.LabelIn({rect.x + 8.0f, y + 6.0f, 16.0f, 20.0f}, arrow, t.textDim);
+        Slate::DrawIcon(ui, {rect.x + 8.0f, y + 6.0f, 16.0f, 20.0f},
+                        section.isExpanded ? Slate::Icon::ChevronDown : Slate::Icon::ChevronRight, t.textDim);
         ui.LabelIn({rect.x + 28.0f, y + 6.0f, rect.w - 36.0f, 20.0f},
                  section.label, t.text);
 

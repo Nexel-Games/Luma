@@ -24,16 +24,16 @@ public:
     void Draw(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx);
 
     // Sets the Create-button texture drawn in the panel header. A zero handle
-    // falls back to the procedural plus glyph.
+    // falls back to the pack plus glyph.
     void SetCreateButtonIcon(TextureHandle icon) { m_createButtonIcon = icon; }
 
     // Sets the search-glass texture for the menu's search box (Unreal icon
-    // pack). A zero handle falls back to the procedural search glyph.
+    // pack). A zero handle falls back to the pack search glyph.
     void SetSearchGlassIcon(TextureHandle icon) { m_texSearchGlass = icon; }
 
     // Sets the category-row textures (Geometry / Lights / Environment —
     // Unreal-style silhouettes, drawn gray). Zero handles fall back to the
-    // procedural glyphs.
+    // pack glyphs.
     void SetCategoryIcons(TextureHandle geometry, TextureHandle light,
                           TextureHandle environment) {
         m_texCatGeometry = geometry;
@@ -43,7 +43,7 @@ public:
 
     // Sets the primitive-actor textures for the Geometry submenu rows
     // (Unreal primitive thumbnails, drawn gray). Zero handles fall back to
-    // the procedural glyphs.
+    // the pack glyphs.
     void SetPrimitiveIcons(TextureHandle cube, TextureHandle plane,
                            TextureHandle sphere, TextureHandle cylinder) {
         m_texActorCube = cube;

@@ -78,17 +78,17 @@ std::string_view AssetTypeIconHint(AssetType t) noexcept {
     // these to icons so we don't pull Slate into the Asset module.
     switch (t) {
         case AssetType::Texture: return "Image";
-        case AssetType::Mesh: return "Cube";
+        case AssetType::Mesh: return "StaticMesh";
         case AssetType::Material: return "Sphere";
-        case AssetType::MaterialInstance: return "Sphere";
-        case AssetType::Shader: return "Plane";
-        case AssetType::Script: return "Cylinder";
+        case AssetType::MaterialInstance: return "MaterialInstance";
+        case AssetType::Shader: return "Shader";
+        case AssetType::Script: return "Script";
         case AssetType::Prefab: return "Cube";
-        case AssetType::Scene: return "Plane";
-        case AssetType::Sound: return "Play";
-        case AssetType::Font: return "Refresh";
+        case AssetType::Scene: return "Scene";
+        case AssetType::Sound: return "Sound";
+        case AssetType::Font: return "Font";
         case AssetType::Folder: return "Folder";
-        default: return "Dot";
+        default: return "File";
     }
 }
 
