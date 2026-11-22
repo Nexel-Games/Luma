@@ -26,7 +26,7 @@ enum class EditorIcon : u8 {
 // rest load as white and are tinted by the UI.
 bool EditorIconKeepsColor(EditorIcon icon);
 
-// File name of an icon inside the icon directory ("Apply.png").
+// Path of an icon relative to Content/Editor (the directory passed to Load).
 const char* EditorIconFile(EditorIcon icon);
 
 class EditorIconSet {

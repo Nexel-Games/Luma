@@ -362,7 +362,7 @@ void EditorScreen::LoadMaterialEditorAssets() {
     std::error_code ec;
     if (!std::filesystem::exists(editorRoot / "MaterialEditor", ec)) editorRoot = "Content/Editor";
     // Icons: amber -> deep orange gradient (the editor's icon theme).
-    m_materialEditorIcons.Load(*m_renderer, editorRoot / "MaterialEditor" / "Icons", Slate::Color{255, 196, 64, 255},
+    m_materialEditorIcons.Load(*m_renderer, editorRoot, Slate::Color{255, 196, 64, 255},
                                Slate::Color{232, 88, 12, 255});  // (RGB is a Windows macro here)
     auto watermark = std::make_unique<Slate::Font>();
     if (watermark->LoadFromFile(*m_renderer, (editorRoot / "Fonts/RubikIso/RubikIso-Regular.ttf").string(), 64.0f)) {

@@ -379,60 +379,64 @@ int main(int argc, char** argv) {
     // Editor toolbar icons.
     auto loadIcon = [&](const char* file) -> TextureHandle {
         std::string path = FindEditorAsset(file);
-        return path.empty() ? 0 : Slate::LoadImage(*renderer, path).texture;
+        if (path.empty()) return 0;
+        const TextureHandle texture = Slate::LoadImage(*renderer, path).texture;
+        // Luma icon pack artwork is multi-colour: panels' tints must not darken it.
+        if (Slate::IsLumaIconPath(file)) Slate::MarkFullColorTexture(texture);
+        return texture;
     };
-    TextureHandle iconPlay = loadIcon("Icons/play.png");
-    TextureHandle iconPause = loadIcon("Icons/pause.png");
-    TextureHandle iconStop = loadIcon("Icons/stop.png");
+    TextureHandle iconPlay = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/001_play.png");
+    TextureHandle iconPause = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/002_pause.png");
+    TextureHandle iconStop = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/003_stop.png");
     // Content Browser chrome icons (sort arrows + search glass + folder +
     // reload + import + open-folder).
     TextureHandle cbSortUp = loadIcon("Icons/sort_up.png");
     TextureHandle cbSortDown = loadIcon("Icons/sort_down.png");
-    TextureHandle cbSearchGlass = loadIcon("Icons/search_glass.png");
-    TextureHandle cbFolder = loadIcon("Icons/folder_base.png");
-    TextureHandle cbReload = loadIcon("Icons/reload.png");
-    TextureHandle cbImport = loadIcon("Icons/import.png");
-    TextureHandle cbOpenFolder = loadIcon("Icons/open-folder.png");
+    TextureHandle cbSearchGlass = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/016_search.png");
+    TextureHandle cbFolder = loadIcon("Luma_Icons/PNG/32x32/04_Content_Browser_Assets/061_folder.png");
+    TextureHandle cbReload = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/020_refresh.png");
+    TextureHandle cbImport = loadIcon("Luma_Icons/PNG/32x32/04_Content_Browser_Assets/062_import_asset.png");
+    TextureHandle cbOpenFolder = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/007_open_project.png");
     TextureHandle cbExpandArrow = loadIcon("Icons/SubmenuArrow.png");
     TextureHandle cbRetractArrow = loadIcon("Icons/SortDownArrow.png");
 
     // World Outliner icons (Create-menu + actor-row textures).
-    TextureHandle olCreateButton = loadIcon("Icons/Create-button.png");
-    TextureHandle olSearchGlass = loadIcon("Icons/SearchGlass.png");
-    TextureHandle olCatGeometry = loadIcon("Icons/geometry.png");
-    TextureHandle olCatLight = loadIcon("Icons/light.png");
-    TextureHandle olCatEnvironment = loadIcon("Icons/environment.png");
-    TextureHandle olActorCube = loadIcon("Icons/actor-cube.png");
-    TextureHandle olActorPlane = loadIcon("Icons/actor-plane.png");
-    TextureHandle olActorSphere = loadIcon("Icons/actor-sphere.png");
-    TextureHandle olActorCylinder = loadIcon("Icons/actor-cylinder.png");
+    TextureHandle olCreateButton = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/017_add.png");
+    TextureHandle olSearchGlass = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/016_search.png");
+    TextureHandle olCatGeometry = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/042_cube.png");
+    TextureHandle olCatLight = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/051_point_light.png");
+    TextureHandle olCatEnvironment = loadIcon("Luma_Icons/PNG/32x32/05_Rendering_Materials/095_environment_lighting.png");
+    TextureHandle olActorCube = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/042_cube.png");
+    TextureHandle olActorPlane = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/046_plane.png");
+    TextureHandle olActorSphere = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/043_sphere.png");
+    TextureHandle olActorCylinder = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/045_cylinder.png");
     TextureHandle olActorDirLight =
-        loadIcon("Icons/actor-light-directional.png");
+        loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/050_directional_light.png");
     TextureHandle olActorPointLight =
-        loadIcon("Icons/actor-light-point.png");
-    TextureHandle olActorSpotLight = loadIcon("Icons/actor-light-spot.png");
-    TextureHandle olActorMesh = loadIcon("Icons/actor-static-mesh.png");
+        loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/051_point_light.png");
+    TextureHandle olActorSpotLight = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/052_spot_light.png");
+    TextureHandle olActorMesh = loadIcon("Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/047_static_mesh.png");
 
     // Unreal icon pack (Content/Editor/Icons/ue).
     EditorScreen::IconSet ueIcons;
     ueIcons.tabOutliner = loadIcon("Icons/ue/icon_tab_SceneOutliner_16x.png");
     ueIcons.tabDetails = loadIcon("Icons/ue/icon_tab_SelectionDetails_16x.png");
-    ueIcons.tabViewport = loadIcon("Icons/ue/icon_tab_Viewports_16x.png");
-    ueIcons.tabContent = loadIcon("Icons/ue/icon_tab_ContentBrowser_16x.png");
-    ueIcons.tabOutputLog = loadIcon("Icons/ue/icon_tab_OutputLog_16x.png");
-    ueIcons.save = loadIcon("Icons/ue/icon_file_save_16px.png");
-    ueIcons.error = loadIcon("Icons/ue/icon_error_16x.png");
-    ueIcons.warning = loadIcon("Icons/ue/icon_warning_16x.png");
-    ueIcons.viewport.translate = loadIcon("Icons/ue/icon_translateb_16x.png");
-    ueIcons.viewport.rotate = loadIcon("Icons/ue/icon_rotateb_16x.png");
-    ueIcons.viewport.scale = loadIcon("Icons/ue/icon_scaleb_16x.png");
-    ueIcons.viewport.worldSpace = loadIcon("Icons/ue/icon_axis_world_16px.png");
-    ueIcons.viewport.localSpace = loadIcon("Icons/ue/icon_axis_local_16px.png");
-    ueIcons.viewport.gridSnap = loadIcon("Icons/ue/icon_ShowGrid_16x.png");
-    ueIcons.viewport.cameraSpeed = loadIcon("Icons/ue/icon_CameraSpeed_24x16px.png");
-    ueIcons.viewport.perspective = loadIcon("Icons/ue/icon_ViewMode_ViewPerspective_16px.png");
-    ueIcons.viewport.lit = loadIcon("Icons/ue/icon_ViewMode_Lit_16px.png");
-    ueIcons.viewport.unlit = loadIcon("Icons/ue/icon_ViewMode_Unlit_16px.png");
+    ueIcons.tabViewport = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/031_perspective_view.png");
+    ueIcons.tabContent = loadIcon("Luma_Icons/PNG/32x32/04_Content_Browser_Assets/061_folder.png");
+    ueIcons.tabOutputLog = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/142_output_log.png");
+    ueIcons.save = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/004_save.png");
+    ueIcons.error = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/144_error.png");
+    ueIcons.warning = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/143_warning.png");
+    ueIcons.viewport.translate = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/022_move.png");
+    ueIcons.viewport.rotate = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/023_rotate.png");
+    ueIcons.viewport.scale = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/024_scale.png");
+    ueIcons.viewport.worldSpace = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/027_world_space.png");
+    ueIcons.viewport.localSpace = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/026_local_space.png");
+    ueIcons.viewport.gridSnap = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/028_snap_to_grid.png");
+    ueIcons.viewport.cameraSpeed = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/040_camera_speed.png");
+    ueIcons.viewport.perspective = loadIcon("Luma_Icons/PNG/32x32/02_Viewport_Transform/031_perspective_view.png");
+    ueIcons.viewport.lit = loadIcon("Luma_Icons/PNG/32x32/05_Rendering_Materials/082_lit_view.png");
+    ueIcons.viewport.unlit = loadIcon("Luma_Icons/PNG/32x32/05_Rendering_Materials/083_unlit_view.png");
     ueIcons.viewport.show = loadIcon("Icons/ue/icon_levels_visible_16px.png");
 
     SplashScreen splash;

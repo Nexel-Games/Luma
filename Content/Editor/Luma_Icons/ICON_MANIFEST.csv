@@ -1,0 +1,151 @@
+id,name,category,filename,palette,svg
+1,Play,01_Main_Editor_Toolbar,001_play,green,SVG/01_Main_Editor_Toolbar/001_play.svg
+2,Pause,01_Main_Editor_Toolbar,002_pause,gold,SVG/01_Main_Editor_Toolbar/002_pause.svg
+3,Stop,01_Main_Editor_Toolbar,003_stop,gold,SVG/01_Main_Editor_Toolbar/003_stop.svg
+4,Save,01_Main_Editor_Toolbar,004_save,blue,SVG/01_Main_Editor_Toolbar/004_save.svg
+5,Save All,01_Main_Editor_Toolbar,005_save_all,steel,SVG/01_Main_Editor_Toolbar/005_save_all.svg
+6,New Project,01_Main_Editor_Toolbar,006_new_project,steel,SVG/01_Main_Editor_Toolbar/006_new_project.svg
+7,Open Project,01_Main_Editor_Toolbar,007_open_project,gold,SVG/01_Main_Editor_Toolbar/007_open_project.svg
+8,New Scene,01_Main_Editor_Toolbar,008_new_scene,gold,SVG/01_Main_Editor_Toolbar/008_new_scene.svg
+9,Open Scene,01_Main_Editor_Toolbar,009_open_scene,gold,SVG/01_Main_Editor_Toolbar/009_open_scene.svg
+10,Undo,01_Main_Editor_Toolbar,010_undo,gold,SVG/01_Main_Editor_Toolbar/010_undo.svg
+11,Redo,01_Main_Editor_Toolbar,011_redo,gold,SVG/01_Main_Editor_Toolbar/011_redo.svg
+12,Build Project,01_Main_Editor_Toolbar,012_build_project,steel,SVG/01_Main_Editor_Toolbar/012_build_project.svg
+13,Build and Run,01_Main_Editor_Toolbar,013_build_and_run,gold,SVG/01_Main_Editor_Toolbar/013_build_and_run.svg
+14,Compile,01_Main_Editor_Toolbar,014_compile,gold,SVG/01_Main_Editor_Toolbar/014_compile.svg
+15,Settings,01_Main_Editor_Toolbar,015_settings,steel,SVG/01_Main_Editor_Toolbar/015_settings.svg
+16,Search,01_Main_Editor_Toolbar,016_search,blue,SVG/01_Main_Editor_Toolbar/016_search.svg
+17,Add,01_Main_Editor_Toolbar,017_add,green,SVG/01_Main_Editor_Toolbar/017_add.svg
+18,Delete,01_Main_Editor_Toolbar,018_delete,gold,SVG/01_Main_Editor_Toolbar/018_delete.svg
+19,Duplicate,01_Main_Editor_Toolbar,019_duplicate,blue,SVG/01_Main_Editor_Toolbar/019_duplicate.svg
+20,Refresh,01_Main_Editor_Toolbar,020_refresh,green,SVG/01_Main_Editor_Toolbar/020_refresh.svg
+21,Select Tool,02_Viewport_Transform,021_select_tool,blue,SVG/02_Viewport_Transform/021_select_tool.svg
+22,Move,02_Viewport_Transform,022_move,green,SVG/02_Viewport_Transform/022_move.svg
+23,Rotate,02_Viewport_Transform,023_rotate,green,SVG/02_Viewport_Transform/023_rotate.svg
+24,Scale,02_Viewport_Transform,024_scale,blue,SVG/02_Viewport_Transform/024_scale.svg
+25,Universal Transform,02_Viewport_Transform,025_universal_transform,gold,SVG/02_Viewport_Transform/025_universal_transform.svg
+26,Local Space,02_Viewport_Transform,026_local_space,blue,SVG/02_Viewport_Transform/026_local_space.svg
+27,World Space,02_Viewport_Transform,027_world_space,blue,SVG/02_Viewport_Transform/027_world_space.svg
+28,Snap to Grid,02_Viewport_Transform,028_snap_to_grid,silver,SVG/02_Viewport_Transform/028_snap_to_grid.svg
+29,Angle Snap,02_Viewport_Transform,029_angle_snap,silver,SVG/02_Viewport_Transform/029_angle_snap.svg
+30,Vertex Snap,02_Viewport_Transform,030_vertex_snap,blue,SVG/02_Viewport_Transform/030_vertex_snap.svg
+31,Perspective View,02_Viewport_Transform,031_perspective_view,steel,SVG/02_Viewport_Transform/031_perspective_view.svg
+32,Orthographic View,02_Viewport_Transform,032_orthographic_view,steel,SVG/02_Viewport_Transform/032_orthographic_view.svg
+33,Top View,02_Viewport_Transform,033_top_view,green,SVG/02_Viewport_Transform/033_top_view.svg
+34,Front View,02_Viewport_Transform,034_front_view,gold,SVG/02_Viewport_Transform/034_front_view.svg
+35,Side View,02_Viewport_Transform,035_side_view,green,SVG/02_Viewport_Transform/035_side_view.svg
+36,Focus Selected,02_Viewport_Transform,036_focus_selected,silver,SVG/02_Viewport_Transform/036_focus_selected.svg
+37,Show Grid,02_Viewport_Transform,037_show_grid,silver,SVG/02_Viewport_Transform/037_show_grid.svg
+38,Show Bounds,02_Viewport_Transform,038_show_bounds,gold,SVG/02_Viewport_Transform/038_show_bounds.svg
+39,Fullscreen Viewport,02_Viewport_Transform,039_fullscreen_viewport,silver,SVG/02_Viewport_Transform/039_fullscreen_viewport.svg
+40,Camera Speed,02_Viewport_Transform,040_camera_speed,blue,SVG/02_Viewport_Transform/040_camera_speed.svg
+41,Empty Actor,03_Scene_Objects_Actors,041_empty_actor,blue,SVG/03_Scene_Objects_Actors/041_empty_actor.svg
+42,Cube,03_Scene_Objects_Actors,042_cube,gold,SVG/03_Scene_Objects_Actors/042_cube.svg
+43,Sphere,03_Scene_Objects_Actors,043_sphere,steel,SVG/03_Scene_Objects_Actors/043_sphere.svg
+44,Capsule,03_Scene_Objects_Actors,044_capsule,steel,SVG/03_Scene_Objects_Actors/044_capsule.svg
+45,Cylinder,03_Scene_Objects_Actors,045_cylinder,steel,SVG/03_Scene_Objects_Actors/045_cylinder.svg
+46,Plane,03_Scene_Objects_Actors,046_plane,silver,SVG/03_Scene_Objects_Actors/046_plane.svg
+47,Static Mesh,03_Scene_Objects_Actors,047_static_mesh,silver,SVG/03_Scene_Objects_Actors/047_static_mesh.svg
+48,Skeletal Mesh,03_Scene_Objects_Actors,048_skeletal_mesh,silver,SVG/03_Scene_Objects_Actors/048_skeletal_mesh.svg
+49,Camera Actor,03_Scene_Objects_Actors,049_camera_actor,gold,SVG/03_Scene_Objects_Actors/049_camera_actor.svg
+50,Directional Light,03_Scene_Objects_Actors,050_directional_light,gold,SVG/03_Scene_Objects_Actors/050_directional_light.svg
+51,Point Light,03_Scene_Objects_Actors,051_point_light,gold,SVG/03_Scene_Objects_Actors/051_point_light.svg
+52,Spot Light,03_Scene_Objects_Actors,052_spot_light,gold,SVG/03_Scene_Objects_Actors/052_spot_light.svg
+53,Rect Light,03_Scene_Objects_Actors,053_rect_light,gold,SVG/03_Scene_Objects_Actors/053_rect_light.svg
+54,Sky Light,03_Scene_Objects_Actors,054_sky_light,blue,SVG/03_Scene_Objects_Actors/054_sky_light.svg
+55,Reflection Probe,03_Scene_Objects_Actors,055_reflection_probe,blue,SVG/03_Scene_Objects_Actors/055_reflection_probe.svg
+56,Decal Actor,03_Scene_Objects_Actors,056_decal_actor,blue,SVG/03_Scene_Objects_Actors/056_decal_actor.svg
+57,Trigger Volume,03_Scene_Objects_Actors,057_trigger_volume,silver,SVG/03_Scene_Objects_Actors/057_trigger_volume.svg
+58,Collision Box,03_Scene_Objects_Actors,058_collision_box,orange,SVG/03_Scene_Objects_Actors/058_collision_box.svg
+59,Spline,03_Scene_Objects_Actors,059_spline,gold,SVG/03_Scene_Objects_Actors/059_spline.svg
+60,Player Spawn,03_Scene_Objects_Actors,060_player_spawn,blue,SVG/03_Scene_Objects_Actors/060_player_spawn.svg
+61,Folder,04_Content_Browser_Assets,061_folder,gold,SVG/04_Content_Browser_Assets/061_folder.svg
+62,Import Asset,04_Content_Browser_Assets,062_import_asset,green,SVG/04_Content_Browser_Assets/062_import_asset.svg
+63,Export Asset,04_Content_Browser_Assets,063_export_asset,gold,SVG/04_Content_Browser_Assets/063_export_asset.svg
+64,3D Model,04_Content_Browser_Assets,064_3d_model,steel,SVG/04_Content_Browser_Assets/064_3d_model.svg
+65,Texture,04_Content_Browser_Assets,065_texture,gold,SVG/04_Content_Browser_Assets/065_texture.svg
+66,Material,04_Content_Browser_Assets,066_material,green,SVG/04_Content_Browser_Assets/066_material.svg
+67,Material Instance,04_Content_Browser_Assets,067_material_instance,blue,SVG/04_Content_Browser_Assets/067_material_instance.svg
+68,Shader,04_Content_Browser_Assets,068_shader,silver,SVG/04_Content_Browser_Assets/068_shader.svg
+69,Scene Asset,04_Content_Browser_Assets,069_scene_asset,blue,SVG/04_Content_Browser_Assets/069_scene_asset.svg
+70,Prefab,04_Content_Browser_Assets,070_prefab,gold,SVG/04_Content_Browser_Assets/070_prefab.svg
+71,Blueprint Visual Script,04_Content_Browser_Assets,071_blueprint_visual_script,blue,SVG/04_Content_Browser_Assets/071_blueprint_visual_script.svg
+72,C++ Source File,04_Content_Browser_Assets,072_c_source_file,steel,SVG/04_Content_Browser_Assets/072_c_source_file.svg
+73,Animation Clip,04_Content_Browser_Assets,073_animation_clip,steel,SVG/04_Content_Browser_Assets/073_animation_clip.svg
+74,Skeleton,04_Content_Browser_Assets,074_skeleton,steel,SVG/04_Content_Browser_Assets/074_skeleton.svg
+75,Audio File,04_Content_Browser_Assets,075_audio_file,blue,SVG/04_Content_Browser_Assets/075_audio_file.svg
+76,Video File,04_Content_Browser_Assets,076_video_file,silver,SVG/04_Content_Browser_Assets/076_video_file.svg
+77,Font Asset,04_Content_Browser_Assets,077_font_asset,gold,SVG/04_Content_Browser_Assets/077_font_asset.svg
+78,Particle Asset,04_Content_Browser_Assets,078_particle_asset,silver,SVG/04_Content_Browser_Assets/078_particle_asset.svg
+79,Terrain Asset,04_Content_Browser_Assets,079_terrain_asset,green,SVG/04_Content_Browser_Assets/079_terrain_asset.svg
+80,Asset Collection,04_Content_Browser_Assets,080_asset_collection,steel,SVG/04_Content_Browser_Assets/080_asset_collection.svg
+81,Render Mode,05_Rendering_Materials,081_render_mode,silver,SVG/05_Rendering_Materials/081_render_mode.svg
+82,Lit View,05_Rendering_Materials,082_lit_view,gold,SVG/05_Rendering_Materials/082_lit_view.svg
+83,Unlit View,05_Rendering_Materials,083_unlit_view,steel,SVG/05_Rendering_Materials/083_unlit_view.svg
+84,Wireframe,05_Rendering_Materials,084_wireframe,silver,SVG/05_Rendering_Materials/084_wireframe.svg
+85,Shader Graph,05_Rendering_Materials,085_shader_graph,gold,SVG/05_Rendering_Materials/085_shader_graph.svg
+86,Material Editor,05_Rendering_Materials,086_material_editor,green,SVG/05_Rendering_Materials/086_material_editor.svg
+87,Texture Sampler,05_Rendering_Materials,087_texture_sampler,green,SVG/05_Rendering_Materials/087_texture_sampler.svg
+88,Normal Map,05_Rendering_Materials,088_normal_map,purple,SVG/05_Rendering_Materials/088_normal_map.svg
+89,Roughness,05_Rendering_Materials,089_roughness,dark,SVG/05_Rendering_Materials/089_roughness.svg
+90,Metallic,05_Rendering_Materials,090_metallic,steel,SVG/05_Rendering_Materials/090_metallic.svg
+91,Opacity,05_Rendering_Materials,091_opacity,silver,SVG/05_Rendering_Materials/091_opacity.svg
+92,Emissive,05_Rendering_Materials,092_emissive,gold,SVG/05_Rendering_Materials/092_emissive.svg
+93,Post Processing,05_Rendering_Materials,093_post_processing,purple,SVG/05_Rendering_Materials/093_post_processing.svg
+94,Ray Tracing,05_Rendering_Materials,094_ray_tracing,gold,SVG/05_Rendering_Materials/094_ray_tracing.svg
+95,Environment Lighting,05_Rendering_Materials,095_environment_lighting,gold,SVG/05_Rendering_Materials/095_environment_lighting.svg
+96,Rigid Body,06_Physics_Simulation,096_rigid_body,silver,SVG/06_Physics_Simulation/096_rigid_body.svg
+97,Collision,06_Physics_Simulation,097_collision,silver,SVG/06_Physics_Simulation/097_collision.svg
+98,Gravity,06_Physics_Simulation,098_gravity,green,SVG/06_Physics_Simulation/098_gravity.svg
+99,Physics Material,06_Physics_Simulation,099_physics_material,silver,SVG/06_Physics_Simulation/099_physics_material.svg
+100,Joint Constraint,06_Physics_Simulation,100_joint_constraint,gold,SVG/06_Physics_Simulation/100_joint_constraint.svg
+101,Character Controller,06_Physics_Simulation,101_character_controller,orange,SVG/06_Physics_Simulation/101_character_controller.svg
+102,Ragdoll,06_Physics_Simulation,102_ragdoll,silver,SVG/06_Physics_Simulation/102_ragdoll.svg
+103,Cloth Simulation,06_Physics_Simulation,103_cloth_simulation,steel,SVG/06_Physics_Simulation/103_cloth_simulation.svg
+104,Vehicle Physics,06_Physics_Simulation,104_vehicle_physics,orange,SVG/06_Physics_Simulation/104_vehicle_physics.svg
+105,Force Field,06_Physics_Simulation,105_force_field,green,SVG/06_Physics_Simulation/105_force_field.svg
+106,Physics Debugger,06_Physics_Simulation,106_physics_debugger,blue,SVG/06_Physics_Simulation/106_physics_debugger.svg
+107,Simulation Play,06_Physics_Simulation,107_simulation_play,green,SVG/06_Physics_Simulation/107_simulation_play.svg
+108,Simulation Pause,06_Physics_Simulation,108_simulation_pause,gold,SVG/06_Physics_Simulation/108_simulation_pause.svg
+109,Collision Layers,06_Physics_Simulation,109_collision_layers,silver,SVG/06_Physics_Simulation/109_collision_layers.svg
+110,Physics Settings,06_Physics_Simulation,110_physics_settings,steel,SVG/06_Physics_Simulation/110_physics_settings.svg
+111,Animation Timeline,07_Animation_Cinematics,111_animation_timeline,gold,SVG/07_Animation_Cinematics/111_animation_timeline.svg
+112,Keyframe,07_Animation_Cinematics,112_keyframe,gold,SVG/07_Animation_Cinematics/112_keyframe.svg
+113,Animation Graph,07_Animation_Cinematics,113_animation_graph,green,SVG/07_Animation_Cinematics/113_animation_graph.svg
+114,Blend Tree,07_Animation_Cinematics,114_blend_tree,gold,SVG/07_Animation_Cinematics/114_blend_tree.svg
+115,State Machine,07_Animation_Cinematics,115_state_machine,steel,SVG/07_Animation_Cinematics/115_state_machine.svg
+116,Bone Rig,07_Animation_Cinematics,116_bone_rig,gold,SVG/07_Animation_Cinematics/116_bone_rig.svg
+117,IK Controller,07_Animation_Cinematics,117_ik_controller,silver,SVG/07_Animation_Cinematics/117_ik_controller.svg
+118,Sequencer,07_Animation_Cinematics,118_sequencer,steel,SVG/07_Animation_Cinematics/118_sequencer.svg
+119,Cinematic Camera,07_Animation_Cinematics,119_cinematic_camera,silver,SVG/07_Animation_Cinematics/119_cinematic_camera.svg
+120,Record Animation,07_Animation_Cinematics,120_record_animation,red,SVG/07_Animation_Cinematics/120_record_animation.svg
+121,Audio Source,08_Audio_Sound,121_audio_source,blue,SVG/08_Audio_Sound/121_audio_source.svg
+122,Audio Listener,08_Audio_Sound,122_audio_listener,steel,SVG/08_Audio_Sound/122_audio_listener.svg
+123,Audio Mixer,08_Audio_Sound,123_audio_mixer,gold,SVG/08_Audio_Sound/123_audio_mixer.svg
+124,Volume Control,08_Audio_Sound,124_volume_control,blue,SVG/08_Audio_Sound/124_volume_control.svg
+125,Mute,08_Audio_Sound,125_mute,orange,SVG/08_Audio_Sound/125_mute.svg
+126,Sound Wave,08_Audio_Sound,126_sound_wave,green,SVG/08_Audio_Sound/126_sound_wave.svg
+127,Spatial Audio,08_Audio_Sound,127_spatial_audio,silver,SVG/08_Audio_Sound/127_spatial_audio.svg
+128,Reverb Zone,08_Audio_Sound,128_reverb_zone,gold,SVG/08_Audio_Sound/128_reverb_zone.svg
+129,Audio Bus,08_Audio_Sound,129_audio_bus,gold,SVG/08_Audio_Sound/129_audio_bus.svg
+130,Sound Cue,08_Audio_Sound,130_sound_cue,green,SVG/08_Audio_Sound/130_sound_cue.svg
+131,AI Controller,09_AI_Navigation,131_ai_controller,gold,SVG/09_AI_Navigation/131_ai_controller.svg
+132,Navigation Mesh,09_AI_Navigation,132_navigation_mesh,green,SVG/09_AI_Navigation/132_navigation_mesh.svg
+133,Pathfinding,09_AI_Navigation,133_pathfinding,green,SVG/09_AI_Navigation/133_pathfinding.svg
+134,Behavior Tree,09_AI_Navigation,134_behavior_tree,silver,SVG/09_AI_Navigation/134_behavior_tree.svg
+135,Blackboard,09_AI_Navigation,135_blackboard,silver,SVG/09_AI_Navigation/135_blackboard.svg
+136,AI Perception,09_AI_Navigation,136_ai_perception,green,SVG/09_AI_Navigation/136_ai_perception.svg
+137,Waypoint,09_AI_Navigation,137_waypoint,gold,SVG/09_AI_Navigation/137_waypoint.svg
+138,Navigation Agent,09_AI_Navigation,138_navigation_agent,blue,SVG/09_AI_Navigation/138_navigation_agent.svg
+139,Decision Node,09_AI_Navigation,139_decision_node,silver,SVG/09_AI_Navigation/139_decision_node.svg
+140,AI Debugger,09_AI_Navigation,140_ai_debugger,gold,SVG/09_AI_Navigation/140_ai_debugger.svg
+141,Console,10_Debugging_Engine_Systems,141_console,blue,SVG/10_Debugging_Engine_Systems/141_console.svg
+142,Output Log,10_Debugging_Engine_Systems,142_output_log,silver,SVG/10_Debugging_Engine_Systems/142_output_log.svg
+143,Warning,10_Debugging_Engine_Systems,143_warning,gold,SVG/10_Debugging_Engine_Systems/143_warning.svg
+144,Error,10_Debugging_Engine_Systems,144_error,red,SVG/10_Debugging_Engine_Systems/144_error.svg
+145,Success Check,10_Debugging_Engine_Systems,145_success_check,green,SVG/10_Debugging_Engine_Systems/145_success_check.svg
+146,Profiler,10_Debugging_Engine_Systems,146_profiler,silver,SVG/10_Debugging_Engine_Systems/146_profiler.svg
+147,Performance Monitor,10_Debugging_Engine_Systems,147_performance_monitor,green,SVG/10_Debugging_Engine_Systems/147_performance_monitor.svg
+148,Memory Monitor,10_Debugging_Engine_Systems,148_memory_monitor,gold,SVG/10_Debugging_Engine_Systems/148_memory_monitor.svg
+149,Plugin Manager,10_Debugging_Engine_Systems,149_plugin_manager,steel,SVG/10_Debugging_Engine_Systems/149_plugin_manager.svg
+150,Package Manager,10_Debugging_Engine_Systems,150_package_manager,gold,SVG/10_Debugging_Engine_Systems/150_package_manager.svg

@@ -48,6 +48,7 @@ add_executable(LumaTests
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp
     Slate/IconTests.cpp
+    Slate/LumaIconPackTests.cpp
     Slate/WidgetTests.cpp
     Slate/ColorPickerTests.cpp
     Slate/MenuTests.cpp

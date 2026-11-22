@@ -484,6 +484,8 @@ void Context::LogoMark(Vec2 center, f32 radius) {
 }
 
 void Context::Image(TextureHandle texture, const Rect& rect, Color tint) {
+    // Full-colour icon artwork keeps its colours; the tint only fades it.
+    if (IsFullColorTexture(texture)) tint = Color::RGBA(255, 255, 255, tint.a);
     m_draw.AddImage(texture, rect, Rect{0.0f, 0.0f, 1.0f, 1.0f}, tint);
 }
 

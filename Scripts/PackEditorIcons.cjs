@@ -15,7 +15,9 @@ async function pack() {
         const match = /^LUMA_ICON\(\w+, "([^"]+)"\)$/.exec(line);
         if (!match) throw new Error("Invalid icon source: " + line);
         const source = match[1];
-        const sourceRoot = source.startsWith("ThirdParty/") ? path.resolve(__dirname, "..") : icons;
+        // Luma icon pack sources live beside Icons/ (Content/Editor/Luma_Icons).
+        const sourceRoot = source.startsWith("ThirdParty/") ? path.resolve(__dirname, "..")
+                         : source.startsWith("Luma_Icons/") ? path.resolve(icons, "..") : icons;
         const tile = sharp(path.join(sourceRoot, source))
             .resize(cell - 2, cell - 2, { fit: "contain", background: "#00000000" })
             .ensureAlpha();
