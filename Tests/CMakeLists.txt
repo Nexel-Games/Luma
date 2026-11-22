@@ -18,6 +18,7 @@ add_executable(LumaTests
     Jobs/JobSystemTests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
+    Project/ProjectFileTests.cpp
     Serialization/SerialValueTests.cpp
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
