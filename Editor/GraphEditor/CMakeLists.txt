@@ -6,7 +6,8 @@
 add_library(LumaGraphEditor STATIC
     src/GraphMath.cpp
     src/Selection.cpp
-    src/GraphController.cpp)
+    src/GraphController.cpp
+    src/GraphEditorWidget.cpp)
 
 add_library(Luma::GraphEditor ALIAS LumaGraphEditor)
 
