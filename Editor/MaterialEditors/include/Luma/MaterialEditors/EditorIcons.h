@@ -33,7 +33,11 @@ public:
     // Loads every icon found in `directory`; returns how many loaded.
     // Monochrome icons are baked in `theme` (e.g. the editor accent).
     u32 Load(Renderer& renderer, const std::filesystem::path& directory,
-             Slate::Color theme = Slate::Color::RGB(255, 255, 255));
+             Slate::Color theme = Slate::Color::RGB(255, 255, 255)) {
+        return Load(renderer, directory, theme, theme);
+    }
+    // Vertical gradient over each icon's visible rows: `top` -> `bottom`.
+    u32 Load(Renderer& renderer, const std::filesystem::path& directory, Slate::Color top, Slate::Color bottom);
     Slate::Color Theme() const { return m_theme; }
     TextureHandle Get(EditorIcon icon) const { return m_textures[static_cast<usize>(icon)]; }
 
