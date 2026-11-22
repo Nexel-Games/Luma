@@ -1,5 +1,8 @@
 #include "Luma/MaterialEditors/EditorIcons.h"
 
+#include <algorithm>
+#include <vector>
+
 #include "Luma/Core/Log.h"
 #include "Luma/Slate/Image.h"
 
@@ -31,9 +34,21 @@ u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directo
         const std::filesystem::path file = directory / EditorIconFile(static_cast<EditorIcon>(i));
         std::error_code ec;
         if (!std::filesystem::exists(file, ec)) continue;
-        const Slate::Image image = Slate::LoadImage(renderer, file.string());
-        m_textures[i] = image.texture;
-        if (image.texture != 0) ++loaded;
+        // White silhouettes (RGB forced to white, alpha kept) so the UI can
+        // tint them: text colour at rest, accent when active.
+        u32 w = 0, h = 0;
+        std::vector<u8> pixels;
+        if (!Slate::LoadImagePixels(file.string(), w, h, pixels) || w == 0 || h == 0) continue;
+        // Luminance carves the detail: bright strokes stay white, dark
+        // outlines / shading become transparent.
+        for (usize p = 0; p + 3 < pixels.size(); p += 4) {
+            const f32 lum = (0.2126f * pixels[p] + 0.7152f * pixels[p + 1] + 0.0722f * pixels[p + 2]) / 255.0f;
+            const f32 keep = std::clamp((lum - 0.12f) / 0.45f, 0.0f, 1.0f);
+            pixels[p + 3] = static_cast<u8>(static_cast<f32>(pixels[p + 3]) * keep + 0.5f);
+            pixels[p] = pixels[p + 1] = pixels[p + 2] = 255;
+        }
+        m_textures[i] = renderer.CreateTexture(w, h, pixels.data());
+        if (m_textures[i] != 0) ++loaded;
     }
     if (loaded < m_textures.size()) {
         LUMA_LOG_WARN("MaterialEditors", "Loaded {}/{} editor icons from {}", loaded, m_textures.size(),

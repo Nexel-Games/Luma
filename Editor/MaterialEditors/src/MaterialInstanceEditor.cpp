@@ -189,7 +189,7 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
         const Rect reset{x + w - 22.0f, y + 3.0f, 20.0f, 20.0f};
         if (ui.Button(Context::ID(key + ".reset"), reset, {})) m_model.Reset(p.info.name);
         if (const TextureHandle arrow = IconTexture(m_services, EditorIcon::Reset)) {
-            ui.Image(arrow, reset.Inset(4.0f, 4.0f));  // UE's yellow "differs from default" arrow
+            ui.Image(arrow, reset.Inset(4.0f, 4.0f), t.warning);  // the "differs from parent" arrow
         } else {
             Slate::DrawIcon(ui, reset.Inset(2.0f, 2.0f), Slate::Icon::Reset, t.warning);
         }

@@ -77,7 +77,7 @@ inline bool ToolButton(Slate::Context& ui, u64 id, const Slate::Rect& r, Texture
     constexpr f32 kSize = 20.0f;
     const f32 total = kSlot + (label.empty() ? 0.0f : 6.0f + ui.uiFont().Measure(label).x);
     const f32 cx = r.x + (r.w - total) * 0.5f + kSlot * 0.5f;
-    ui.Image(texture, {cx - kSize * 0.5f, r.y + (r.h - kSize) * 0.5f, kSize, kSize});
+    ui.Image(texture, {cx - kSize * 0.5f, r.y + (r.h - kSize) * 0.5f, kSize, kSize}, tint);
     return clicked;
 }
 

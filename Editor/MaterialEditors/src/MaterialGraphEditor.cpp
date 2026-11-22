@@ -214,9 +214,6 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
         m_services.browseToAsset(m_path);
     if (button("home", 76.0f, EditorIcon::Home, Slate::Icon::Refresh, "Home", "Frame the whole graph (F frames the selection)", false))
         m_widget->RequestFrame();
-    if (button("palette", 90.0f, EditorIcon::Palette, Slate::Icon::Search, "Palette", "Palette\nShow or hide the expression palette.",
-               m_paletteVisible))
-        m_paletteVisible = !m_paletteVisible;
     if (button("live", 112.0f, EditorIcon::LiveUpdate, Slate::Icon::Play, "Live Update", "Apply every change as you edit.", liveUpdate)) {
         liveUpdate = !liveUpdate;
         if (liveUpdate && m_unapplied) Apply();

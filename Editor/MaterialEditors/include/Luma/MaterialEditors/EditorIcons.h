@@ -8,7 +8,8 @@
 
 // The material editors' toolbar / preview / details icons: PNGs from the
 // icon pack in ThirdParty/icons (staged at Content/Editor/MaterialEditor/Icons),
-// uploaded once by the host. A missing icon falls back to Slate's procedural glyph.
+// uploaded once by the host as white silhouettes the UI tints. A missing
+// icon falls back to Slate's procedural glyph.
 
 namespace Luma::MaterialEditors {
 
