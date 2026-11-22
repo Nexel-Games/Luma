@@ -33,10 +33,15 @@ struct MaterialInput {
 };
 
 struct MaterialSettings {
+    MaterialDomain domain = MaterialDomain::Surface;
     BlendMode blendMode = BlendMode::Opaque;
     ShadingModel shadingModel = ShadingModel::DefaultLit;
     bool twoSided = false;
     f32 opacityMaskClip = 0.3333f;  // Unreal's default clip value
+    TranslucencyLighting translucencyLighting = TranslucencyLighting::SurfacePerPixel;
+    RefractionMethod refraction = RefractionMethod::None;
+    PostProcessLocation ppLocation = PostProcessLocation::BeforeTonemapping;
+    i32 ppPriority = 0;  // post-process materials run in ascending priority
 };
 
 using MaterialInputs = std::array<MaterialInput, kMaterialParameterCount>;

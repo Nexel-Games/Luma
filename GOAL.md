@@ -646,11 +646,28 @@ details/properties + preview, compiled into `EvaluateMaterial`.
 - [ ] Node canvas — nodes, drag-move, select, pan/zoom
 - [ ] Searchable node palette (right-click canvas) → add node at cursor
 - [ ] Pin wiring — drag wire, type-checked connects, Bézier links
-- [ ] Graph → GLSL compiler generating `EvaluateMaterial`; graph in `.lmat`
+- [x] Graph → GLSL compiler (`Luma::MaterialCompiler`): typed chunks, constant
+      folding, CPU preshaders for uniform expressions, static-switch permutations,
+      functions + parameter collections, per-pass GLSL from templates; graph in
+      `.lmat` v4 (v3 migrates on load). Runtime GLSL → SPIR-V via
+      `Luma::ShaderCompiler` (shaderc, async, disk cache). Rendered through
+      per-material pipelines in G-buffer, shadows, selection, forward
+      translucency (refraction) and post-process; shading models DefaultLit,
+      Unlit, Subsurface, Clear Coat, Two-Sided Foliage. Editor bridge compiles in
+      the background, keeps the last good shaders on error, instance edits are
+      parameter-only. _(2026-11-22, plan `2026-11-20-material-graph-compiler`)_
+- [ ] Parameters/settings/errors panel + Content Browser create menus for
+      Material Functions / Parameter Collections (waiting on in-flight UI work)
+- [ ] Node graph editor (Unreal-style: generic `Editor/GraphEditor` module +
+      Material Editor + Material Instance Editor) — next project
 - **DoD:** edit a material graph in the dock, see live preview, save/reload `.lmat`
   without leaving the editor.
 - **Log:** _2026-11-20 — Phase 1 (instance-style editor) shipped with the PBR
   material system; node graph is the next project._
+  _2026-11-22 — material graph compiler + compiled-material renderer landed
+  (graph materials render everywhere; Phase-1 showcase previews match their
+  goldens). Open: decals, UI, light functions, volumes, cloth/hair/eye
+  shading; the visual graph editor (next)._
 
 ---
 ---

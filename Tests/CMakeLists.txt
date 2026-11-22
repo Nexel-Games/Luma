@@ -14,6 +14,18 @@ add_executable(LumaTests
     Core/ApplicationTests.cpp
     Core/MemoryTests.cpp
     Jobs/JobSystemTests.cpp
+    Material/GraphTests.cpp
+    Material/ExpressionRegistryTests.cpp
+    Material/MaterialAssetsV4Tests.cpp
+    Material/CompilerCoreTests.cpp
+    Material/ExpressionCompileTests.cpp
+    Material/PreshaderTests.cpp
+    Material/FunctionCompileTests.cpp
+    Material/CompileCoverageTests.cpp
+    Rendering/ShaderCompilerTests.cpp
+    Rendering/VulkanMaterialLayoutTests.cpp
+    Rendering/MaterialRenderTests.cpp
+    Material/MaterialMigrationV4Tests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
     Serialization/SerialValueTests.cpp
@@ -81,7 +93,7 @@ add_executable(LumaTests
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::MaterialCompiler Luma::ShaderCompiler Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 
@@ -96,7 +108,10 @@ add_test(NAME LumaPreferencesTests COMMAND LumaPreferencesTests)
 add_test(NAME LumaTests COMMAND LumaTests)
 
 target_compile_definitions(LumaTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(LumaTests PRIVATE
+    LUMA_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"
+    LUMA_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/shaders")
 
 # Backend tests drive the Vulkan module's internal classes on a real device.
 target_include_directories(LumaTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
-target_link_libraries(LumaTests PRIVATE Vulkan::Vulkan)
+target_link_libraries(LumaTests PRIVATE Vulkan::Vulkan Luma::Renderer)

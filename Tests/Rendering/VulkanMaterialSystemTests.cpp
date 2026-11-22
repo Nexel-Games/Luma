@@ -1,9 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <bit>
 #include <vector>
 
 #include "VulkanTestFixture.h"
 #include "Luma/Mesh/Mesh.h"
+#include "Vulkan/Materials/VulkanMaterialLayout.h"
+#include "Vulkan/Materials/VulkanMaterialPipelines.h"
 #include "Vulkan/Materials/VulkanMaterialSystem.h"
 #include "Vulkan/Meshes/VulkanMeshCache.h"
 #include "Vulkan/Textures/VulkanTextureCache.h"
@@ -21,80 +24,87 @@ GpuTextureHandle UploadWhite(VulkanTextureCache& cache, u64 key) {
     return cache.Upload(key, d);
 }
 
-usize Slot(GpuMaterialInput p) { return static_cast<usize>(p); }
+struct MaterialRig {
+    VulkanTestFixture f;
+    VulkanTextureCache textures{f.Physical(), f.Logical(), f.Queue(), f.QueueFamily()};
+    VulkanMaterialLayout layout{f.Physical(), f.Logical(), textures.Layout()};
+    VulkanMaterialPipelines pipelines{f.Logical(), layout.PipelineLayout()};
+    VulkanMaterialSystem materials{pipelines};
+};
+
+MaterialParameterBlock Block(std::initializer_list<Math::Vec4> values) {
+    MaterialParameterBlock b;
+    b.values = values;
+    return b;
+}
 
 }  // namespace
 
 TEST_CASE("Material system keeps a handle per key", "[vulkan][material]") {
-    VulkanTestFixture f;
-    VulkanTextureCache textures(f.Physical(), f.Logical(), f.Queue(), f.QueueFamily());
-    VulkanMaterialSystem materials(f.Physical(), f.Logical());
-    REQUIRE(materials.IsValid());
-
-    MaterialGpuDesc desc = MakeDefaultMaterialGpuDesc();
-    const MaterialHandle a = materials.Update(100, desc, textures);
-    desc.inputs[Slot(GpuMaterialInput::Roughness)].constant = {0.9f, 0.9f, 0.9f, 0.9f};
-    CHECK(materials.Update(100, desc, textures) == a);
-    CHECK(materials.Entry(a).inputs[Slot(GpuMaterialInput::Roughness)].constant[0] == 0.9f);
-
-    const MaterialHandle b = materials.Update(200, desc, textures);
+    MaterialRig r;
+    REQUIRE(r.layout.IsValid());
+    CompiledMaterialGpu m;
+    m.shaderKey = 7;
+    const MaterialHandle a = r.materials.Update(100, m, Block({{1, 2, 3, 4}}));
+    CHECK(r.materials.Update(100, m, Block({{5, 6, 7, 8}})) == a);
+    const MaterialHandle b = r.materials.Update(200, m, Block({}));
     CHECK(b != a);
-    CHECK(materials.Index(a) != materials.Index(b));
     CHECK(a != kDefaultMaterialHandle);
-    CHECK(materials.Update(kDefaultMaterialKey, desc, textures) == kDefaultMaterialHandle);
+    CHECK(r.materials.Update(kDefaultMaterialKey, m, Block({})) == kDefaultMaterialHandle);
+    CHECK(r.f.ValidationErrors().empty());
 }
 
 TEST_CASE("Material system reuses released entries", "[vulkan][material]") {
-    VulkanTestFixture f;
-    VulkanTextureCache textures(f.Physical(), f.Logical(), f.Queue(), f.QueueFamily());
-    VulkanMaterialSystem materials(f.Physical(), f.Logical());
-    const MaterialGpuDesc desc = MakeDefaultMaterialGpuDesc();
-    const MaterialHandle a = materials.Update(1, desc, textures);
-    const u32 index = materials.Index(a);
-    materials.Release(a);
-    const MaterialHandle b = materials.Update(2, desc, textures);
-    CHECK(materials.Index(b) == index);
+    MaterialRig r;
+    const CompiledMaterialGpu m;
+    const MaterialHandle a = r.materials.Update(1, m, Block({}));
+    r.materials.Release(a);
+    CHECK(r.materials.Update(2, m, Block({})) == a);
     // The Default Material can never be released.
-    materials.Release(kDefaultMaterialHandle);
-    CHECK(materials.Update(3, desc, textures) != kDefaultMaterialHandle);
+    r.materials.Release(kDefaultMaterialHandle);
+    CHECK(r.materials.Update(3, m, Block({})) != kDefaultMaterialHandle);
 }
 
-TEST_CASE("Material texture indices follow the selected view", "[vulkan][material]") {
-    VulkanTestFixture f;
-    VulkanTextureCache textures(f.Physical(), f.Logical(), f.Queue(), f.QueueFamily());
-    VulkanMaterialSystem materials(f.Physical(), f.Logical());
-    const GpuTextureHandle tex = UploadWhite(textures, 9);
-    REQUIRE(tex != kInvalidHandle);
+TEST_CASE("Flush packs every block at its own offset", "[vulkan][material]") {
+    MaterialRig r;
+    const CompiledMaterialGpu m;
+    const MaterialHandle a = r.materials.Update(1, m, Block({{1, 1, 1, 1}, {2, 2, 2, 2}}));
+    const MaterialHandle b = r.materials.Update(2, m, Block({{3, 3, 3, 3}}));
+    r.layout.BeginFrame(0);
+    r.materials.Flush(r.layout, r.textures);
+    const auto params = r.layout.PendingParams();
+    const u32 oa = r.materials.ParamOffset(a), ob = r.materials.ParamOffset(b);
+    CHECK(oa != ob);
+    CHECK(params[oa].x == 1.0f);
+    CHECK(params[oa + 1].x == 2.0f);
+    CHECK(params[ob].x == 3.0f);
+    // Parameter-only edits land on the next flush.
+    r.materials.UpdateParameters(b, Block({{9, 9, 9, 9}}));
+    r.layout.BeginFrame(1);
+    r.materials.Flush(r.layout, r.textures);
+    CHECK(r.layout.PendingParams()[r.materials.ParamOffset(b)].x == 9.0f);
+    CHECK(r.layout.EndFrame());
+    CHECK(r.f.ValidationErrors().empty());
+}
 
-    MaterialGpuDesc desc = MakeDefaultMaterialGpuDesc();
-    auto& base = desc.inputs[Slot(GpuMaterialInput::BaseColor)];
-    base.texture = tex;
-    base.view = GpuTextureView::SRGB;
-    auto& normal = desc.inputs[Slot(GpuMaterialInput::Normal)];
-    normal.texture = tex;
-    normal.view = GpuTextureView::Linear;
-    normal.flipGreen = true;
-    const MaterialHandle h = materials.Update(5, desc, textures);
-
-    const GpuMaterial& gpu = materials.Entry(h);
-    const auto& gb = gpu.inputs[Slot(GpuMaterialInput::BaseColor)];
-    const auto& gn = gpu.inputs[Slot(GpuMaterialInput::Normal)];
-    CHECK(gb.texIndex == textures.BindlessIndex(tex, GpuTextureView::SRGB));
-    CHECK(gn.texIndex == textures.BindlessIndex(tex, GpuTextureView::Linear));
-    CHECK((gb.flags & GpuMaterial::kHasTexture) != 0);
-    CHECK((gn.flags & GpuMaterial::kFlipGreen) != 0);
-    CHECK((gpu.inputs[Slot(GpuMaterialInput::Roughness)].flags & GpuMaterial::kHasTexture) == 0);
-
-    // A released texture's slot is reused, but the stale handle no longer
-    // resolves to it: the material falls back to white on the next flush.
-    textures.Release(tex);
-    textures.CollectGarbage();
-    const GpuTextureHandle other = UploadWhite(textures, 10);
-    CHECK(other != tex);
-    materials.Flush(0, textures);
-    CHECK(materials.Entry(h).inputs[Slot(GpuMaterialInput::BaseColor)].texIndex ==
-          textures.BindlessIndex(kInvalidHandle, GpuTextureView::SRGB));
-    CHECK(f.ValidationErrors().empty());
+TEST_CASE("Texture slots receive image, sampler and bound bits", "[vulkan][material]") {
+    MaterialRig r;
+    const GpuTextureHandle tex = UploadWhite(r.textures, 5);
+    CompiledMaterialGpu m;
+    GpuTextureBinding binding;
+    binding.slot = 1;
+    binding.texture = tex;
+    binding.srgb = true;
+    binding.sampler = GpuSamplerIndex(GpuSamplerFilter::Nearest, GpuSamplerAddress::Clamp);
+    m.textures.push_back(binding);
+    const MaterialHandle h = r.materials.Update(9, m, Block({{0.5f, 0, 0, 0}, {0, 0, 0, 0}}));
+    r.layout.BeginFrame(0);
+    r.materials.Flush(r.layout, r.textures);
+    const Math::Vec4 slot = r.layout.PendingParams()[r.materials.ParamOffset(h) + 1];
+    CHECK(std::bit_cast<u32>(slot.x) == r.textures.BindlessIndex(tex, GpuTextureView::SRGB));
+    CHECK(std::bit_cast<u32>(slot.y) == 4u);
+    CHECK(std::bit_cast<u32>(slot.z) == 1u);
+    CHECK(r.layout.PendingParams()[r.materials.ParamOffset(h)].x == 0.5f);
 }
 
 TEST_CASE("Mesh cache uploads sections", "[vulkan][material]") {
@@ -129,22 +139,3 @@ TEST_CASE("Mesh cache rejects out-of-range indices", "[vulkan][material]") {
     CHECK(meshes.Upload(2, MeshData{}) == kInvalidHandle);
 }
 
-TEST_CASE("Material table carries invert and the detail-map strengths", "[vulkan][material]") {
-    VulkanTestFixture f;
-    VulkanTextureCache textures(f.Physical(), f.Logical(), f.Queue(), f.QueueFamily());
-    VulkanMaterialSystem materials(f.Physical(), f.Logical());
-    const GpuTextureHandle tex = UploadWhite(textures, 3);
-    MaterialGpuDesc desc = MakeDefaultMaterialGpuDesc();
-    auto& rough = desc.inputs[Slot(GpuMaterialInput::Roughness)];
-    rough.texture = tex;
-    rough.invert = true;
-    auto& height = desc.inputs[Slot(GpuMaterialInput::Height)];
-    height.texture = tex;
-    height.normalStrength = 0.07f;
-    const MaterialHandle h = materials.Update(11, desc, textures);
-    const GpuMaterial& gpu = materials.Entry(h);
-    CHECK((gpu.inputs[Slot(GpuMaterialInput::Roughness)].flags & GpuMaterial::kInvert) != 0);
-    CHECK(gpu.inputs[Slot(GpuMaterialInput::Height)].scalar == 0.07f);
-    CHECK(gpu.inputs[Slot(GpuMaterialInput::Cavity)].constant[0] == 1.0f);
-    CHECK(kMaterialGpuInputCount == 11);
-}
