@@ -137,6 +137,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "font init failed\n");
         return 1;
     }
+    ui.drawList().SetAntiAliased(true);  // smooth edges everywhere
     const TextureHandle standIn = MakeStandInPreview(*renderer);
     // The real preview scene when the Vulkan material renderer exists.
     std::unique_ptr<MaterialPreview> gpuPreview;

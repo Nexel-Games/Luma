@@ -89,6 +89,7 @@ add_executable(LumaTests
     GraphEditor/GraphControllerTests.cpp
     GraphEditor/GraphEditorWidgetTests.cpp
     GraphEditor/GraphPaletteTests.cpp
+    GraphEditor/DrawListAntiAliasTests.cpp
     VFS/PathTests.cpp
     VFS/VFSTests.cpp
     VFS/FileWatcherTests.cpp

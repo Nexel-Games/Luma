@@ -86,6 +86,10 @@ void DrawList::AddRectFilled(const Rect& rect, Color color) {
 
 void DrawList::AddConvexPolyFilled(const Vec2* points, int count, Color color) {
     if (count < 3) return;
+    if (m_antiAliased) {
+        FillConvexAA(points, count, color);
+        return;
+    }
     EnsureCommand(0);
     u32 base = static_cast<u32>(m_vertices.size());
     u32 packed = color.Packed();
@@ -105,6 +109,12 @@ void DrawList::AddRectFilledRounded(const Rect& rect, Color color,
     f32 r = std::min(radius, std::min(rect.w, rect.h) * 0.5f);
     if (r <= 0.75f) {
         AddRectFilled(rect, color);
+        return;
+    }
+    if (m_antiAliased) {
+        std::vector<Vec2> path;
+        RoundedRectPath(rect, r, path);
+        FillConvexAA(path.data(), static_cast<int>(path.size()), color);
         return;
     }
     constexpr int kSeg = 5;  // points per corner arc
@@ -158,6 +168,11 @@ void DrawList::AddRectFilledGradientH(const Rect& rect, Color left,
 }
 
 void DrawList::AddTriangle(Vec2 a, Vec2 b, Vec2 c, Color color) {
+    if (m_antiAliased) {
+        const Vec2 pts[3] = {a, b, c};
+        FillConvexAA(pts, 3, color);
+        return;
+    }
     EnsureCommand(0);
     u32 base = static_cast<u32>(m_vertices.size());
     u32 packed = color.Packed();
@@ -183,6 +198,12 @@ void DrawList::AddRectOutlineRounded(const Rect& rect, Color color,
     f32 r = std::min(radius, std::min(rect.w, rect.h) * 0.5f);
     if (r <= 0.75f) {
         AddRectOutline(rect, color, t);
+        return;
+    }
+    if (m_antiAliased) {
+        std::vector<Vec2> path;
+        RoundedRectPath(rect, r, path);
+        StrokeAA(path.data(), static_cast<int>(path.size()), true, color, t);
         return;
     }
     f32 halfT = t * 0.5f;
@@ -252,6 +273,11 @@ void DrawList::AddLine(Vec2 a, Vec2 b, Color color, f32 thickness) {
                       color);
         return;
     }
+    if (m_antiAliased) {
+        const Vec2 pts[2] = {a, b};
+        StrokeAA(pts, 2, false, color, thickness);
+        return;
+    }
     // Rotated quad: four corners around the line.
     Vec2 n{-delta.y / len, delta.x / len};
     f32 h = thickness * 0.5f;
@@ -266,6 +292,7 @@ void DrawList::AddLine(Vec2 a, Vec2 b, Color color, f32 thickness) {
 void DrawList::AddCircleFilled(Vec2 center, f32 radius, Color color,
                                int segments) {
     if (segments < 3) segments = 3;
+    if (m_antiAliased) segments = std::max(segments, std::clamp(static_cast<int>(radius * 1.5f), 12, 64));
     std::vector<Vec2> pts(static_cast<usize>(segments));
     for (int i = 0; i < segments; ++i) {
         f32 a = (static_cast<f32>(i) / segments) * kPi * 2.0f;
@@ -344,6 +371,126 @@ const UIDrawData& DrawList::Build() {
     m_data.displayWidth = m_displayWidth;
     m_data.displayHeight = m_displayHeight;
     return m_data;
+}
+
+// --- Anti-aliasing ---------------------------------------------------------
+
+namespace {
+Vec2 Normalized(Vec2 v) {
+    const f32 l = std::sqrt(v.x * v.x + v.y * v.y);
+    return l > 1e-6f ? Vec2{v.x / l, v.y / l} : Vec2{0.0f, 0.0f};
+}
+// Per-vertex outward normals (miter, clamped) of a polygon / polyline.
+void VertexNormals(const Vec2* p, int n, bool closed, std::vector<Vec2>& out) {
+    // Outward = away from the centroid (shapes here are convex or nearly).
+    Vec2 c{0.0f, 0.0f};
+    for (int i = 0; i < n; ++i) c = {c.x + p[i].x, c.y + p[i].y};
+    c = {c.x / static_cast<f32>(n), c.y / static_cast<f32>(n)};
+    std::vector<Vec2> edge(static_cast<usize>(n));
+    const int edges = closed ? n : n - 1;
+    for (int i = 0; i < edges; ++i) {
+        const Vec2 a = p[i], b = p[(i + 1) % n];
+        Vec2 en = Normalized({b.y - a.y, -(b.x - a.x)});
+        const Vec2 mid{(a.x + b.x) * 0.5f - c.x, (a.y + b.y) * 0.5f - c.y};
+        if (closed && en.x * mid.x + en.y * mid.y < 0.0f) en = {-en.x, -en.y};
+        edge[static_cast<usize>(i)] = en;
+    }
+    out.resize(static_cast<usize>(n));
+    for (int i = 0; i < n; ++i) {
+        Vec2 e0, e1;
+        if (closed) {
+            e0 = edge[static_cast<usize>((i + n - 1) % n)];
+            e1 = edge[static_cast<usize>(i)];
+        } else {
+            e0 = edge[static_cast<usize>(std::max(i - 1, 0))];
+            e1 = edge[static_cast<usize>(std::min(i, n - 2))];
+        }
+        Vec2 v = Normalized({e0.x + e1.x, e0.y + e1.y});
+        const f32 d = std::max(v.x * e1.x + v.y * e1.y, 0.35f);  // miter, clamped
+        out[static_cast<usize>(i)] = {v.x / d, v.y / d};
+    }
+}
+}  // namespace
+
+void DrawList::FillConvexAA(const Vec2* p, int n, Color color) {
+    if (n < 3) return;
+    std::vector<Vec2> nrm;
+    VertexNormals(p, n, true, nrm);
+    EnsureCommand(0);
+    const u32 base = static_cast<u32>(m_vertices.size());
+    const u32 solid = color.Packed(), clear = color.WithAlpha(0).Packed();
+    for (int i = 0; i < n; ++i) {
+        const Vec2 v = nrm[static_cast<usize>(i)];
+        m_vertices.push_back({p[i].x - v.x * 0.5f, p[i].y - v.y * 0.5f, 0.5f, 0.5f, solid});  // core
+        m_vertices.push_back({p[i].x + v.x * 0.5f, p[i].y + v.y * 0.5f, 0.5f, 0.5f, clear});  // fringe
+    }
+    u32 count = 0;
+    for (int i = 1; i < n - 1; ++i) {
+        m_indices.insert(m_indices.end(), {base, base + 2u * static_cast<u32>(i), base + 2u * static_cast<u32>(i + 1)});
+        count += 3;
+    }
+    for (int i = 0; i < n; ++i) {
+        const u32 a = base + 2u * static_cast<u32>(i), b = base + 2u * static_cast<u32>((i + 1) % n);
+        m_indices.insert(m_indices.end(), {a, b, b + 1, b + 1, a + 1, a});
+        count += 6;
+    }
+    m_commands.back().indexCount += count;
+}
+
+void DrawList::StrokeAA(const Vec2* p, int n, bool closed, Color color, f32 thickness) {
+    if (n < 2) return;
+    std::vector<Vec2> nrm;
+    if (closed) {
+        VertexNormals(p, n, true, nrm);
+    } else {
+        // Open polyline: plain segment normals (miter at joints).
+        nrm.resize(static_cast<usize>(n));
+        for (int i = 0; i < n; ++i) {
+            const Vec2 a = p[std::max(i - 1, 0)], b = p[std::min(i + 1, n - 1)];
+            nrm[static_cast<usize>(i)] = Normalized({b.y - a.y, -(b.x - a.x)});
+        }
+    }
+    // Thin strokes fade instead of shrinking below a pixel.
+    const f32 core = std::max(thickness * 0.5f - 0.5f, 0.0f);
+    const f32 fade = std::clamp(thickness, 0.0f, 1.0f);
+    const Color c = color.WithAlpha(static_cast<u8>(color.a * fade));
+    const u32 solid = c.Packed(), clear = c.WithAlpha(0).Packed();
+    EnsureCommand(0);
+    const u32 base = static_cast<u32>(m_vertices.size());
+    for (int i = 0; i < n; ++i) {
+        const Vec2 v = nrm[static_cast<usize>(i)];
+        const Vec2 q = p[i];
+        m_vertices.push_back({q.x + v.x * (core + 1.0f), q.y + v.y * (core + 1.0f), 0.5f, 0.5f, clear});
+        m_vertices.push_back({q.x + v.x * core, q.y + v.y * core, 0.5f, 0.5f, solid});
+        m_vertices.push_back({q.x - v.x * core, q.y - v.y * core, 0.5f, 0.5f, solid});
+        m_vertices.push_back({q.x - v.x * (core + 1.0f), q.y - v.y * (core + 1.0f), 0.5f, 0.5f, clear});
+    }
+    const int segs = closed ? n : n - 1;
+    u32 count = 0;
+    for (int i = 0; i < segs; ++i) {
+        const u32 a = base + 4u * static_cast<u32>(i), b = base + 4u * static_cast<u32>((i + 1) % n);
+        for (u32 band = 0; band < 3; ++band) {
+            m_indices.insert(m_indices.end(), {a + band, b + band, b + band + 1, b + band + 1, a + band + 1, a + band});
+            count += 6;
+        }
+    }
+    m_commands.back().indexCount += count;
+}
+
+void DrawList::RoundedRectPath(const Rect& rect, f32 radius, std::vector<Vec2>& out) {
+    const f32 r = std::min(radius, std::min(rect.w, rect.h) * 0.5f);
+    const int seg = std::clamp(static_cast<int>(r * 0.6f) + 3, 4, 16);  // smoother for big radii
+    const Vec2 centres[4] = {{rect.x + r, rect.y + r},
+                             {rect.Right() - r, rect.y + r},
+                             {rect.Right() - r, rect.Bottom() - r},
+                             {rect.x + r, rect.Bottom() - r}};
+    const f32 start[4] = {kPi, kPi * 1.5f, 0.0f, kPi * 0.5f};
+    out.clear();
+    for (int c = 0; c < 4; ++c)
+        for (int i = 0; i <= seg; ++i) {
+            const f32 a = start[c] + kPi * 0.5f * static_cast<f32>(i) / static_cast<f32>(seg);
+            out.push_back({centres[c].x + std::cos(a) * r, centres[c].y + std::sin(a) * r});
+        }
 }
 
 }  // namespace Luma::Slate
