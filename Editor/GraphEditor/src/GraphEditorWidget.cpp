@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 
 #include "Luma/Slate/Menu.h"
@@ -274,7 +275,7 @@ void GraphEditorWidget::DrawValueEditor(Context& ui) {
     r.h = std::max(r.h, ui.uiFont().LineHeight() + 4.0f);
     r.y = m_editing->rect.y + (m_editing->rect.h - r.h) * 0.5f;
     if (m_editAge == 0) ui.FocusField(id, m_editText.size());
-    ui.drawList().AddRectOutlineRounded(r.Inset(-2.0f, -2.0f), t.accent, 1.5f, 3.0f);
+    (void)t;
     ui.TextField(id, r, m_editText);
     ++m_editAge;
     if (ui.keyEscape()) {
@@ -556,14 +557,29 @@ void GraphEditorWidget::HandleInput(Context& ui, const Rect& rect, const std::ve
                 }
             }
         }
-        if (ui.mousePressed(0) && !m_editing) {
-            for (const ValueBox& b : m_valueBoxes) {
-                if (!b.rect.Contains(mouse)) continue;
-                m_editing = b;
-                m_editText = b.value;
-                m_editAge = 0;
+        // Value boxes: hover shows the scrub cursor; press = click-to-type or drag-to-scrub.
+        for (const ValueBox& b : m_valueBoxes) {
+            if (!b.rect.Contains(mouse)) continue;
+            char* end = nullptr;
+            const f32 v = std::strtof(b.value.c_str(), &end);
+            const bool scalar = end != b.value.c_str() && b.value.find(',') == std::string::npos;
+            if (scalar) ui.RequestCursor(CursorShape::ResizeEW);
+            if (ui.mousePressed(0)) {
+                m_scrubBox = b;
+                m_scrubStart = m_scrubValue = scalar ? v : 0.0f;
+                m_pressScreen = mouse;
+                m_pressButton = 0;
+                m_lastMouse = mouse;
+                m_mode = Mode::ValuePress;
+                if (!scalar) {  // vectors: type them
+                    m_mode = Mode::None;
+                    m_editing = b;
+                    m_editText = b.value;
+                    m_editAge = 0;
+                }
                 return;
             }
+            break;
         }
         for (int button : {0, 1, 2}) {
             if (!ui.mousePressed(button)) continue;
@@ -684,6 +700,38 @@ void GraphEditorWidget::HandleInput(Context& ui, const Rect& rect, const std::ve
                 if (m_controller.onSelectionChanged) m_controller.onSelectionChanged();
             }
             if (!down) m_mode = Mode::None;
+            break;
+        }
+        case Mode::ValuePress:
+            if (down && std::fabs(mouse.x - m_pressScreen.x) > kDragThreshold) {
+                m_mode = Mode::Scrubbing;
+                m_scrubBefore = m_controller.Model().Snapshot();
+            } else if (!down) {
+                // A click: type the value instead.
+                m_mode = Mode::None;
+                m_editing = m_scrubBox;
+                m_editText = m_scrubBox.value;
+                m_editAge = 0;
+            }
+            break;
+        case Mode::Scrubbing: {
+            ui.RequestCursor(CursorShape::ResizeEW);
+            // 0.01 per pixel (Shift x10, Ctrl x0.1), like the Details spin boxes.
+            const f32 speed = 0.01f * (ui.shiftDown() ? 10.0f : 1.0f) * (ui.ctrlDown() ? 0.1f : 1.0f);
+            if (delta.x != 0.0f) {
+                m_scrubValue += delta.x * speed;
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%.4g", m_scrubValue);
+                if (m_controller.Model().SetInlineValue(m_scrubBox.pin, buf) && m_controller.onChanged)
+                    m_controller.onChanged();  // live preview while dragging
+            }
+            if (!down) {
+                if (m_scrubBefore && m_scrubValue != m_scrubStart) {
+                    m_controller.History().Push("Edit Value", std::move(*m_scrubBefore), m_controller.Model().Snapshot());
+                }
+                m_scrubBefore.reset();
+                m_mode = Mode::None;
+            }
             break;
         }
         case Mode::None: break;

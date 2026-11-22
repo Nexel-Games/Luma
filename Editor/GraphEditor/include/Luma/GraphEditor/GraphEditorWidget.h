@@ -68,7 +68,7 @@ public:
     bool Hovered() const { return m_hovered; }
 
 private:
-    enum class Mode : u8 { None, Pressing, Panning, Moving, Linking, Marquee, Resizing };
+    enum class Mode : u8 { None, Pressing, Panning, Moving, Linking, Marquee, Resizing, ValuePress, Scrubbing };
 
     struct Hit {
         std::optional<PinKey> pin;
@@ -121,6 +121,11 @@ private:
     };
     std::vector<ValueBox> m_valueBoxes;
     std::optional<ValueBox> m_editing;
+    // Value scrubbing (drag a numeric box left / right).
+    ValueBox m_scrubBox;
+    f32 m_scrubStart = 0.0f;
+    f32 m_scrubValue = 0.0f;
+    std::optional<std::any> m_scrubBefore;
     std::string m_editText;
     int m_editAge = 0;
     void DrawValueEditor(Slate::Context& ui);

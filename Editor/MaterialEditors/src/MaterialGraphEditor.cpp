@@ -264,7 +264,7 @@ void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& panel) {
     const Slate::Theme& t = ui.theme();
     // A left margin eases the image off the panel edge (no frame).
     ui.Panel(panel, t.panelBg);
-    const Rect area{panel.x + 8.0f, panel.y, panel.w - 8.0f, panel.h};
+    const Rect area{panel.x + 3.0f, panel.y, panel.w - 3.0f, panel.h};
     ui.Panel(area, t.recessed);
     if (area.Contains(ui.mouse()) && ui.mousePressed(0)) m_orbiting = true;
     if (!ui.isMouseDown(0)) m_orbiting = false;
