@@ -7,7 +7,7 @@
 #include "Luma/RHI/Renderer.h"
 
 // The material editors' toolbar / preview / details icons: PNGs from the
-// icon pack in ThirdParty/icons (staged at Content/Editor/MaterialEditor/Icons),
+// Godot editor icons (ThirdParty/godot-icons, MIT) (staged at Content/Editor/MaterialEditor/Icons),
 // uploaded once by the host as white silhouettes the UI tints. A missing
 // icon falls back to Slate's procedural glyph.
 
