@@ -546,17 +546,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             Slate::DragPayload payload;
             payload.sourcePath = a->packagePath.string();
             payload.label = a->assetName;
-            if (a->IsFolder()) {
-                payload.type = "asset/folder";
-            } else if (a->type == AssetType::Texture) {
-                payload.type = "asset/texture";
-            } else if (a->type == AssetType::Mesh) {
-                payload.type = "asset/mesh";
-            } else if (a->type == AssetType::Material || a->type == AssetType::MaterialInstance) {
-                payload.type = "asset/material";
-            } else {
-                payload.type = "asset/file";
-            }
+            payload.type = desc->dragType;
             if (!a->IsFolder() && ctx.virtualPathOf) payload.data = ctx.virtualPathOf(a->packagePath);
             if (payload.data.empty()) payload.data = payload.sourcePath;
             if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {
@@ -645,8 +635,6 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             Rect thumbImg = thumb.Inset(2.0f, 2.0f);
             ui.Image(thumbTex, thumbImg);
         } else {
-            Slate::Icon icon = isFolder ? Icon::Folder
-                                         : IconByName(desc->icon);
             Slate::Color iconColor = isFolder
                                          ? Slate::Color{255, 178, 92, 255}
                                          : t.textDim;
@@ -659,7 +647,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             } else if (isFolder && m_texFolder) {
                 ui.Image(m_texFolder, iconR, iconColor);
             } else {
-                Slate::DrawIcon(ui, iconR, icon, iconColor);
+                DrawNamedIcon(ui, iconR, desc->icon, iconColor);
             }
         }
 
@@ -1092,20 +1080,16 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
         ctx.virtualPathOf && !isFolder ? ctx.virtualPathOf(path) : std::string{};
     const auto desc = Describe(asset);
     if (desc->open) {
-        b.AddEntry("Open", MenuIconByName(desc->icon), [id = desc->id, path] {
-            if (auto current = AssetTypes().Find(id); current && current->open) current->open(path);
-        });
+        AssetOpenContext openContext;
+        if (ctx.onOpenAsset && !virtualPath.empty())
+            openContext.openMaterial = [open = ctx.onOpenAsset, virtualPath](const auto&) { open(virtualPath); };
+        Slate::MenuEntryOptions options;
+        options.enabled = !isMaterial || static_cast<bool>(openContext.openMaterial);
+        b.AddEntry("Open", MenuIconByName(desc->icon), [id = desc->id, path, openContext] {
+            if (auto current = AssetTypes().Find(id); current && current->open) current->open(path, openContext);
+        }, options);
     }
     if (isMaterial && !virtualPath.empty()) {
-        auto open = ctx.onOpenAsset;
-        Slate::MenuEntryOptions o;
-        o.enabled = static_cast<bool>(open);
-        o.tooltip = "Open in the Material Editor.";
-        b.AddEntry("Open", Icon::FolderOpen,
-                   [open, virtualPath] {
-                       if (open) open(virtualPath);
-                   },
-                   o);
         auto create = ctx.onCreateMaterialInstance;
         Slate::MenuEntryOptions oi;
         oi.enabled = static_cast<bool>(create);

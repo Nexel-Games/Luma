@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Luma/Scene/Scene.h"
+#include "Luma/Serialization/SerialValue.h"
 
 // Saves/loads a Scene to Luma's JSON scene format. The document is:
 //
@@ -46,6 +47,10 @@ class SceneSerializer {
 public:
     static constexpr int kVersion = 3;
 
+    // Shared component representation for scene files and detached actor subtrees.
+    static SerialValue WriteComponents(const Scene& scene, Entity entity, SerialValue& owners);
+    static void ReadComponents(Scene& scene, Entity entity, const SerialValue& components,
+                               const SerialValue* owners);
     static std::string SaveToString(const Scene& scene, bool pretty = true);
     static bool LoadFromString(Scene& scene, std::string_view json,
                                std::string* outError = nullptr,

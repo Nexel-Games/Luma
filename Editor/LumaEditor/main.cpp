@@ -27,10 +27,6 @@
 #include "Luma/VFS/VFS.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
-#include "Luma/Asset/SoundThumbnailRenderer.h"
-#include "Luma/Asset/TextureThumbnailRenderer.h"
-#include "Luma/Asset/MeshThumbnailRenderer.h"
-#include "Luma/Asset/MaterialThumbnailRenderer.h"
 
 #include "EditorScreen.h"
 #include "Luma/Jobs/JobSystem.h"
@@ -192,26 +188,7 @@ int main(int argc, char** argv) {
     rc.vsync = true;
     std::unique_ptr<Renderer> renderer = CreateVulkanRenderer(*window, rc);
 
-    // Initialize thumbnail system (after renderer is ready for GPU rendering)
-    {
-        auto& thumbnailMgr = Luma::ThumbnailManager::Get();
-        thumbnailMgr.Initialize();
-        
-        // Register thumbnail renderers
-        thumbnailMgr.RegisterRenderer(Luma::AssetType::Texture, 
-                                     std::make_unique<Luma::TextureThumbnailRenderer>());
-        
-        // Mesh and material thumbnails render on the GPU through the
-        // editor's preview scene (EditorScreen installs the render callback).
-        thumbnailMgr.RegisterRenderer(Luma::AssetType::Mesh,
-                                     std::make_unique<Luma::MeshThumbnailRenderer>());
-        thumbnailMgr.RegisterRenderer(Luma::AssetType::Material,
-                                     std::make_unique<Luma::MaterialThumbnailRenderer>());
-        thumbnailMgr.RegisterRenderer(Luma::AssetType::Sound,
-                                     std::make_unique<Luma::SoundThumbnailRenderer>());
-        
-        LUMA_LOG_INFO("Editor", "Thumbnail system initialized with {} renderers", 4);
-    }
+    ThumbnailManager::Get().Initialize();
 
     // Fonts: Red Hat Display (variable font) is the primary UI family. The variable font
     // supports multiple weights through a single file. We'll use the same variable font

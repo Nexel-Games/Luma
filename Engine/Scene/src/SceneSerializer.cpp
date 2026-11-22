@@ -53,11 +53,13 @@ void MigrateDocument(SerialValue& root, i64 fromVersion) {
     root["version"] = static_cast<i64>(SceneSerializer::kVersion);
 }
 
+}  // namespace
+
 // Writes one entity's components: in the order of the file it was loaded from
 // (when it carries preserved payloads), then any remaining registered components
 // in registration order, then any remaining preserved payloads.
-SerialValue WriteComponents(const Scene& scene, Entity e, const ComponentRegistry& registry,
-                            SerialValue& owners) {
+SerialValue SceneSerializer::WriteComponents(const Scene& scene, Entity e, SerialValue& owners) {
+    const auto& registry = Components();
     SerialValue comps = SerialValue::MakeObject();
     const auto* unresolved = scene.Registry().try_get<UnresolvedComponents>(e);
 
@@ -93,10 +95,23 @@ SerialValue WriteComponents(const Scene& scene, Entity e, const ComponentRegistr
     return comps;
 }
 
-}  // namespace
+void SceneSerializer::ReadComponents(Scene& scene, Entity e, const SerialValue& components,
+                                    const SerialValue* owners) {
+    UnresolvedComponents unresolved;
+    for (const auto& [key, payload] : components.Members()) {
+        unresolved.keyOrder.push_back(key);
+        if (const ComponentDesc* desc = Components().Find(key)) {
+            desc->read(scene, e, payload);
+        } else {
+            const auto* owner = owners ? owners->Find(key) : nullptr;
+            unresolved.payloads.push_back({key, owner ? owner->AsString() : std::string{}, payload});
+        }
+    }
+    if (!unresolved.payloads.empty())
+        scene.Registry().emplace_or_replace<UnresolvedComponents>(e, std::move(unresolved));
+}
 
 std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
-    const ComponentRegistry& registry = Components();
     SerialValue root = SerialValue::MakeObject();
     root["version"] = kVersion;
 
@@ -117,7 +132,7 @@ std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
             const auto it = std::find(order.begin(), order.end(), parent);
             if (it != order.end()) entity["parent"] = static_cast<i64>(it - order.begin());
         }
-        entity["components"] = WriteComponents(scene, e, registry, owners);
+        entity["components"] = WriteComponents(scene, e, owners);
         entities.PushBack(std::move(entity));
     }
     if (owners.Size() > 0) {
@@ -162,13 +177,6 @@ static bool ReadScene(Scene& scene, std::string_view json, std::string* outError
     const SerialValue& entities = *parsed->Find("entities");
 
     const SerialValue* owners = parsed->Find("componentOwners");
-    auto ownerOf = [owners](const std::string& id) -> std::string {
-        if (!owners) return {};
-        const SerialValue* o = owners->Find(id);
-        return o ? o->AsString() : std::string{};
-    };
-
-    const ComponentRegistry& registry = Components();
     entt::registry& reg = scene.Registry();
     reg.clear();  // replace any existing contents
     if (outLegacy) outLegacy->clear();
@@ -181,21 +189,8 @@ static bool ReadScene(Scene& scene, std::string_view json, std::string* outError
         entt::entity e = originalIds.empty() ? reg.create() : reg.create(originalIds[created.size()]);
         created.push_back(e);
         parents.push_back(entity.Find("parent") ? entity.Find("parent")->AsInt(-1) : -1);
-        UnresolvedComponents unresolved;
-        for (const auto& member : comps->Members()) {
-            const std::string& key = member.first;
-            const SerialValue& payload = member.second;
-            unresolved.keyOrder.push_back(key);
-            if (const ComponentDesc* desc = registry.Find(key)) {
-                desc->read(scene, e, payload);
-            } else {
-                unresolved.payloads.push_back({key, ownerOf(key), payload});
-            }
-        }
+        SceneSerializer::ReadComponents(scene, e, *comps, owners);
         ReadLegacyMaterial(e, *comps, outLegacy);
-        if (!unresolved.payloads.empty()) {
-            reg.emplace<UnresolvedComponents>(e, std::move(unresolved));
-        }
     }
     for (usize index = 0; index < created.size(); ++index) {
         const i64 parentIndex = parents[index];

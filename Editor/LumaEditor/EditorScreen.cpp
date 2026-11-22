@@ -1926,9 +1926,11 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
                                                         : nullptr) {
             const auto desc = AssetTypes().FindByExtension(data->extension);
             if (desc && desc->open) {
-                desc->open(data->packagePath);
-            } else if (data->type == AssetType::Material || data->type == AssetType::MaterialInstance) {
-                if (auto path = m_assetPaths.ToVirtual(data->packagePath)) OpenMaterialEditor(*path);
+                AssetOpenContext context;
+                context.openMaterial = [this](const auto& file) {
+                    if (auto path = m_assetPaths.ToVirtual(file)) OpenMaterialEditor(*path);
+                };
+                desc->open(data->packagePath, context);
             }
         }
     }

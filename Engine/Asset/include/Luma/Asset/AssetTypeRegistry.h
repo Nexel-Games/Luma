@@ -8,13 +8,22 @@
 
 namespace Luma {
 
+class ThumbnailRenderer;
+struct AssetOpenContext {
+    std::function<void(const std::filesystem::path&)> openMaterial;
+};
+
 struct AssetTypeDesc {
     std::string id, displayName, icon, owner;
     std::vector<std::string> extensions;
     AssetType builtin = AssetType::Unknown;
     std::string nativeExtension = ".lasset";
     std::string importSection, importFolder;
-    std::function<void(const std::filesystem::path&)> open;
+    std::string dragType = "asset/file";
+    std::function<void(const std::filesystem::path&, const AssetOpenContext&)> open;
+    std::function<std::unique_ptr<ThumbnailRenderer>()> createThumbnailRenderer;
+    AssetType thumbnailSource = AssetType::Unknown;
+    bool useDefaultThumbnailPrimitive = false;
     // Write a thumbnail to the supplied cache path at the requested resolution.
     std::function<bool(const std::filesystem::path&, const std::filesystem::path&, u32, u32)> thumbnail;
 };

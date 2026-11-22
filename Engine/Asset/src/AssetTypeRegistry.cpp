@@ -1,5 +1,9 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Asset/MaterialThumbnailRenderer.h"
+#include "Luma/Asset/MeshThumbnailRenderer.h"
+#include "Luma/Asset/SoundThumbnailRenderer.h"
+#include "Luma/Asset/TextureThumbnailRenderer.h"
 #include <algorithm>
 #include <cctype>
 #include <set>
@@ -77,28 +81,45 @@ std::vector<AssetTypeRegistry::Description> AssetTypeRegistry::All() const {
 
 RegistrationSet RegisterBuiltinAssetTypes(AssetTypeRegistry& registry) {
     RegistrationSet tokens;
-    auto add = [&](AssetType type, std::string id, std::string label, std::string icon,
-                   std::vector<std::string> extensions, std::string native = ".lasset",
-                   std::string section = {}, std::string folder = {}) {
-        AssetTypeDesc desc{std::move(id), std::move(label), std::move(icon), "Engine", std::move(extensions)};
-        desc.builtin = type;
-        desc.nativeExtension = std::move(native);
-        desc.importSection = std::move(section);
-        desc.importFolder = std::move(folder);
-        tokens.Add(registry.Register(std::move(desc)));
+    auto add = [&](AssetTypeDesc desc) { tokens.Add(registry.Register(std::move(desc))); };
+    auto materialEditor = [](const std::filesystem::path& path, const AssetOpenContext& ctx) {
+        if (ctx.openMaterial) ctx.openMaterial(path);
     };
-    add(AssetType::Unknown, "unknown", "Unknown", "Dot", {});
-    add(AssetType::Mesh, "mesh", "Mesh", "StaticMesh", {"lmesh"}, ".lmesh", "Meshes", "Meshes");
-    add(AssetType::Texture, "texture", "Texture", "Image", {"png","jpg","jpeg","tga","bmp","webp","ktx","ktx2","ltex","psd","hdr","exr"}, ".ltex", "Textures", "Textures");
-    add(AssetType::Material, "material", "Material", "Sphere", {"mat","lumat","lmat"}, ".lmat", "Materials", "Materials");
-    add(AssetType::MaterialInstance, "material-instance", "MaterialInstance", "Sphere", {"lmatinst"});
-    add(AssetType::Shader, "shader", "Shader", "Plane", {"hlsl","glsl","frag","vert","lshader"}, ".lshader");
-    add(AssetType::Script, "script", "Script", "Cylinder", {"lua","py","js","cs"});
-    add(AssetType::Prefab, "prefab", "Prefab", "Cube", {"prefab","lumapfb","lasset"});
-    add(AssetType::Scene, "scene", "Scene", "Plane", {"luma","scene","lumascene","lscene"});
-    add(AssetType::Sound, "sound", "Sound", "Play", {"wav","ogg","mp3","flac","laudio"}, ".laudio", "Audio", "Sounds");
-    add(AssetType::Font, "font", "Font", "Refresh", {"ttf","otf"});
-    add(AssetType::Folder, "folder", "Folder", "Folder", {});
+    add({"unknown", "Unknown", "Dot", "Engine", {}, AssetType::Unknown});
+    AssetTypeDesc mesh{"mesh", "Mesh", "StaticMesh", "Engine", {"lmesh"}, AssetType::Mesh, ".lmesh", "Meshes", "Meshes"};
+    mesh.dragType = "asset/mesh";
+    mesh.createThumbnailRenderer = [] { return std::make_unique<MeshThumbnailRenderer>(); };
+    add(std::move(mesh));
+    AssetTypeDesc texture{"texture", "Texture", "Image", "Engine",
+                          {"png", "jpg", "jpeg", "tga", "bmp", "webp", "ktx", "ktx2", "ltex", "psd", "hdr", "exr"},
+                          AssetType::Texture, ".ltex", "Textures", "Textures"};
+    texture.dragType = "asset/texture";
+    texture.createThumbnailRenderer = [] { return std::make_unique<TextureThumbnailRenderer>(); };
+    add(std::move(texture));
+    AssetTypeDesc material{"material", "Material", "Sphere", "Engine", {"mat", "lumat", "lmat"},
+                           AssetType::Material, ".lmat", "Materials", "Materials"};
+    material.dragType = "asset/material";
+    material.open = materialEditor;
+    material.useDefaultThumbnailPrimitive = true;
+    material.createThumbnailRenderer = [] { return std::make_unique<MaterialThumbnailRenderer>(); };
+    add(std::move(material));
+    AssetTypeDesc instance{"material-instance", "MaterialInstance", "Sphere", "Engine", {"lmatinst"}, AssetType::MaterialInstance};
+    instance.dragType = "asset/material";
+    instance.open = materialEditor;
+    instance.thumbnailSource = AssetType::Material;
+    add(std::move(instance));
+    add({"shader", "Shader", "Plane", "Engine", {"hlsl", "glsl", "frag", "vert", "lshader"}, AssetType::Shader, ".lshader"});
+    add({"script", "Script", "Cylinder", "Engine", {"lua", "py", "js", "cs"}, AssetType::Script});
+    add({"prefab", "Prefab", "Cube", "Engine", {"prefab", "lumapfb", "lasset"}, AssetType::Prefab});
+    add({"scene", "Scene", "Plane", "Engine", {"luma", "scene", "lumascene", "lscene"}, AssetType::Scene});
+    AssetTypeDesc sound{"sound", "Sound", "Play", "Engine", {"wav", "ogg", "mp3", "flac", "laudio"},
+                        AssetType::Sound, ".laudio", "Audio", "Sounds"};
+    sound.createThumbnailRenderer = [] { return std::make_unique<SoundThumbnailRenderer>(); };
+    add(std::move(sound));
+    add({"font", "Font", "Refresh", "Engine", {"ttf", "otf"}, AssetType::Font});
+    AssetTypeDesc folder{"folder", "Folder", "Folder", "Engine", {}, AssetType::Folder};
+    folder.dragType = "asset/folder";
+    add(std::move(folder));
     return tokens;
 }
 
