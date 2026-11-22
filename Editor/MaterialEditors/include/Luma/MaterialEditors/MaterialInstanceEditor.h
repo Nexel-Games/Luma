@@ -25,6 +25,8 @@ public:
                            MaterialEditorServices services);
 
     void Draw(Slate::Context& ui, const Slate::Rect& rect);
+    // The colour picker above every panel: call after the host's dock.
+    void DrawFloating(Slate::Context& ui) { m_colorPopup.Draw(ui); }
 
     const std::string& AssetPath() const { return m_model.Path(); }
     std::string Title() const;  // asset name, "*" while dirty

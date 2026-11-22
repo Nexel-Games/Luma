@@ -45,6 +45,9 @@ public:
                         MaterialEditorServices services);
 
     void Draw(Slate::Context& ui, const Slate::Rect& rect);
+    // Popups (colour picker, right-click palette) above every panel: call
+    // after the host has drawn its dock (docked panels are clipped).
+    void DrawFloating(Slate::Context& ui);
 
     const std::string& AssetPath() const { return m_path; }
     bool Valid() const { return m_model != nullptr; }

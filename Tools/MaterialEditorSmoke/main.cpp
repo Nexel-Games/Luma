@@ -215,8 +215,13 @@ int main(int argc, char** argv) {
             if (!renderer->BeginFrame()) continue;
             const f32 w = static_cast<f32>(window->Width()), h = static_cast<f32>(window->Height());
             ui.BeginFrame(w, h, 1.0f / 60.0f);
-            if (page == 0) graphEditor.Draw(ui, {0, 0, w, h});
-            else instanceEditor.Draw(ui, {0, 0, w, h});
+            if (page == 0) {
+                graphEditor.Draw(ui, {0, 0, w, h});
+                graphEditor.DrawFloating(ui);
+            } else {
+                instanceEditor.Draw(ui, {0, 0, w, h});
+                instanceEditor.DrawFloating(ui);
+            }
             ui.LabelIn({w - 330.0f, 8.0f, 320.0f, 18.0f}, "F1 Material Editor   F2 Instance Editor",
                        ui.theme().textDim, Slate::Align::Right);
             renderer->DrawUI(ui.EndFrame());

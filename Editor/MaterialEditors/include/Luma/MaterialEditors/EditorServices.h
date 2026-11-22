@@ -40,6 +40,8 @@ struct MaterialEditorServices {
     std::function<void(const std::string&)> browseToAsset;
     // Opens a material / instance in its editor (material slot double-click).
     std::function<void(const std::string&)> openAsset;
+    // Asset thumbnail (rendered material / mesh / texture; 0 = not ready).
+    std::function<TextureHandle(const std::string&)> thumbnail;
     // Compile status (MaterialSceneBridge::Errors / PendingCompiles).
     std::function<std::string(std::string_view)> compileErrors;
     std::function<u32()> pendingCompiles;

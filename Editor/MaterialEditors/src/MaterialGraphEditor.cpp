@@ -132,16 +132,20 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     const Rect body{rect.x, rect.y + kToolbarH, rect.w, rect.h - kToolbarH};
     if (!m_dockBuilt) BuildDock(body);
     m_dock.Draw(ui, body);
-    m_colorPopup.Draw(ui);
     HDivider(ui, rect.x, body.y, rect.w);
 
-    m_widget->DrawOverlays(ui);  // right-click palette above every panel
 
     // Close a property-edit gesture (one undo step per drag / edit).
     if (m_pendingEdit && !ui.isMouseDown(0) && !ui.textFieldFocused()) {
         m_controller->History().Push("Edit Property", std::move(*m_pendingEdit), m_model->Snapshot());
         m_pendingEdit.reset();
     }
+}
+
+void MaterialGraphEditor::DrawFloating(Context& ui) {
+    if (!m_widget) return;
+    m_widget->DrawOverlays(ui);  // right-click palette
+    m_colorPopup.Draw(ui);
 }
 
 void MaterialGraphEditor::BuildDock(const Rect& body) {

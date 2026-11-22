@@ -64,7 +64,6 @@ void MaterialInstanceEditor::Draw(Context& ui, const Rect& rect) {
         m_dock.DockWith(dt, vp, Slate::DockDir::Right, 1.0f - m_split);  // UE: 70% viewport
     }
     m_dock.Draw(ui, body);
-    m_colorPopup.Draw(ui);
     HDivider(ui, rect.x, body.y, rect.w);
 }
 
@@ -146,7 +145,10 @@ void MaterialInstanceEditor::DrawParentSlot(Context& ui, f32 x, f32& y, f32 w) {
     // Thumbnail tile with the material icon.
     const Rect thumb{slot.x + 5.0f, slot.y + 4.0f, slot.h - 8.0f, slot.h - 8.0f};
     ui.PanelRounded(thumb, t.surface3, 4.0f);
-    if (const TextureHandle icon = IconTexture(m_services, EditorIcon::Sphere)) {
+    // The material's real thumbnail (rendered sphere); the icon until it is ready.
+    if (const TextureHandle tex = m_services.thumbnail && !current.empty() ? m_services.thumbnail(current) : 0) {
+        ui.Image(tex, thumb.Inset(1.0f, 1.0f));
+    } else if (const TextureHandle icon = IconTexture(m_services, EditorIcon::Sphere)) {
         ui.Image(icon, thumb.Inset(4.0f, 4.0f));
     }
     const f32 tx = thumb.Right() + 8.0f, tw = std::max(browse.x - tx - 6.0f, 20.0f);
@@ -172,12 +174,18 @@ void MaterialInstanceEditor::DrawParentSlot(Context& ui, f32 x, f32& y, f32 w) {
             Slate::MenuEntryOptions o;
             o.tooltip = item;
             o.checked = item == current;
-            mb.AddEntry(AssetName(item), Slate::Icon::None, [this, item] { ApplyParent(item); }, o);
+            Slate::MenuIcon icon(Slate::Icon::Sphere);
+            if (m_services.thumbnail) {
+                auto thumbFn = m_services.thumbnail;
+                icon.thumbnail = [thumbFn, item] { return thumbFn(item); };  // live thumbnails in the list
+            }
+            mb.AddEntry(AssetName(item), icon, [this, item] { ApplyParent(item); }, o);
         }
         mb.EndSection();
         Slate::MenuOptions mo;
         mo.searchable = true;
         mo.searchHint = "Search materials";
+        mo.iconSize = 32.0f;
         ui.OpenMenuBelow(Context::ID("mie.parent.menu." + m_model.Path()), slot, mb.Build(), mo);
     }
     Slate::DrawIcon(ui, arrow.Inset(5.0f, 5.0f), Slate::Icon::ChevronDown, t.text);
