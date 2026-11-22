@@ -7,6 +7,8 @@
 #include <string>
 
 #include "Luma/Material/MaterialMigrationV4.h"
+#include "Luma/MaterialCompiler/Preshader.h"
+#include "Luma/MaterialCompiler/Translator.h"
 #include "Luma/MaterialGraph/ExpressionRegistry.h"
 
 using namespace Luma;
@@ -291,4 +293,28 @@ TEST_CASE("The library converts Phase-1 files when loaded as graph assets", "[ma
         CHECK(GraphAssetSerializer::ProbeVersion(root / "Assets/Materials/M_Old.lmat") == 4);
     }
     fs::remove_all(root);
+}
+
+TEST_CASE("A migrated Unlit material shows its base colour plus emissive", "[material][migration]") {
+    // Phase-1 Unlit drew base colour + emissive; graph Unlit materials output
+    // Emissive only (Unreal), so migration feeds both into Emissive Color.
+    Luma::Material::Material old = Luma::Material::Material::MakeDefault();
+    old.settings.shadingModel = ShadingModel::Unlit;
+    old.Input(MaterialParameter::BaseColor).constant = {0.6f, 0.3f, 0.1f, 1.0f};
+    old.Input(MaterialParameter::EmissiveColor).constant = {0.2f, 0.1f, 0.0f, 0.0f};
+    const GraphMaterial m = MigrateV3(old, nullptr);
+    const Luma::MaterialCompiler::CompiledMaterial c = Luma::MaterialCompiler::Translator(m, nullptr, {}).Finish();
+    REQUIRE(c.Ok());
+    const auto block = Luma::MaterialCompiler::EvaluatePreshader(c.preshader, c.layout, {}, {}, {});
+    std::string emissive;
+    for (const auto& o : c.outputs) {
+        if (o.pin == "EmissiveColor") emissive = o.code;
+    }
+    REQUIRE_FALSE(emissive.empty());
+    // The whole sum is uniform: one block slot holds (0.8, 0.4, 0.1).
+    bool found = false;
+    for (const auto& v : block) {
+        found = found || (std::abs(v.x - 0.8f) < 1e-4f && std::abs(v.y - 0.4f) < 1e-4f && std::abs(v.z - 0.1f) < 1e-4f);
+    }
+    CHECK(found);
 }

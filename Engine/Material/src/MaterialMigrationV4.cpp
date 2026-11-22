@@ -312,7 +312,8 @@ struct Migrator {
 
         BuildParallax();
         auto wire = [&](NodeId from, const char* pin) { b.Link(from, 0, output, OutputPin(pin)); };
-        wire(Switchable(MaterialParameter::BaseColor, true), "BaseColor");
+        const NodeId baseColor = Switchable(MaterialParameter::BaseColor, true);
+        wire(baseColor, "BaseColor");
         wire(Switchable(MaterialParameter::Metallic, false), "Metallic");
         wire(Switchable(MaterialParameter::Specular, false), "Specular");
         wire(Switchable(MaterialParameter::Roughness, false), "Roughness");
@@ -323,7 +324,12 @@ struct Migrator {
             const NodeId intensity = b.Scalar("Emissive Intensity",
                                               In(MaterialParameter::EmissiveColor).emissiveIntensity,
                                               -300, y + 150, 0, 100);
-            wire(b.Binary("Multiply", emissive, 0, intensity, 0, -100, y), "EmissiveColor");
+            const NodeId scaled = b.Binary("Multiply", emissive, 0, intensity, 0, -100, y);
+            // Phase-1 Unlit drew base colour + emissive; graph Unlit outputs
+            // Emissive only (as in Unreal), so both feed Emissive Color.
+            wire(old.settings.shadingModel == ShadingModel::Unlit ? b.Binary("Add", baseColor, 0, scaled, 0, 0, y)
+                                                                   : scaled,
+                 "EmissiveColor");
         }
         {
             const NodeId ao = Switchable(MaterialParameter::AmbientOcclusion, false);
