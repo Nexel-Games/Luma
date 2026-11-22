@@ -23,6 +23,8 @@ const char* EditorIconFile(EditorIcon icon) {
         case EditorIcon::Mesh: return "Mesh.png";
         case EditorIcon::Reset: return "Reset.png";
         case EditorIcon::Search: return "Search.png";
+        case EditorIcon::Details: return "Details.png";
+        case EditorIcon::Stats: return "Stats.png";
         case EditorIcon::Count: break;
     }
     return "";

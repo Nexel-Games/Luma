@@ -18,6 +18,7 @@ enum class EditorIcon : u8 {
     Apply, Save, Browse, Home, Palette, LiveUpdate,
     Sphere, Cube, Plane, Cylinder, Mesh,
     Reset, Search,
+    Details, Stats,  // panel tab icons
     Count
 };
 

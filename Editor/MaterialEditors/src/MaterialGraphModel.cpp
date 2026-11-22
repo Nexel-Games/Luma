@@ -156,8 +156,10 @@ std::vector<NodeView> MaterialGraphModel::Nodes() const {
         v.title = isOutput ? (m_material.name.empty() ? std::string("Material") : m_material.name) : d->displayName;
         v.removable = !isOutput;
         v.headerColor = isOutput ? Color::RGB(110, 80, 50) : CategoryColor(d->category);
-        if (auto it = n.properties.find("name"); it != n.properties.end() && it->second.IsString()) {
-            v.subtitle = it->second.AsString();
+        if (auto it = n.properties.find("name"); it != n.properties.end() && it->second.IsString() &&
+                                                 !it->second.AsString().empty() && !isOutput) {
+            v.title = it->second.AsString();
+            v.subtitle = d->displayName;
         } else if (n.type.rfind("Constant", 0) == 0) {
             if (auto it2 = n.properties.find("value"); it2 != n.properties.end()) v.subtitle = ShortValue(it2->second);
         }

@@ -174,6 +174,19 @@ void GraphEditorWidget::Frame(const std::vector<NodeView>& nodes, Vec2 canvas) {
 
 void GraphEditorWidget::Draw(Context& ui, const Rect& rect) {
     m_origin = {rect.x, rect.y};
+    // Size node bodies for the font actually in use (layout estimates
+    // text width as characters x charWidth).
+    if (ui.uiFont().Valid()) {
+        static constexpr std::string_view kSample = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const f32 cw = ui.uiFont().Measure(kSample).x / static_cast<f32>(kSample.size());
+        NodeMetrics m = m_controller.Metrics();
+        if (cw > 0.0f && std::fabs(cw - m.charWidth) > 0.25f) {
+            m.charWidth = cw;
+            m.headerH = std::max(m.headerH, ui.uiFont().LineHeight() + 8.0f);
+            m.pinRowH = std::max(m.pinRowH, ui.uiFont().LineHeight() + 4.0f);
+            m_controller.SetMetrics(m);
+        }
+    }
     std::vector<NodeView> nodes = m_controller.Model().Nodes();
     // Comments draw (and hit) beneath nodes.
     std::stable_partition(nodes.begin(), nodes.end(), [](const NodeView& n) { return n.kind == NodeKind::Comment; });
@@ -320,7 +333,9 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
     ui.drawList().AddRectFilledGradientH(header, n.headerColor, Slate::Darken(n.headerColor, 0.6f));
     if (text) {
         ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, n.title, t.text);
-        if (!n.subtitle.empty()) ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, n.subtitle, t.textDim, Align::Right);
+        const f32 room = header.w - 24.0f - ui.uiFont().Measure(n.title).x;
+        if (!n.subtitle.empty() && ui.uiFont().Measure(n.subtitle).x < room)
+            ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, n.subtitle, t.textDim, Align::Right);
     }
     for (u32 i = 0; i < n.inputs.size(); ++i) {
         drawPin(g.inputs[i], n.inputs[i], pins.count(i) != 0);

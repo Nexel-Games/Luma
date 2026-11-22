@@ -22,6 +22,7 @@ public:
     const Selection& Sel() const { return m_selection; }
     UndoStack& History() { return m_undo; }
     const NodeMetrics& Metrics() const { return m_metrics; }
+    void SetMetrics(const NodeMetrics& metrics) { m_metrics = metrics; }
 
     // Fired after any change to the graph (not selection-only changes).
     std::function<void()> onChanged;

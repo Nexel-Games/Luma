@@ -15,7 +15,7 @@ namespace Luma::MaterialEditors::Detail {
 constexpr f32 kToolbarH = 34.0f;
 constexpr f32 kRowH = 26.0f;
 constexpr f32 kHeaderH = 24.0f;
-constexpr f32 kLabelW = 132.0f;
+constexpr f32 kLabelW = 156.0f;
 
 // Unreal-style black panel dividers.
 inline const Slate::Color kDividerColor = Slate::Color::RGB(8, 8, 8);
@@ -49,7 +49,7 @@ inline Slate::Rect Row(Slate::Context& ui, std::string_view label, f32 x, f32& y
     // Black row line + the name/value column divider (Unreal's Details grid).
     ui.Panel({x, y + kRowH - 1.0f, w, 1.0f}, kDividerColor);
     ui.Panel({x + kLabelW - 4.0f, y, 1.0f, kRowH - 1.0f}, kDividerColor);
-    ui.LabelIn({row.x + indent, row.y, kLabelW - indent - 6.0f, row.h}, label, dim ? t.textDisabled : t.textDim);
+    ui.LabelIn({row.x + indent, row.y, kLabelW - indent - 6.0f, row.h}, label, dim ? t.textDim : t.text);  // bright names, inherited one step dimmer
     y += kRowH;
     return {row.x + kLabelW, row.y, std::max(row.w - kLabelW - 4.0f, 40.0f), row.h};
 }
@@ -91,13 +91,26 @@ inline bool ToolButton(Slate::Context& ui, u64 id, const Slate::Rect& r, Texture
 // A panel's title as a dock tab (Unreal's tab well): a darker strip with
 // the panel name on a raised tab, so it never reads as one more section
 // header. Returns the header rect it used (kPanelTabH tall).
-constexpr f32 kPanelTabH = 28.0f;
-inline Slate::Rect PanelTab(Slate::Context& ui, std::string_view id, const Slate::Rect& area, std::string_view label) {
+constexpr f32 kPanelTabH = 32.0f;
+inline Slate::Rect PanelTab(Slate::Context& ui, std::string_view id, const Slate::Rect& area, std::string_view label,
+                            TextureHandle icon = 0) {
+    (void)id;
     const Slate::Theme& t = ui.theme();
     const Slate::Rect well{area.x, area.y, area.w, kPanelTabH};
     ui.Panel(well, t.tabWell);
-    const f32 tabW = std::min(ui.uiFont().Measure(label).x + 32.0f, area.w - 8.0f);
-    ui.Tab(Slate::Context::ID(id), {well.x + 4.0f, well.y + 3.0f, tabW, well.h - 4.0f}, label, true);
+    // The tab: raised fill, orange outline all round, icon + name.
+    constexpr f32 kIcon = 16.0f;
+    const f32 textW = ui.uiFont().Measure(label).x;
+    const f32 tabW = std::min(textW + (icon ? kIcon + 8.0f : 0.0f) + 44.0f, area.w - 8.0f);
+    const Slate::Rect tab{well.x + 4.0f, well.y + 4.0f, tabW, well.h - 7.0f};
+    ui.PanelRounded(tab, t.surface3, 4.0f);
+    ui.drawList().AddRectOutlineRounded(tab, t.accent, 1.5f, 4.0f);
+    f32 x = tab.x + 14.0f;
+    if (icon) {
+        ui.Image(icon, {x, tab.y + (tab.h - kIcon) * 0.5f, kIcon, kIcon});
+        x += kIcon + 8.0f;
+    }
+    ui.LabelIn({x, tab.y, tab.Right() - x - 8.0f, tab.h}, label, t.text);
     ui.Panel({well.x, well.Bottom() - 1.0f, well.w, 1.0f}, kDividerColor);
     return well;
 }

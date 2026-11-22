@@ -87,7 +87,7 @@ private:
 
     PreviewRequest m_preview;
     bool m_orbiting = false;
-    f32 m_leftW = 300.0f, m_rightW = 240.0f, m_statsH = 120.0f;
+    f32 m_leftW = 340.0f, m_rightW = 240.0f, m_statsH = 120.0f;
     f32 m_previewSplit = 0.45f;
     f32 m_detailsScroll = 0.0f, m_statsScroll = 0.0f;
     bool m_settingsOpen = true, m_nodeOpen = true;

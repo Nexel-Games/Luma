@@ -122,8 +122,16 @@ int main(int argc, char** argv) {
     std::unique_ptr<Renderer> renderer = CreateVulkanRenderer(*window, rc);
     Slate::Context ui;
     Slate::Typography& type = ui.theme().type;
-    type.uiRegular = type.uiMedium = type.uiSemiBold = type.uiBold = "C:/Windows/Fonts/segoeui.ttf";
+    // The editor's own typography (Editor/LumaEditor/main.cpp): Red Hat Display.
+    const std::string body = (fs::path(LUMA_SOURCE_DIR) / "Content/Editor/Fonts/RedHatDisplay/RedHatDisplay-VariableFont_wght.ttf").string();
+    type.uiRegular = type.uiMedium = type.uiSemiBold = type.uiBold = body;
     type.mono = "C:/Windows/Fonts/consola.ttf";
+    type.captionSize = 15.0f;
+    type.bodySize = 18.0f;
+    type.bodyStrongSize = 18.0f;
+    type.headingSize = 18.0f;
+    type.titleSize = 28.0f;
+    type.displaySize = 38.0f;
     if (!ui.Init(*renderer, type, window->ContentScale())) {
         std::fprintf(stderr, "font init failed\n");
         return 1;
