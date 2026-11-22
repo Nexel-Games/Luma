@@ -389,13 +389,14 @@ int main(int argc, char** argv) {
     TextureHandle iconPause = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/002_pause.png");
     TextureHandle iconStop = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/003_stop.png");
     // Content Browser chrome icons (sort arrows + search glass + folder +
-    // reload + import + open-folder).
+    // reload + import + open-folder). Folders use the Luma icon pack; the
+    // other Content Browser icons keep their classic art for now.
     TextureHandle cbSortUp = loadIcon("Icons/sort_up.png");
     TextureHandle cbSortDown = loadIcon("Icons/sort_down.png");
-    TextureHandle cbSearchGlass = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/016_search.png");
+    TextureHandle cbSearchGlass = loadIcon("Icons/search_glass.png");
     TextureHandle cbFolder = loadIcon("Luma_Icons/PNG/32x32/04_Content_Browser_Assets/061_folder.png");
-    TextureHandle cbReload = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/020_refresh.png");
-    TextureHandle cbImport = loadIcon("Luma_Icons/PNG/32x32/04_Content_Browser_Assets/062_import_asset.png");
+    TextureHandle cbReload = loadIcon("Icons/reload.png");
+    TextureHandle cbImport = loadIcon("Icons/import.png");
     TextureHandle cbOpenFolder = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/007_open_project.png");
     TextureHandle cbExpandArrow = loadIcon("Icons/SubmenuArrow.png");
     TextureHandle cbRetractArrow = loadIcon("Icons/SortDownArrow.png");

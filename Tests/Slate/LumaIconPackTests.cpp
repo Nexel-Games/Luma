@@ -11,7 +11,11 @@ using namespace Luma;
 TEST_CASE("Luma icon pack slots draw in full colour, monochrome glyphs stay tintable", "[slate][icons]") {
     // Entries pointing at Content/Editor/Luma_Icons are full colour.
     CHECK(Slate::IconIsFullColor(Slate::Icon::Play));
+    CHECK(Slate::IconIsFullColor(Slate::Icon::Save));
+    // Content Browser: folders use the Luma pack, asset types keep their classic art.
     CHECK(Slate::IconIsFullColor(Slate::Icon::Folder));
+    CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::MaterialInstance));
+    CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::Image));
     CHECK(Slate::IconIsFullColor(Slate::Icon::Search));
     // UI glyphs with no Luma counterpart keep their tint.
     CHECK_FALSE(Slate::IconIsFullColor(Slate::Icon::Close));

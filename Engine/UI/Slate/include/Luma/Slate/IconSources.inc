@@ -1,6 +1,8 @@
 // Artwork in atlas order. Repack with node Scripts/PackEditorIcons.cjs after editing.
 // "Luma_Icons/..." entries are the Luma icon pack (full colour: DrawIcon keeps their
 // colours and only applies the tint's alpha); the rest are monochrome glyphs the UI tints.
+// Content Browser asset-type glyphs keep their classic art for now; only the folders
+// use the Luma pack (owner request).
 LUMA_ICON(ChevronRight, "ionicons/src/svg/chevron-forward-outline.svg")
 LUMA_ICON(ChevronDown, "ionicons/src/svg/chevron-down-outline.svg")
 LUMA_ICON(ChevronUp, "ionicons/src/svg/chevron-up-outline.svg")
@@ -30,18 +32,18 @@ LUMA_ICON(Cylinder, "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/045_cylinder.p
 LUMA_ICON(Refresh, "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/020_refresh.png")
 LUMA_ICON(ArrowLeft, "ionicons/src/svg/arrow-back-outline.svg")
 LUMA_ICON(Reset, "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/010_undo.png")
-LUMA_ICON(Image, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/065_texture.png")
-LUMA_ICON(StaticMesh, "Luma_Icons/PNG/32x32/03_Scene_Objects_Actors/047_static_mesh.png")
+LUMA_ICON(Image, "ionicons/src/svg/image-outline.svg")
+LUMA_ICON(StaticMesh, "ThirdParty/icons/imgs/Icons/AssetIcons/StaticMesh_16x.png")
 LUMA_ICON(Browse, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/061_folder.png")
 LUMA_ICON(Duplicate, "Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/019_duplicate.png")
 LUMA_ICON(Import, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/062_import_asset.png")
 LUMA_ICON(Focus, "Luma_Icons/PNG/32x32/02_Viewport_Transform/036_focus_selected.png")
-LUMA_ICON(Scene, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/069_scene_asset.png")
-LUMA_ICON(Shader, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/068_shader.png")
-LUMA_ICON(Script, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/072_c_source_file.png")
-LUMA_ICON(Font, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/077_font_asset.png")
-LUMA_ICON(Sound, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/075_audio_file.png")
-LUMA_ICON(MaterialInstance, "Luma_Icons/PNG/32x32/04_Content_Browser_Assets/067_material_instance.png")
+LUMA_ICON(Scene, "ionicons/src/svg/map-outline.svg")
+LUMA_ICON(Shader, "ionicons/src/svg/color-wand-outline.svg")
+LUMA_ICON(Script, "ionicons/src/svg/code-slash-outline.svg")
+LUMA_ICON(Font, "ionicons/src/svg/text-outline.svg")
+LUMA_ICON(Sound, "ionicons/src/svg/musical-notes-outline.svg")
+LUMA_ICON(MaterialInstance, "ionicons/src/svg/layers-outline.svg")
 LUMA_ICON(File, "ionicons/src/svg/document-outline.svg")
 LUMA_ICON(Minus, "ionicons/src/svg/remove-outline.svg")
 LUMA_ICON(Busy, "ionicons/src/svg/sync-outline.svg")
