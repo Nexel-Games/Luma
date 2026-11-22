@@ -19,9 +19,12 @@ using Slate::Icon;
 
 namespace {
 
-constexpr f32 kPillH = 24.0f;
+constexpr f32 kPillH = 28.0f;
 constexpr f32 kInset = 8.0f;
-constexpr f32 kIconBtnW = 26.0f;
+constexpr f32 kIconBtnW = 30.0f;
+// Toolbar icon sizes (Luma icon pack art carries its own padding).
+constexpr f32 kToolIcon = 22.0f;  // square tool / snap toggles
+constexpr f32 kPillIcon = 18.0f;  // leading icon of a drop-down pill
 
 // Press tracking for the toolbar's custom buttons (one pointer, one press).
 u64 g_pressed = 0;
@@ -58,13 +61,13 @@ void PillChrome(Slate::Context& ui, const Slate::Rect& r, bool hot, bool open, u
 
 // Pill with an optional leading icon, a label and a drop-down chevron.
 bool DropPill(Slate::Context& ui, u64 id, const Slate::Rect& r, TextureHandle tex, Icon icon,
-              std::string_view label, bool open, f32 iconW = 14.0f) {
+              std::string_view label, bool open, f32 iconW = kPillIcon) {
     Slate::Theme& t = ui.theme();
     const bool clicked = Clicked(ui, id, r);
     PillChrome(ui, r, r.Contains(ui.mouse()), open, id);
     f32 x = r.x + 7.0f;
     if (tex || icon != Icon::None) {
-        DrawGlyph(ui, {x, r.y + (r.h - 14.0f) * 0.5f, iconW, 14.0f}, tex, icon, t.text);
+        DrawGlyph(ui, {x, r.y + (r.h - kPillIcon) * 0.5f, iconW, kPillIcon}, tex, icon, t.text);
         x += iconW + 6.0f;
     }
     const Slate::Font& f = ui.uiFont();
@@ -90,7 +93,7 @@ bool IconToggle(Slate::Context& ui, u64 id, const Slate::Rect& r, TextureHandle 
     } else if (hot) {
         ui.drawList().AddRectFilledRounded(r.Inset(2.0f, 2.0f), t.buttonHover, t.radius.sm);
     }
-    DrawGlyph(ui, {r.x + (r.w - 16.0f) * 0.5f, r.y + (r.h - 16.0f) * 0.5f, 16.0f, 16.0f}, tex,
+    DrawGlyph(ui, {r.x + (r.w - kToolIcon) * 0.5f, r.y + (r.h - kToolIcon) * 0.5f, kToolIcon, kToolIcon}, tex,
               fallback, active ? t.selectionText : (hot ? t.text : t.textDim));
     return clicked;
 }
@@ -272,7 +275,7 @@ Slate::Rect ViewportPanel::DrawToolbar(Slate::Context& ui, const Slate::Rect& bo
 
     const u64 camId = Slate::Context::ID("vp.camera");
     const char* camLabel = "Perspective";
-    const Slate::Rect camR{x, y, DropPillWidth(ui, camLabel, 14.0f), kPillH};
+    const Slate::Rect camR{x, y, DropPillWidth(ui, camLabel, kPillIcon), kPillH};
     if (DropPill(ui, camId, camR, m_icons.perspective, Icon::Camera, camLabel,
                  ui.IsMenuOpen(camId))) {
         ui.OpenMenuBelow(camId, camR, BuildCameraMenu(ctx));
@@ -286,7 +289,7 @@ Slate::Rect ViewportPanel::DrawToolbar(Slate::Context& ui, const Slate::Rect& bo
         m_settings.viewMode == ViewMode::Lit
             ? m_icons.lit
             : (m_settings.viewMode == ViewMode::Unlit ? m_icons.unlit : 0);
-    const Slate::Rect modeR{x, y, DropPillWidth(ui, modeLabel, 14.0f), kPillH};
+    const Slate::Rect modeR{x, y, DropPillWidth(ui, modeLabel, kPillIcon), kPillH};
     if (DropPill(ui, modeId, modeR, modeTex, Icon::Light, modeLabel, ui.IsMenuOpen(modeId))) {
         ui.OpenMenuBelow(modeId, modeR, BuildViewModeMenu());
     }
@@ -296,7 +299,7 @@ Slate::Rect ViewportPanel::DrawToolbar(Slate::Context& ui, const Slate::Rect& bo
     x = modeR.Right() + 4.0f;
 
     const u64 showId = Slate::Context::ID("vp.show");
-    const Slate::Rect showR{x, y, DropPillWidth(ui, "Show", 14.0f), kPillH};
+    const Slate::Rect showR{x, y, DropPillWidth(ui, "Show", kPillIcon), kPillH};
     if (DropPill(ui, showId, showR, m_icons.show, Icon::Eye, "Show", ui.IsMenuOpen(showId))) {
         ui.OpenMenuBelow(showId, showR, BuildShowMenu());
     }
@@ -320,7 +323,7 @@ Slate::Rect ViewportPanel::DrawTransformToolbar(Slate::Context& ui, const Slate:
         snapW[i] = DropPillWidth(ui, snapLabels[i], 0.0f);
         total += kGroupGap + kIconBtnW + snapW[i];
     }
-    const f32 speedW = DropPillWidth(ui, speedLabel, 21.0f);
+    const f32 speedW = DropPillWidth(ui, speedLabel, kPillIcon);
     total += kGroupGap + speedW;
 
     f32 x = body.Right() - kInset - total;
@@ -417,7 +420,7 @@ Slate::Rect ViewportPanel::DrawTransformToolbar(Slate::Context& ui, const Slate:
     const u64 speedId = Slate::Context::ID("vp.speed");
     const Slate::Rect speedR{x, y, speedW, kPillH};
     if (DropPill(ui, speedId, speedR, m_icons.cameraSpeed, Icon::Camera, speedLabel,
-                 ui.IsMenuOpen(speedId), 21.0f)) {
+                 ui.IsMenuOpen(speedId), kPillIcon)) {
         ui.OpenMenuBelow(speedId, speedR, BuildCameraSpeedMenu());
     }
     ui.Tooltip(speedId ^ 0x71Full, speedR,
