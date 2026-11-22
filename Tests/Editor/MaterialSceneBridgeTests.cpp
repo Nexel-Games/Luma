@@ -159,8 +159,10 @@ struct BridgeFixture {
         return e;
     }
 
-    std::vector<SceneInstance> Build(MaterialLibrary& lib, Entity selected = kNullEntity) {
+    // Syncs, then (by default) waits for every shader compile to land.
+    std::vector<SceneInstance> Build(MaterialLibrary& lib, Entity selected = kNullEntity, bool finish = true) {
         bridge.Sync(scene, renderer, lib);
+        if (finish) bridge.FinishCompiles(renderer, lib);
         std::vector<SceneInstance> out;
         bridge.BuildInstances(scene, selected, out);
         return out;
@@ -246,10 +248,16 @@ TEST_CASE("Bridge uploads a material once per version", "[bridge]") {
     f.Build(lib);
     CHECK(f.renderer.materialUpdates == afterFirst);
 
+    // An instance edit that changes only parameter values is a parameter
+    // update: no shaders, no pipelines.
     lib.SetGraphInstance(red, ColorInstance({0, 1, 0, 1}));
     f.Build(lib);
-    CHECK(f.renderer.materialUpdates == afterFirst + 1);
-    CHECK(f.renderer.BlockHas(f.renderer.handles.begin()->first, {0, 1, 0}));
+    CHECK(f.renderer.materialUpdates == afterFirst);
+    REQUIRE(f.renderer.parameterUpdates == 1);
+    const MaterialParameterBlock& edited = f.renderer.parameterBlocks.begin()->second;
+    bool green = false;
+    for (const Math::Vec4& v : edited.values) green = green || (v.x == 0 && v.y == 1 && v.z == 0);
+    CHECK(green);
 }
 
 TEST_CASE("Bridge uploads each mesh asset once", "[bridge]") {
@@ -493,4 +501,134 @@ TEST_CASE("Deleting a collection keeps the last good material", "[bridge][collec
     f.Build(lib, e);
     CHECK(f.renderer.materialUpdates == uploads);  // the compile failed: nothing new uploaded
     CHECK(f.bridge.HandleFor("/Game/Materials/M_A") == good);
+}
+
+namespace {
+
+// BaseColor = Static Switch "Red" ? red : blue.
+GraphMaterial SwitchMaterial() {
+    GraphMaterial m;
+    auto node = [&](const char* type) { return m.graph.AddNode(type, {0.0f, 0.0f}); };
+    const NodeId sw = node("StaticSwitchParameter");
+    m.graph.Find(sw)->properties["name"] = PropertyValue(std::string("Red"));
+    const NodeId red = node("Constant3Vector");
+    m.graph.Find(red)->properties["value"] = PropertyValue(Math::Vec4{1, 0, 0, 0});
+    const NodeId blue = node("Constant3Vector");
+    m.graph.Find(blue)->properties["value"] = PropertyValue(Math::Vec4{0, 0, 1, 0});
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{red, 0}, PinRef{sw, 0}, &err));
+    REQUIRE(m.graph.Connect(PinRef{blue, 0}, PinRef{sw, 1}, &err));
+    REQUIRE(m.graph.Connect(PinRef{sw, 0}, PinRef{m.graph.OutputNode(), 0}, &err));
+    return m;
+}
+
+GraphMaterialInstance SwitchInstance(bool red) {
+    GraphMaterialInstance mi;
+    mi.parent = "/Game/Materials/M_Switch";
+    ParameterOverride o;
+    o.name = "Red";
+    o.kind = ParameterOverride::Kind::StaticSwitch;
+    o.staticSwitch = red;
+    mi.Set(o);
+    return mi;
+}
+
+// A function scaling its input; a material calling it.
+Luma::Material::MaterialFunction Scale(f64 factor) {
+    Luma::Material::MaterialFunction f;
+    const NodeId in = f.graph.AddNode("FunctionInput", {0.0f, 0.0f});
+    f.graph.Find(in)->properties["inputType"] = PropertyValue(i64{0});
+    const NodeId mul = f.graph.AddNode("Multiply", {0.0f, 0.0f});
+    const NodeId k = f.graph.AddNode("Constant", {0.0f, 0.0f});
+    f.graph.Find(k)->properties["value"] = PropertyValue(factor);
+    const NodeId out = f.graph.AddNode("FunctionOutput", {0.0f, 0.0f});
+    std::string err;
+    REQUIRE(f.graph.Connect(PinRef{in, 0}, PinRef{mul, 0}, &err));
+    REQUIRE(f.graph.Connect(PinRef{k, 0}, PinRef{mul, 1}, &err));
+    REQUIRE(f.graph.Connect(PinRef{mul, 0}, PinRef{out, 0}, &err));
+    return f;
+}
+
+GraphMaterial CallsScale() {
+    GraphMaterial m;
+    const NodeId uv = m.graph.AddNode("TextureCoordinate", {0.0f, 0.0f});
+    const NodeId call = m.graph.AddNode("MaterialFunctionCall", {0.0f, 0.0f});
+    m.graph.Find(call)->properties["function"] = PropertyValue(std::string("/Game/MF_Scale"));
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{uv, 0}, PinRef{call, 0}, &err));
+    REQUIRE(m.graph.Connect(PinRef{call, 0}, PinRef{m.graph.OutputNode(), 1}, &err));  // Metallic
+    return m;
+}
+
+}  // namespace
+
+TEST_CASE("Slots draw the Default Material until their first compile lands", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    const std::string red = RedInstance(lib, "/Game/Materials/MI_Red");
+    MeshRendererComponent mr;
+    mr.materials = {red};
+    const Entity e = f.Spawn(mr);
+    auto pending = f.Build(lib, e, false);
+    REQUIRE(pending.size() == 1);
+    CHECK(pending[0].sectionMaterials[0] == kDefaultMaterialHandle);
+    CHECK(f.bridge.PendingCompiles() > 0);
+    auto done = f.Build(lib, e);
+    CHECK(done[0].sectionMaterials[0] != kDefaultMaterialHandle);
+    CHECK(f.bridge.PendingCompiles() == 0);
+}
+
+TEST_CASE("A static switch override compiles one permutation that instances share", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetGraphMaterial("/Game/Materials/M_Switch", SwitchMaterial());
+    lib.SetGraphInstance("/Game/Materials/MI_A", SwitchInstance(true));
+    lib.SetGraphInstance("/Game/Materials/MI_B", SwitchInstance(true));
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_Switch"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const u32 sets = f.bridge.ShaderSetsCompiled();
+    mr.materials = {"/Game/Materials/MI_A", "/Game/Materials/MI_B"};
+    f.Spawn(mr);
+    f.Build(lib);
+    CHECK(f.bridge.ShaderSetsCompiled() == sets + 1);  // MI_A and MI_B share the switched set
+}
+
+TEST_CASE("Editing a function recompiles only the materials that call it", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetFunction("/Game/MF_Scale", Scale(2.0));
+    lib.SetGraphMaterial("/Game/Materials/M_Calls", CallsScale());
+    lib.SetGraphMaterial("/Game/Materials/M_Plain", SwitchMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_Calls", "/Game/Materials/M_Plain"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const int uploads = f.renderer.materialUpdates;
+    lib.SetFunction("/Game/MF_Scale", Scale(3.0));
+    f.Build(lib);
+    CHECK(f.renderer.materialUpdates == uploads + 1);
+}
+
+TEST_CASE("A broken edit keeps the last good material", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetGraphMaterial("/Game/Materials/M_Edit", SwitchMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_Edit"};
+    const Entity e = f.Spawn(mr);
+    f.Build(lib, e);
+    const MaterialHandle good = f.bridge.HandleFor("/Game/Materials/M_Edit");
+    const int uploads = f.renderer.materialUpdates;
+    GraphMaterial broken;
+    const NodeId tex = broken.graph.AddNode("TextureObject", {0.0f, 0.0f});
+    std::string err;
+    REQUIRE(broken.graph.Connect(PinRef{tex, 0}, PinRef{broken.graph.OutputNode(), 0}, &err));  // texture -> BaseColor
+    lib.SetGraphMaterial("/Game/Materials/M_Edit", broken);
+    f.Build(lib, e);
+    f.Build(lib, e);
+    CHECK(f.renderer.materialUpdates == uploads);
+    CHECK(f.bridge.HandleFor("/Game/Materials/M_Edit") == good);
+    CHECK_FALSE(f.bridge.Errors("/Game/Materials/M_Edit").empty());
 }
