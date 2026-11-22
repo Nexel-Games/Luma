@@ -232,7 +232,7 @@ void DrawMaterialSlots(InspectorRows& rows, MeshRendererComponent& mr) {
     const u32 sections = meshSlots.empty()
                              ? std::max(ctx.sectionCount ? ctx.sectionCount(e) : 1u, 1u)
                              : static_cast<u32>(meshSlots.size());
-    const u32 rows = std::max<u32>(sections, static_cast<u32>(mr.materials.size()));
+    const u32 slotCount = std::max<u32>(sections, static_cast<u32>(mr.materials.size()));
     ui.LabelIn({x, y, w, 20}, "Materials", t.text);
     rows.Grid(y - 2.0f, 26.0f, 0.0f);
     ui.Tooltip(rows.Id("insp.mat.tip"), {x, y, w, 20},
@@ -249,7 +249,7 @@ void DrawMaterialSlots(InspectorRows& rows, MeshRendererComponent& mr) {
     constexpr f32 kThumb = 48.0f;
     constexpr f32 kButton = 22.0f;
     constexpr f32 kGap = 2.0f;
-    for (u32 slot = 0; slot < rows; ++slot) {
+    for (u32 slot = 0; slot < slotCount; ++slot) {
         const bool unused = slot >= sections;
         const std::string path = slot < mr.materials.size() ? mr.materials[slot] : std::string{};
         const bool isDefault = path.empty();  // not overridden
