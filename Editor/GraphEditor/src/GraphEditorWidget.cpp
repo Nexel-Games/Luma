@@ -213,6 +213,7 @@ void GraphEditorWidget::Draw(Context& ui, const Rect& rect) {
     for (const NodeView& n : nodes)
         if (n.kind == NodeKind::Comment) DrawComment(ui, n, LayoutNode(n, m));
 
+    m_valueBoxes.clear();
     // Wires.
     const std::vector<LinkView> links = m_controller.Model().Links();
     std::set<std::pair<NodeId, u64>> connected;  // (node, dir<<32|index)
@@ -236,6 +237,7 @@ void GraphEditorWidget::Draw(Context& ui, const Rect& rect) {
         DrawNode(ui, n, LayoutNode(n, m), pins);
     }
 
+    DrawValueEditor(ui);
     // Link being dragged.
     if (m_mode == Mode::Linking) {
         const Vec2 a = m_view.ToScreen(PinAnchor(m_linkFrom, nodes), m_origin);
@@ -260,6 +262,34 @@ void GraphEditorWidget::Draw(Context& ui, const Rect& rect) {
     std::snprintf(zoom, sizeof(zoom), "Zoom %.0f%%", m_view.Zoom() * 100.0f);
     ui.LabelIn({rect.Right() - 110.0f, rect.y + 6.0f, 100.0f, 18.0f}, zoom, ui.theme().textDim, Align::Right);
     ui.PopClip();
+}
+
+void GraphEditorWidget::DrawValueEditor(Context& ui) {
+    if (!m_editing) return;
+    const Slate::Theme& t = ui.theme();
+    const u64 id = Context::ID(m_id + ".valueedit");
+    // Same place as the box, wide enough to type into.
+    Rect r = m_editing->rect;
+    r.w = std::max(r.w + 24.0f, 72.0f);
+    r.h = std::max(r.h, ui.uiFont().LineHeight() + 4.0f);
+    r.y = m_editing->rect.y + (m_editing->rect.h - r.h) * 0.5f;
+    if (m_editAge == 0) ui.FocusField(id, m_editText.size());
+    ui.drawList().AddRectOutlineRounded(r.Inset(-2.0f, -2.0f), t.accent, 1.5f, 3.0f);
+    ui.TextField(id, r, m_editText);
+    ++m_editAge;
+    if (ui.keyEscape()) {
+        m_editing.reset();
+        return;
+    }
+    const bool commit = ui.enterPressed() || (m_editAge > 2 && !ui.IsFieldFocused(id));
+    if (!commit) return;
+    const ValueBox box = *m_editing;
+    const std::string text = m_editText;
+    m_editing.reset();
+    ui.BlurField(id);
+    if (text != box.value) {
+        m_controller.Transact("Edit Value", [&] { m_controller.Model().SetInlineValue(box.pin, text); });
+    }
 }
 
 void GraphEditorWidget::DrawGrid(Context& ui, const Rect& rect) {
@@ -339,12 +369,17 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
         ui.drawList().AddCircleFilled(s, pinR, c);
         if (!linked) ui.drawList().AddCircleFilled(s, pinR * 0.58f, bodyFill);
     };
-    // A dark rounded value box ("0.5") whose left edge is at x.
-    auto valueBox = [&](f32 x, f32 cy, const std::string& v, bool dim) {
-        const f32 bw = font.Measure(v).x + 10.0f, bh = std::min(m.pinRowH * z - 4.0f, font.LineHeight() + 2.0f);
+    // Spacing scales with the zoom so labels and boxes keep their place by the pins.
+    const f32 pinPad = 9.0f * z, gap = 6.0f * z, boxPad = std::max(5.0f * z, 2.0f);
+    // A dark rounded value box ("0.5") whose left edge is at x; click to edit.
+    auto valueBox = [&](f32 x, f32 cy, const std::string& v, bool dim, PinKey key) {
+        const f32 bw = font.Measure(v).x + boxPad * 2.0f;
+        const f32 bh = std::min(m.pinRowH * z - 2.0f * z, font.LineHeight() + 2.0f);
         const Rect box{x, cy - bh * 0.5f, bw, bh};
-        ui.PanelRoundedBordered(box, t.fieldBg, Color::RGB(70, 70, 72), 2.0f);
-        ui.drawList().AddText(font, {box.x + 5.0f, cy - font.LineHeight() * 0.5f}, v, dim ? t.textDisabled : t.text);
+        const bool hover = box.Contains(ui.mouse());
+        ui.PanelRoundedBordered(box, t.fieldBg, hover ? t.accent : Color::RGB(70, 70, 72), 2.0f);
+        ui.drawList().AddText(font, {box.x + boxPad, cy - font.LineHeight() * 0.5f}, v, dim ? t.textDisabled : t.text);
+        m_valueBoxes.push_back({box, key, v});
         return bw;
     };
 
@@ -393,23 +428,23 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
         drawPin(g.inputs[i], p, linked);
         if (!pinText) continue;
         const Vec2 s = m_view.ToScreen(g.inputs[i], m_origin);
-        f32 x = s.x + 9.0f;
+        f32 x = s.x + pinPad;
         if (!p.name.empty()) {
             ui.drawList().AddText(font, {x, s.y - font.LineHeight() * 0.5f}, p.name, p.dimmed ? t.textDisabled : t.text);
-            x += font.Measure(p.name).x + 6.0f;
+            x += font.Measure(p.name).x + gap;
         }
-        if (!linked && !p.inlineValue.empty()) valueBox(x, s.y, p.inlineValue, p.dimmed);
+        if (!linked && !p.inlineValue.empty()) valueBox(x, s.y, p.inlineValue, p.dimmed, {n.id, PinDir::Input, i});
     }
     for (u32 i = 0; i < n.outputs.size(); ++i) {
         const PinView& p = n.outputs[i];
         drawPin(g.outputs[i], p, pins.count(1000 + i) != 0);
         if (!pinText) continue;
         const Vec2 s = m_view.ToScreen(g.outputs[i], m_origin);
-        f32 right = s.x - 9.0f;
+        f32 right = s.x - pinPad;
         if (!p.inlineValue.empty()) {
-            const f32 bw = font.Measure(p.inlineValue).x + 10.0f;
-            valueBox(right - bw, s.y, p.inlineValue, p.dimmed);
-            right -= bw + 6.0f;
+            const f32 bw = font.Measure(p.inlineValue).x + boxPad * 2.0f;
+            valueBox(right - bw, s.y, p.inlineValue, p.dimmed, {n.id, PinDir::Output, i});
+            right -= bw + gap;
         }
         if (!p.name.empty()) {
             const f32 lw = font.Measure(p.name).x;
@@ -503,6 +538,7 @@ void GraphEditorWidget::HandleInput(Context& ui, const Rect& rect, const std::ve
     }
 
     if (m_paletteOpen) return;  // the popup palette owns input while open
+    if (m_editing) return;      // a value box is being typed into
     if (m_hovered && m_mode == Mode::None) {
         if (ui.scrollDelta() != 0.0f) m_view.ZoomAt(ui.scrollDelta() > 0.0f ? 1 : -1, mouse, m_origin);
         HandleKeys(ui, mg);
@@ -518,6 +554,15 @@ void GraphEditorWidget::HandleInput(Context& ui, const Rect& rect, const std::ve
                                            (hover.pin->dir == PinDir::Input ? "i" : "o")),
                                {s.x - 8.0f, s.y - 8.0f, 16.0f, 16.0f}, pins[hover.pin->index].tooltip);
                 }
+            }
+        }
+        if (ui.mousePressed(0) && !m_editing) {
+            for (const ValueBox& b : m_valueBoxes) {
+                if (!b.rect.Contains(mouse)) continue;
+                m_editing = b;
+                m_editText = b.value;
+                m_editAge = 0;
+                return;
             }
         }
         for (int button : {0, 1, 2}) {

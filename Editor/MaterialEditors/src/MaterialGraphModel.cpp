@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cctype>
 #include <set>
 
@@ -397,6 +398,44 @@ NodeId MaterialGraphModel::AddReroute(Vec2 p) { return m_material.graph.AddNode(
 
 NodeId MaterialGraphModel::AddComment(Vec2 p, Vec2 s, std::string text) {
     return kCommentBit | m_material.graph.AddComment({p.x, p.y}, {s.x, s.y}, std::move(text));
+}
+
+bool MaterialGraphModel::SetInlineValue(PinKey pin, const std::string& text) {
+    MaterialGraph::Node* n = m_material.graph.Find(pin.node);
+    const ExpressionDesc* d = Desc(pin.node);
+    if (!n || !d) return false;
+    // "0.5" or "0, 0, 1" (commas and/or spaces).
+    std::vector<f32> nums;
+    std::string cur;
+    for (char c : text + ",") {
+        if (c == ',' || c == ' ' || c == ';') {
+            if (!cur.empty()) {
+                char* end = nullptr;
+                const f32 v = std::strtof(cur.c_str(), &end);
+                if (end == cur.c_str()) return false;
+                nums.push_back(v);
+                cur.clear();
+            }
+        } else {
+            cur += c;
+        }
+    }
+    if (nums.empty()) return false;
+    MaterialGraph::PropertyValue value =
+        nums.size() == 1 ? MaterialGraph::PropertyValue(static_cast<f64>(nums[0]))
+                         : MaterialGraph::PropertyValue(Math::Vec4{nums[0], nums.size() > 1 ? nums[1] : 0.0f,
+                                                                   nums.size() > 2 ? nums[2] : 0.0f,
+                                                                   nums.size() > 3 ? nums[3] : 1.0f});
+    if (pin.dir == PinDir::Input) {
+        if (pin.index >= d->inputs.size()) return false;
+        n->properties[MaterialGraph::InputPropertyKey(d->inputs[pin.index].name)] = std::move(value);
+        return true;
+    }
+    if (n->type == "ScalarParameter" && pin.index == 0) {
+        n->properties["default"] = MaterialGraph::PropertyValue(static_cast<f64>(nums[0]));
+        return true;
+    }
+    return false;
 }
 
 void MaterialGraphModel::Restore(const std::any& snapshot) {

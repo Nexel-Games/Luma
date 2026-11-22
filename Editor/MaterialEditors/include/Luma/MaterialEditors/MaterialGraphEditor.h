@@ -11,6 +11,7 @@
 #include "Luma/MaterialEditors/EditorServices.h"
 #include "Luma/MaterialEditors/MaterialGraphModel.h"
 #include "Luma/Slate/DockSpace.h"
+#include "Luma/MaterialEditors/ColorPopup.h"
 
 namespace Luma::Material {
 class MaterialLibrary;
@@ -99,6 +100,7 @@ private:
     bool m_statsVisible = true;     // Stats dock panel (tab close / toolbar toggle)
     // Viewport, Details, Graph and Stats are dock panels (drag tabs to re-dock).
     Slate::DockSpace m_dock;
+    Detail::ColorPopup m_colorPopup;  // floating, rounded colour picker
     bool m_dockBuilt = false;
 };
 

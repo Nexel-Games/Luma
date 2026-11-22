@@ -132,6 +132,7 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     const Rect body{rect.x, rect.y + kToolbarH, rect.w, rect.h - kToolbarH};
     if (!m_dockBuilt) BuildDock(body);
     m_dock.Draw(ui, body);
+    m_colorPopup.Draw(ui);
     HDivider(ui, rect.x, body.y, rect.w);
 
     m_widget->DrawOverlays(ui);  // right-click palette above every panel
@@ -259,8 +260,11 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
     if (!status.empty()) ui.LabelIn({x, y, bar.Right() - x - 8.0f, h}, status, isError ? t.error : t.textDim);
 }
 
-void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& area) {
+void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& panel) {
     const Slate::Theme& t = ui.theme();
+    // A margin around the image, framed with rounded corners.
+    ui.Panel(panel, t.panelBg);
+    const Rect area = panel.Inset(8.0f, 8.0f);
     ui.Panel(area, t.recessed);
     if (area.Contains(ui.mouse()) && ui.mousePressed(0)) m_orbiting = true;
     if (!ui.isMouseDown(0)) m_orbiting = false;
@@ -273,13 +277,14 @@ void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& area) {
     const TextureHandle image = m_services.renderPreview ? m_services.renderPreview(m_preview) : 0;
     if (image) ui.Image(image, area);
     else ui.LabelIn(area, "Preview unavailable", t.textDisabled, Align::Center);
+    ui.drawList().AddRectOutlineRounded(area, Slate::Color::RGB(64, 64, 68), 1.0f, 4.0f);
     // Preview shape buttons along the bottom (UE's viewport toolbar).
     const Slate::Icon icons[] = {Slate::Icon::Sphere, Slate::Icon::Cube, Slate::Icon::Plane, Slate::Icon::Cylinder};
     const EditorIcon pngs[] = {EditorIcon::Sphere, EditorIcon::Cube, EditorIcon::Plane, EditorIcon::Cylinder};
     const char* names[] = {"Sphere", "Cube", "Plane", "Cylinder"};
-    f32 bx = area.x + 6.0f;
+    f32 bx = area.x + 8.0f;
     for (int i = 0; i < 4; ++i) {
-        const Rect b{bx, area.Bottom() - 32.0f, 28.0f, 26.0f};
+        const Rect b{bx, area.Bottom() - 34.0f, 28.0f, 26.0f};
         const bool active = static_cast<int>(m_preview.shape) == i;
         const TextureHandle png = IconTexture(m_services, pngs[i]);
         // Full-colour primitive icons draw untinted; the pressed state shows the selection.
@@ -372,7 +377,14 @@ void MaterialGraphEditor::DrawNodeProperties(Context& ui, MaterialGraph::NodeId 
                 f32 xyzw[4] = {c.x, c.y, c.z, c.w};
                 Slate::SpinBoxOptions o;
                 o.speed = 0.005f;
-                if (ui.VectorField(wid, r, xyzw, 4, o).changed)
+                // Rounded swatch: click for the colour picker.
+                const std::string key = p.key;
+                m_colorPopup.Swatch(ui, wid ^ 0x5157ull, {r.x, r.y, 24.0f, r.h}, c, [this, id, key](const Math::Vec4& nv) {
+                    BeginPropertyEdit();
+                    m_model->SetProperty(id, key, PropertyValue(nv));
+                    OnGraphChanged();
+                });
+                if (ui.VectorField(wid, {r.x + 28.0f, r.y, r.w - 28.0f, r.h}, xyzw, 4, o).changed)
                     commit(p.key, PropertyValue(Math::Vec4{xyzw[0], xyzw[1], xyzw[2], xyzw[3]}));
                 break;
             }

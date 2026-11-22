@@ -54,6 +54,7 @@ public:
     NodeId Spawn(const std::string& actionId, GraphEditor::Vec2 position) override;
     NodeId AddReroute(GraphEditor::Vec2 position) override;
     NodeId AddComment(GraphEditor::Vec2 position, GraphEditor::Vec2 size, std::string text) override;
+    bool SetInlineValue(GraphEditor::PinKey pin, const std::string& text) override;
     std::any Snapshot() const override { return m_material; }
     void Restore(const std::any& snapshot) override;
     std::string Copy(const std::vector<NodeId>& nodes) const override;

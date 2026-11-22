@@ -1,3 +1,4 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -134,4 +135,18 @@ TEST_CASE("Drag-off actions are filtered by pin type", "[materialeditors][graphm
     CHECK(filtered.size() < all.size());
     CHECK(std::any_of(filtered.begin(), filtered.end(), [](auto& a) { return a.id == "TextureSample"; }));
     CHECK(std::none_of(filtered.begin(), filtered.end(), [](auto& a) { return a.id == "Fresnel"; }));  // float-only inputs
+}
+
+TEST_CASE("Inline values typed on nodes set input defaults and parameter defaults", "[materialeditors][graphmodel]") {
+    MaterialGraphModel m(Material::GraphMaterial{});
+    const NodeId output = m.Material().graph.OutputNode();
+    CHECK(m.SetInlineValue(In(output, 2), "0.25"));  // Specular
+    const auto* d = MaterialGraph::ExpressionRegistry::Get().Find(MaterialGraph::Graph::kOutputType);
+    CHECK(MaterialGraph::InputDefault(*d, *m.Material().graph.Find(output), 2).AsFloat() == 0.25);
+    CHECK(m.SetInlineValue(In(output, 8), "0, 1, 0"));  // Normal
+    CHECK(MaterialGraph::InputDefault(*d, *m.Material().graph.Find(output), 8).AsVec4().y == 1.0f);
+    CHECK_FALSE(m.SetInlineValue(In(output, 2), "abc"));
+    const NodeId p = m.Spawn("ScalarParameter", {0, 0});
+    CHECK(m.SetInlineValue(Out(p), "0.7"));
+    CHECK(m.Material().graph.Find(p)->properties.at("default").AsFloat() == Catch::Approx(0.7));
 }

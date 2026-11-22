@@ -113,6 +113,17 @@ private:
     std::optional<LinkView> m_hoverWire;
     std::string m_linkMessage;
     Slate::Rect m_exclusion{};
+    // Inline value boxes drawn this frame (screen space), and the one being edited.
+    struct ValueBox {
+        Slate::Rect rect;
+        PinKey pin;
+        std::string value;
+    };
+    std::vector<ValueBox> m_valueBoxes;
+    std::optional<ValueBox> m_editing;
+    std::string m_editText;
+    int m_editAge = 0;
+    void DrawValueEditor(Slate::Context& ui);
     std::string m_watermark;
     std::vector<const Slate::Font*> m_fontLadder;
     const Slate::Font* m_watermarkFont = nullptr;

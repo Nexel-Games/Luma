@@ -7,6 +7,7 @@
 #include "Luma/MaterialEditors/InstanceParameters.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/DockSpace.h"
+#include "Luma/MaterialEditors/ColorPopup.h"
 
 namespace Luma::MaterialEditors {
 
@@ -50,6 +51,7 @@ private:
     std::string m_parentError;
     // Viewport and Details are dock panels (drag tabs to re-dock).
     Slate::DockSpace m_dock;
+    Detail::ColorPopup m_colorPopup;  // floating, rounded colour picker
     bool m_dockBuilt = false;
 };
 

@@ -63,6 +63,7 @@ void MaterialInstanceEditor::Draw(Context& ui, const Rect& rect) {
         m_dock.DockWith(dt, vp, Slate::DockDir::Right, 1.0f - m_split);  // UE: 70% viewport
     }
     m_dock.Draw(ui, body);
+    m_colorPopup.Draw(ui);
     HDivider(ui, rect.x, body.y, rect.w);
 }
 
@@ -93,8 +94,11 @@ void MaterialInstanceEditor::DrawToolbar(Context& ui, const Rect& bar) {
     }
 }
 
-void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& area) {
+void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& panel) {
     const Slate::Theme& t = ui.theme();
+    // A margin around the image, framed with rounded corners.
+    ui.Panel(panel, t.panelBg);
+    const Rect area = panel.Inset(8.0f, 8.0f);
     ui.Panel(area, t.recessed);
     // Orbit: left-drag inside the viewport.
     if (area.Contains(ui.mouse()) && ui.mousePressed(0)) m_orbiting = true;
@@ -112,6 +116,7 @@ void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& area) {
     } else {
         ui.LabelIn(area, "Preview unavailable", t.textDisabled, Align::Center);
     }
+    ui.drawList().AddRectOutlineRounded(area, Slate::Color::RGB(64, 64, 68), 1.0f, 4.0f);
     ui.LabelIn({area.x + 8.0f, area.y + 6.0f, area.w - 16.0f, 18.0f}, "Perspective  |  Lit", t.textDim);
 }
 
@@ -144,9 +149,16 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
             break;
         }
         case MaterialCompiler::ParameterInfo::Kind::Vector: {
-            const Rect swatch{field.x, field.y, 22.0f, field.h};
-            auto c8 = [](f32 c) { return static_cast<u8>(std::clamp(c, 0.0f, 1.0f) * 255.0f + 0.5f); };
-            ui.PanelBordered(swatch, Slate::Color::RGB(c8(v.vector.x), c8(v.vector.y), c8(v.vector.z)), t.fieldBorder);
+            const Rect swatch{field.x, field.y, 24.0f, field.h};
+            const std::string name = p.info.name;
+            // Rounded swatch: click for the colour picker (overrides the parameter).
+            m_colorPopup.Swatch(ui, Context::ID(key + ".swatch"), swatch, v.vector, [this, name](const Math::Vec4& nv) {
+                ParameterOverride o;
+                o.name = name;
+                o.kind = ParameterOverride::Kind::Vector;
+                o.vector = nv;
+                m_model.SetValue(o);
+            });
             f32 xyzw[4] = {v.vector.x, v.vector.y, v.vector.z, v.vector.w};
             Slate::SpinBoxOptions o;
             o.speed = 0.005f;

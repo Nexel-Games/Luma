@@ -101,6 +101,8 @@ public:
     virtual NodeId Spawn(const std::string& actionId, Vec2 position) = 0;  // 0 on failure
     virtual NodeId AddReroute(Vec2 position) = 0;
     virtual NodeId AddComment(Vec2 position, Vec2 size, std::string text) = 0;
+    // Commits a value typed into a pin's inline value box ("0.5", "0, 0, 1").
+    virtual bool SetInlineValue(PinKey /*pin*/, const std::string& /*text*/) { return false; }
 
     // Whole-graph state for undo / redo.
     virtual std::any Snapshot() const = 0;
