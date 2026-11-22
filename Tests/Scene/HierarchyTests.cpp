@@ -1,3 +1,4 @@
+#include "Luma/Scene/ComponentRegistry.h"
 #include <catch2/catch_test_macros.hpp>
 
 #include "Luma/Scene/ActorClipboard.h"
@@ -128,4 +129,22 @@ TEST_CASE("Selection roots drop nested actors", "[scene][hierarchy]") {
     auto roots = SelectionRoots(scene, {child, root});
     REQUIRE(roots.size() == 1);
     CHECK(roots[0] == root);
+}
+
+TEST_CASE("Clipboard keeps missing-plugin data and ownership through paste", "[scene][hierarchy]") {
+    Scene scene;
+    auto source = scene.CreateEntity("Body");
+    auto& missing = scene.Registry().emplace<UnresolvedComponents>(source);
+    missing.payloads.push_back({"Curve", "Studio.Curves", SerialValue(23)});
+    missing.keyOrder = {"Curve", "Name", "Transform"};
+    ActorClipboard clipboard;
+    REQUIRE(clipboard.Copy(scene, {source}));
+    auto pasted = clipboard.Paste(scene, kNullEntity, {});
+    REQUIRE(pasted.size() == 1);
+    auto* kept = scene.Registry().try_get<UnresolvedComponents>(pasted.front());
+    REQUIRE(kept);
+    REQUIRE(kept->Find("Curve"));
+    CHECK(kept->Find("Curve")->owner == "Studio.Curves");
+    CHECK(kept->Find("Curve")->payload.AsInt() == 23);
+    CHECK(kept->keyOrder.front() == "Curve");
 }

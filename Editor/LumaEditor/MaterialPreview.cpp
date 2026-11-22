@@ -22,10 +22,20 @@
 namespace Luma {
 namespace {
 
-constexpr f32 kFovY = 0.5f;  // narrow lens: little perspective distortion
+constexpr f32 kFovY = 0.5f;          // thumbnails: narrow lens, little perspective distortion
+constexpr f32 kPreviewFovY = 0.95f;  // interactive preview: wider lens, more depth (UE-like)
 // Thumbnails view the actor slightly from above and to the side.
 constexpr f32 kThumbnailYaw = 0.6f;
 constexpr f32 kThumbnailPitch = 0.3f;
+// The preview's default material (engine content,
+// Content/Engine/Materials/M_GridBox_Default.lmat): the floor, and whatever
+// is previewed without a material.
+constexpr std::string_view kPreviewDefaultMaterial = "/Engine/Materials/M_GridBox_Default";
+constexpr std::string_view kFloorMaterial = kPreviewDefaultMaterial;
+
+std::string OrPreviewDefault(std::string_view materialPath) {
+    return materialPath.empty() ? std::string(kPreviewDefaultMaterial) : std::string(materialPath);
+}
 
 MeshPrimitive ToPrimitive(PreviewShape shape) {
     switch (shape) {
@@ -44,6 +54,7 @@ MaterialPreview::MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
     : m_renderer(renderer), m_library(library) {
     m_actor = m_scene.CreateEntity("PreviewActor");
     m_scene.Registry().emplace<MeshRendererComponent>(m_actor);
+    m_floor = m_scene.CreateEntity("PreviewFloor");
 
     m_view.sky.enabled = true;
     // A lone actor has nothing to shadow; cascades fitted to such a small
@@ -52,7 +63,7 @@ MaterialPreview::MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
     m_view.grid.enabled = false;
     // Auto exposure as in the viewport; captures snap it (delta time 0).
     m_view.viewMode = ViewMode::Lit;
-    m_view.fovYRadians = kFovY;
+    m_view.fovYRadians = m_fovY;
     m_view.nearZ = 0.05f;
     m_view.farZ = 200.0f;
 }
@@ -61,9 +72,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
                                   f32 deltaSeconds) {
     width = std::max(width, 1u);
     height = std::max(height, 1u);
-    m_bridge.Sync(m_scene, m_renderer, m_library);
-    m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
-    m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
+    m_bridge.Sync(m_scene, m_renderer, m_library);  // loads the actor's mesh (bounds)
 
     // Frame the actor's bounding sphere.
     const auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
@@ -76,8 +85,31 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
             radius = std::max(std::sqrt(Math::Dot(extent, extent)), 1e-3f);
         }
     }
+    // Floor: a flat M_GridBox cube whose top touches the bottom of the actor.
+    {
+        auto& reg = m_scene.Registry();
+        if (m_showFloor) {
+            f32 bottom = center.y - 0.5f;  // unit primitives span [-0.5, 0.5]
+            if (mr.UsesMeshAsset()) {
+                if (const Editor::MeshBounds* b = m_bridge.Bounds(mr.mesh)) bottom = b->min.y;
+            }
+            const f32 size = radius * 8.0f, thickness = radius * 0.1f;
+            auto& floorMesh = reg.emplace_or_replace<MeshRendererComponent>(m_floor);
+            floorMesh.primitive = MeshPrimitive::Cube;
+            floorMesh.materials = {std::string(kFloorMaterial)};
+            auto& xf = reg.get_or_emplace<TransformComponent>(m_floor);
+            xf.position = {center.x, bottom - thickness * 0.5f - 0.001f, center.z};
+            xf.scale = {size, thickness, size};
+        } else {
+            reg.remove<MeshRendererComponent>(m_floor);
+        }
+    }
+    // Again with the floor placed: its material becomes resident too.
+    m_bridge.Sync(m_scene, m_renderer, m_library);
+    m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
+    m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
     const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
-    const f32 halfFov = std::min(kFovY, 2.0f * std::atan(std::tan(kFovY * 0.5f) * aspect)) * 0.5f;
+    const f32 halfFov = std::min(m_fovY, 2.0f * std::atan(std::tan(m_fovY * 0.5f) * aspect)) * 0.5f;
     const f32 distance = radius / std::sin(halfFov) * 1.08f;
     const Math::Vec3 eye = center + Math::Vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
                                                std::cos(pitch) * std::cos(yaw)) * distance;
@@ -103,11 +135,12 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     frame.cameraPosition = eye;
     frame.cameraDirection = Math::Normalize(center - eye);
     frame.viewMatrix = m_view.view;
-    frame.projectionMatrix = Math::PerspectiveForViewport(kFovY, static_cast<f32>(width),
+    frame.projectionMatrix = Math::PerspectiveForViewport(m_fovY, static_cast<f32>(width),
                                                           static_cast<f32>(height),
                                                           m_view.nearZ, m_view.farZ);
     frame.viewProjectionMatrix = frame.projectionMatrix * frame.viewMatrix;
-    frame.fov = kFovY;
+    frame.fov = m_fovY;
+    m_view.fovYRadians = m_fovY;
     frame.nearPlane = m_view.nearZ;
     frame.farPlane = m_view.farZ;
     frame.width = width;
@@ -122,15 +155,20 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
 }
 
 TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShape shape,
-                                      f32 yaw, f32 pitch, u32 width, u32 height, bool sky) {
+                                      f32 yaw, f32 pitch, u32 width, u32 height, bool sky,
+                                      bool floor) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.mesh.clear();
     mr.primitive = ToPrimitive(shape);
-    mr.materials = {std::string(materialPath)};
+    mr.materials = {OrPreviewDefault(materialPath)};
     m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
+    m_showFloor = floor;
+    m_fovY = kPreviewFovY;
     // Interactive: exposure adapts over frames like the viewport.
     RenderFrame(yaw, pitch, width, height, 1.0f / 60.0f);
     m_view.sky.enabled = true;  // thumbnails always use the sky
+    m_showFloor = false;        // ... and no floor
+    m_fovY = kFovY;             // ... and the narrow lens
     return m_renderer.GetViewportTextureHandle();
 }
 
@@ -179,7 +217,7 @@ bool MaterialPreview::CaptureMaterial(std::string_view materialPath, u32 size,
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.mesh.clear();
     mr.primitive = MeshPrimitive::Sphere;
-    mr.materials = {std::string(materialPath)};
+    mr.materials = {OrPreviewDefault(materialPath)};
     u32 w = 0, h = 0;
     CaptureExtent(w, h);
     // Two frames: the first captures the sky light; exposure snaps (dt 0).

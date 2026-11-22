@@ -30,7 +30,7 @@ Clip Lerp(const Clip& a, const Clip& b, f32 t) {
 
 VulkanOverlayLinePass::VulkanOverlayLinePass(VkPhysicalDevice physical, VkDevice device,
                                              const std::string& shaderDir,
-                                             VkFormat colorFormat)
+                                             VkFormat colorFormat, VkFormat depthFormat)
     : m_device(device) {
     m_vertices = CreateBuffer(physical, device, sizeof(Vertex) * kMaxVertices,
                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -87,6 +87,11 @@ VulkanOverlayLinePass::VulkanOverlayLinePass(VkPhysicalDevice physical, VkDevice
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    if (depthFormat != VK_FORMAT_UNDEFINED) {
+        ds.depthTestEnable = VK_TRUE;
+        ds.depthWriteEnable = VK_FALSE;
+        ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    }
     VkPipelineColorBlendAttachmentState ba{};
     ba.blendEnable = VK_TRUE;
     ba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -107,6 +112,7 @@ VulkanOverlayLinePass::VulkanOverlayLinePass(VkPhysicalDevice physical, VkDevice
     VkPipelineRenderingCreateInfo ri{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     ri.colorAttachmentCount = 1;
     ri.pColorAttachmentFormats = &colorFormat;
+    ri.depthAttachmentFormat = depthFormat;
 
     VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     info.pNext = &ri;

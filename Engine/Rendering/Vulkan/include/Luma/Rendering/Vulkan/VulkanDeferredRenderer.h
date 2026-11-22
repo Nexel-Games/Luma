@@ -86,7 +86,8 @@ public:
     VulkanDeferredRenderer(VkPhysicalDevice physicalDevice, VkDevice device,
                            VkQueue graphicsQueue, uint32_t graphicsQueueFamilyIndex,
                            VulkanUIPass& uiPass, const std::string& shaderDir,
-                           bool useEnvironment = false);
+                           bool useEnvironment = false,
+                           std::string environmentPath = {});  // "" = the default HDRI
     ~VulkanDeferredRenderer();
 
     VulkanDeferredRenderer(const VulkanDeferredRenderer&) = delete;
@@ -94,6 +95,9 @@ public:
 
     // Initialization
     bool Initialize(int32_t width, int32_t height);
+    // Background blur of the HDR environment as a mip level (lighting always
+    // uses the sharp image); negative = automatic (~128 px wide mip).
+    void SetEnvironmentBlur(f32 mipLevel) { m_environmentBlurLod = mipLevel; }
     void Cleanup();
 
     // Public API for editor integration
@@ -242,6 +246,9 @@ private:
     VulkanUIPass& m_uiPass;
     std::string m_shaderDir;
     bool m_useEnvironment = false;
+    std::string m_environmentPath;
+    u32 m_environmentMips = 1;
+    f32 m_environmentBlurLod = -1.0f;
     bool m_initialized = false;
     bool m_gBufferInitialized = false;
 
@@ -277,6 +284,7 @@ private:
     // Editor ground grid (created with 1-sample targets matching this pass)
     std::unique_ptr<VulkanGridPass> m_gridPass;
     std::unique_ptr<VulkanOverlayLinePass> m_overlayPass;  // editor gizmo lines
+    std::unique_ptr<VulkanOverlayLinePass> m_depthLinePass;  // depth-tested world lines (DebugDraw)
     // Selected-actor outline (its own module, Vulkan/Selection).
     std::unique_ptr<VulkanSelectionOutlinePass> m_selectionPass;
 

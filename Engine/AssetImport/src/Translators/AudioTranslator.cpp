@@ -22,9 +22,8 @@ std::string_view AudioTranslator::Name() const {
     return "Luma.Import.Audio";
 }
 
-bool AudioTranslator::CanTranslate(const std::filesystem::path& file) const {
-    const std::string ext = ExtensionOf(file);
-    return ext == ".wav" || ext == ".mp3";
+std::vector<std::string> AudioTranslator::Extensions() const {
+    return {".wav", ".mp3"};
 }
 
 bool AudioTranslator::Translate(const std::filesystem::path& file, ImportScene& out, std::string* error) {

@@ -26,9 +26,9 @@ const TypeInfo<Widget>& GetTypeInfo<Widget>() {
         TypeBuilder<Widget> b("Widget");
         b.Property("label", &Widget::label).Category("General");
         b.Property("count", &Widget::count).Range(0, 100);
-        b.Property("weight", &Widget::weight).Tooltip("kg");
+        b.Property("weight", &Widget::weight).Tooltip("kg").DisplayName("Weight (kg)");
         b.Property("enabled", &Widget::enabled);
-        b.Property("shape", &Widget::shape);
+        b.Property("shape", &Widget::shape).Enum({"Circle", "Square", "Triangle"});
         return b.Build();
     }();
     return info;
@@ -102,4 +102,26 @@ TEST_CASE("DeserializeObject keeps defaults for missing fields",
     REQUIRE(w.label == "unnamed");
     REQUIRE(w.weight == 1.0f);
     REQUIRE(w.enabled == false);
+}
+
+TEST_CASE("Reflection exposes UI metadata through the type-erased view",
+          "[serial][reflect]") {
+    const Luma::TypeInfoBase& info = GetTypeInfo<Widget>();
+    REQUIRE(info.Name() == "Widget");
+    REQUIRE(info.PropertyCount() == 5);
+    const std::size_t shape = info.FindProperty("shape");
+    REQUIRE(shape == 4);
+    REQUIRE(info.PropertyMetaAt(shape).enumNames ==
+            std::vector<std::string>{"Circle", "Square", "Triangle"});
+    REQUIRE(info.PropertyMetaAt(info.FindProperty("weight")).displayName == "Weight (kg)");
+    REQUIRE(info.FindProperty("missing") == info.PropertyCount());
+}
+
+TEST_CASE("PrettyPropertyName turns identifiers into labels", "[serial][reflect]") {
+    REQUIRE(Luma::PrettyPropertyName("degreesPerSecond") == "Degrees Per Second");
+    REQUIRE(Luma::PrettyPropertyName("castShadows") == "Cast Shadows");
+    REQUIRE(Luma::PrettyPropertyName("shadow_map_size") == "Shadow Map Size");
+    REQUIRE(Luma::PrettyPropertyName("cascade2Split") == "Cascade 2 Split");
+    REQUIRE(Luma::PrettyPropertyName("name") == "Name");
+    REQUIRE(Luma::PrettyPropertyName("") == "");
 }

@@ -4,7 +4,8 @@
 
 add_library(LumaSerialization STATIC
     src/SerialValue.cpp
-    src/Json.cpp)
+    src/Json.cpp
+    src/Reflection.cpp)
 
 add_library(Luma::Serialization ALIAS LumaSerialization)
 
