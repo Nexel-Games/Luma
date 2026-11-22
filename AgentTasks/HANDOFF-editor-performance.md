@@ -94,3 +94,6 @@ New owner requests (2026-11-22):
 10. "After" benchmarks (uncapped, default High tier and old-equivalent settings), full suite green, smoke-run editor with
     `--vulkan-validation` → 0 `VUID`/`validation error` lines in `Saved/Logs/Editor.log`.
 11. Documentation (owner request 2), commit, push, PRs `agent/editor-performance` → `dev` and → `main` with before/after numbers.
+
+## Owner request (13:40): settings windows must dock
+Project Settings / Editor Preferences are separate OS windows (`Editor/LumaEditor/SettingsWindow.*`, uncommitted work in this worktree). Owner wants them dockable as tabs in the main editor dock / Window menu strip, like other panels (register through `EditorPanels()` + `EditorPanelHost`, keep the floating-window option). Project Settings restyle to the Preferences look is done (GraphicsPages RowLayout + ProjectSettings sidebar/title); Simulation and Maps & Modes pages still use their old row layout: move them onto the same RowLayout.

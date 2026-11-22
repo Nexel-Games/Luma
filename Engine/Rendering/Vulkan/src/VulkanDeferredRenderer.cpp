@@ -166,6 +166,7 @@ VulkanDeferredRenderer::~VulkanDeferredRenderer() {
 }
 
 MeshHandle VulkanDeferredRenderer::UploadMesh(u64 key, const MeshData& mesh) {
+    ++m_contentRevision;
     return m_meshes->Upload(key, mesh);
 }
 
@@ -174,25 +175,30 @@ void VulkanDeferredRenderer::ReleaseMesh(MeshHandle mesh) {
         if (primitive == mesh) return;  // built-in shapes stay resident
     }
     m_garbagePending = true;
+    ++m_contentRevision;
     m_meshes->Release(mesh);
 }
 
 GpuTextureHandle VulkanDeferredRenderer::UploadTexture(u64 key, const TextureUploadDesc& texture) {
+    ++m_contentRevision;
     return m_textures->Upload(key, texture);
 }
 
 void VulkanDeferredRenderer::ReleaseTexture(GpuTextureHandle texture) {
     m_garbagePending = true;
+    ++m_contentRevision;
     m_textures->Release(texture);
 }
 
 MaterialHandle VulkanDeferredRenderer::UpdateMaterial(u64 key, const CompiledMaterialGpu& material,
                                                      const MaterialParameterBlock& parameters) {
+    ++m_contentRevision;
     return m_materials->Update(key, material, parameters);
 }
 
 void VulkanDeferredRenderer::UpdateMaterialParameters(MaterialHandle material,
                                                       const MaterialParameterBlock& parameters) {
+    ++m_contentRevision;
     m_materials->UpdateParameters(material, parameters);
 }
 
@@ -491,6 +497,7 @@ void VulkanDeferredRenderer::BuildDrawList(const SceneView& source, GpuPass pass
 }
 
 void VulkanDeferredRenderer::ReleaseMaterial(MaterialHandle material) {
+    ++m_contentRevision;
     m_materials->Release(material);
 }
 
@@ -1708,6 +1715,7 @@ void VulkanDeferredRenderer::SetQuality(const Renderer2::RenderQuality& quality)
     const bool resizeShadow = m_quality.shadowMapSize != quality.shadowMapSize ||
                               m_quality.maxCascades != quality.maxCascades;
     const bool outputChanged = m_quality.fxaa != quality.fxaa;
+    ++m_contentRevision;
     m_quality = quality;
     if (!m_initialized || (!resizeShadow && !outputChanged)) return;
     vkDeviceWaitIdle(m_device);
@@ -2088,24 +2096,24 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     m_gpuTimer->End(m_commandBuffer, postScope);
     if (m_fxaaRenderPass && m_fxaaPipeline) {
         if (m_quality.fxaa) {
-        const u32 fxaaScope = m_gpuTimer->Begin(m_commandBuffer, "FXAA");
-        VkClearValue fxaaClear{}; fxaaClear.color = {{0, 0, 0, 1}};
-        VkRenderPassBeginInfo fxaaRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-        fxaaRp.renderPass = m_fxaaRenderPass;
-        fxaaRp.framebuffer = m_fxaaFramebuffer;
-        fxaaRp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)};
-        fxaaRp.clearValueCount = 1;
-        fxaaRp.pClearValues = &fxaaClear;
-        vkCmdBeginRenderPass(m_commandBuffer, &fxaaRp, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
-        vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
-        vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_fxaaPipeline);
-        vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_fxaaLayout, 0, 1, &m_fxaaSet, 0, nullptr);
-        Math::Vec2 res{static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height)};
-        vkCmdPushConstants(m_commandBuffer, m_fxaaLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(res), &res);
-        vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
-        vkCmdEndRenderPass(m_commandBuffer);
-        m_gpuTimer->End(m_commandBuffer, fxaaScope);
+            const u32 fxaaScope = m_gpuTimer->Begin(m_commandBuffer, "FXAA");
+            VkClearValue fxaaClear{}; fxaaClear.color = {{0, 0, 0, 1}};
+            VkRenderPassBeginInfo fxaaRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+            fxaaRp.renderPass = m_fxaaRenderPass;
+            fxaaRp.framebuffer = m_fxaaFramebuffer;
+            fxaaRp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)};
+            fxaaRp.clearValueCount = 1;
+            fxaaRp.pClearValues = &fxaaClear;
+            vkCmdBeginRenderPass(m_commandBuffer, &fxaaRp, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
+            vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
+            vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_fxaaPipeline);
+            vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_fxaaLayout, 0, 1, &m_fxaaSet, 0, nullptr);
+            Math::Vec2 res{static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height)};
+            vkCmdPushConstants(m_commandBuffer, m_fxaaLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(res), &res);
+            vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
+            vkCmdEndRenderPass(m_commandBuffer);
+            m_gpuTimer->End(m_commandBuffer, fxaaScope);
         }
         const Attachment& output = DisplayAttachment();
         const u32 editorScope = m_gpuTimer->Begin(m_commandBuffer, "Editor Overlays");

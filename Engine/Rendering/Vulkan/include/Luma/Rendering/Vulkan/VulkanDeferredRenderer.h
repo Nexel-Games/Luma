@@ -107,6 +107,7 @@ public:
     // Public API for editor integration
     void SetViewportDimensions(int32_t width, int32_t height);
     void SetQuality(const Renderer2::RenderQuality& quality);
+    u64 ContentRevision() const { return m_contentRevision; }
     void PrepareScene();
     void RenderScene(const Renderer2::DeferredSceneView& scene);
     const Attachment* GetLightAccumulationBuffer() const;
@@ -308,6 +309,7 @@ private:
     std::array<VkFence, kFrameSlots> m_fences{};
     std::array<VkCommandBuffer, kFrameSlots> m_commands{};
     bool m_garbagePending = false;
+    u64 m_contentRevision = 0;
 
     // Cascaded shadow map resources (sun / directional light)
     VkImage m_shadowImage = VK_NULL_HANDLE;

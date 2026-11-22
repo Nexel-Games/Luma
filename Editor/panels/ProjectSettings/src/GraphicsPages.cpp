@@ -23,29 +23,36 @@ public:
 
     u64 Id(std::string_view key) const { return Slate::Context::ID(std::string(m_prefix) + "." + std::string(key)); }
 
+    // Section header bar (Editor Preferences style).
     void Heading(std::string_view text) {
-        if (m_y > m_area.y) m_y += 6.0f;
-        m_ui.Panel({m_area.x, m_y, m_area.w, 24}, m_ui.theme().surface3);
-        m_ui.Heading({m_area.x + 8, m_y, m_area.w - 8, 24}, text, m_ui.theme().text);
-        m_y += 24.0f;
-        m_ui.Panel({m_area.x, m_y - 2.0f, m_area.w, 1.0f}, m_ui.theme().separator);
-        m_y += 4.0f;
+        if (m_y > m_area.y) m_y += 9.0f;
+        const Rect header{m_area.x, m_y, m_area.w, 29.0f};
+        m_ui.Panel(header, m_ui.theme().surface3);
+        m_ui.Heading(header.Inset(10.0f, 0.0f), text, m_ui.theme().text);
+        m_y += 29.0f;
     }
 
-    // Label + tooltip; returns the control rect (right column).
+    // Property row: label | divider | control (Editor Preferences style).
+    // The label carries the tooltip; returns the control rect.
     Rect Row(std::string_view key, std::string_view label, std::string_view tooltip, f32 controlW = 0.0f) {
-        const Rect labelRect{m_area.x + 8.0f, m_y, m_labelW - 8.0f, 22.0f};
-        m_ui.LabelIn(labelRect, label, m_ui.theme().textDim);
-        m_ui.Tooltip(Id(std::string(key) + ".tip"), labelRect, std::string(label) + "\n" + std::string(tooltip));
-        const f32 w = controlW > 0.0f ? std::min(controlW, m_area.w - m_labelW) : m_area.w - m_labelW;
-        const Rect control{m_area.x + m_labelW, m_y, std::max(w, 60.0f), 22.0f};
-        m_y += 28.0f;
-        return control;
+        const Rect line{m_area.x, m_y, m_area.w, 34.0f};
+        m_y += 34.0f;
+        m_ui.Panel(line, m_ui.theme().surface1);
+        const f32 labelWidth = m_area.w * 0.43f;
+        Rect field = m_ui.PropertyRow(line, label, labelWidth);
+        m_ui.Panel({field.x - 7.0f, line.y, 1.0f, line.h}, m_ui.theme().propertyDivider);
+        m_ui.Tooltip(Id(std::string(key) + ".tip"), {line.x, line.y, labelWidth, line.h},
+                     std::string(label) + "\n" + std::string(tooltip));
+        const f32 w = controlW > 0.0f ? controlW : 164.0f;
+        field.w = std::max(std::min(field.w, w), 40.0f);
+        return field;
     }
 
     void Note(std::string_view text) {
-        m_ui.LabelIn({m_area.x + 8.0f, m_y, m_area.w - 8.0f, 20.0f}, text, m_ui.theme().textDim);
-        m_y += 22.0f;
+        const Rect line{m_area.x, m_y, m_area.w, 26.0f};
+        m_ui.Panel(line, m_ui.theme().surface1);
+        m_ui.LabelIn(line.Inset(10.0f, 0.0f), text, m_ui.theme().textDim);
+        m_y += 26.0f;
     }
 
     bool Check(std::string_view key, std::string_view label, std::string_view tooltip, bool& value) {
@@ -291,7 +298,7 @@ RegistrationToken RegisterDisplayPage(SettingsPageRegistry& pages, Graphics::Dis
     SettingsPageDesc page;
     page.id = std::string(Graphics::kDisplayPageId);
     page.category = "Engine";
-    page.contentHeight = 286;
+    page.contentHeight = 440;  // 3 headers + 5 rows + 2 notes
     page.title = "Display & Frame Rate";
     page.tooltip = "VSync, present mode and frame-rate limits (Config/Graphics.json).";
     page.owner = "Engine";
@@ -309,7 +316,7 @@ RegistrationToken RegisterRenderingPage(SettingsPageRegistry& pages, Graphics::R
     SettingsPageDesc page;
     page.id = std::string(Graphics::kRenderingPageId);
     page.category = "Engine";
-    page.contentHeight = 508;
+    page.contentHeight = 630;  // 5 headers + 13 rows
     page.title = "Rendering Quality";
     page.tooltip = "Quality tier, render scale, anti-aliasing, post effects, shadows, culling and texture "
                    "filtering (Config/Graphics.json).";

@@ -24,6 +24,9 @@
 #include "Luma/RHI/VulkanRHIDevice.h"
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
 #include "Luma/Renderer/DeferredSceneView.h"
+#include "Luma/Renderer/SceneViewFingerprint.h"
+#include <charconv>
+#include <optional>
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Image.h"
 #include "Luma/Slate/Icons.h"
@@ -183,10 +186,15 @@ int main(int argc, char** argv) {
             selectName = argv[++i];
         } else if (arg == "--menu" && i + 1 < argc) {
             menuCommands.emplace_back(argv[++i]);
-        } else if (arg == "--benchmark" && i + 1 < argc) {
-            benchmarkFrames = std::max(1, std::atoi(argv[++i]));
-        } else if (arg == "--benchmark-warmup" && i + 1 < argc) {
-            benchmarkWarmup = std::max(0, std::atoi(argv[++i]));
+        } else if (arg == "--benchmark" || arg == "--benchmark-warmup") {
+            int& value = arg == "--benchmark" ? benchmarkFrames : benchmarkWarmup;
+            const std::string_view input = i + 1 < argc ? argv[++i] : "";
+            const auto end = input.data() + input.size();
+            const auto parsed = std::from_chars(input.data(), end, value);
+            if (parsed.ec != std::errc{} || parsed.ptr != end || value < (arg == "--benchmark" ? 1 : 0)) {
+                LUMA_LOG_ERROR("Benchmark", "{} requires a valid frame count", arg);
+                return 2;
+            }
         } else if (arg == "--benchmark-out" && i + 1 < argc) {
             benchmarkOut = argv[++i];
         } else if (arg == "--benchmark-label" && i + 1 < argc) {
@@ -197,6 +205,11 @@ int main(int argc, char** argv) {
             previewMaterial = argv[++i];
             previewPng = argv[++i];
         }
+    }
+
+    if (benchmarkFrames > 0 && (!editorMode || !std::filesystem::is_regular_file(projectFile))) {
+        LUMA_LOG_ERROR("Benchmark", "--benchmark requires --project <existing file.luma>");
+        return 2;
     }
 
     // Touch the VFS and (in editor mode) remount Project/Saved/Intermediate
@@ -513,7 +526,10 @@ int main(int argc, char** argv) {
     Profiling::FrameLimiter limiter;
     Profiling::Profiler& profiler = Profiling::Global();
     auto lastFlush = Profiling::Clock::now();
-    int benchmarkFrame = 0;
+    std::optional<u64> lastView;
+    Profiling::Clock::time_point settleUntil{};
+    i64 benchmarkFrame = 0;
+    int exitCode = 0;
     while (running && !window->ShouldClose()) {
         // Frame pacing first, so the wait counts in the frame time but not in
         // the CPU time. The browser relies on VSync instead.
@@ -551,12 +567,13 @@ int main(int argc, char** argv) {
         // Benchmark: warm up, then average a fixed number of frames.
         if (benchmarkFrames > 0 && editor && splashTime >= kSplashDuration) {
             if (benchmarkFrame == benchmarkWarmup) profiler.StartCapture();
-            if (benchmarkFrame == benchmarkWarmup + benchmarkFrames) {
+            if (benchmarkFrame == static_cast<i64>(benchmarkWarmup) + benchmarkFrames) {
                 profiler.StopCapture();
                 const Profiling::FrameStats total = profiler.TotalAverage();
                 LUMA_LOG_INFO("Benchmark", "[{}] {} frames (after {} warm-up)\n{}", benchmarkLabel,
                               total.frames, benchmarkWarmup, Profiling::FormatReport(total));
                 if (!benchmarkOut.empty() && !Profiling::WriteReportJson(total, benchmarkOut, benchmarkLabel)) {
+                    exitCode = 1;
                     LUMA_LOG_ERROR("Benchmark", "could not write {}", benchmarkOut);
                 }
                 running = false;
@@ -595,7 +612,19 @@ int main(int argc, char** argv) {
                     vulkanDeferredRenderer->SetViewportDimensions(
                         static_cast<i32>(viewW), static_cast<i32>(viewH));
                     vulkanDeferredRenderer->SetQuality(Graphics::ToRenderQuality(rendering));
-                    vulkanDeferredRenderer->RenderScene(deferredScene);
+                    bool needsRender = editor->GraphicsSettings().display.realtimeViewport;
+                    if (needsRender) lastView.reset();
+                    else {
+                        const auto signature = Renderer2::SceneViewFingerprint(deferredScene, vulkanDeferredRenderer->ContentRevision());
+                        const auto now = Profiling::Clock::now();
+                        if (lastView != signature) {
+                            lastView = signature;
+                            settleUntil = now + std::chrono::seconds(1);
+                            needsRender = true;
+                        }
+                        needsRender |= now < settleUntil;
+                    }
+                    if (needsRender) vulkanDeferredRenderer->RenderScene(deferredScene);
                     
                     // The deferred renderer owns the UI texture handle for its
                     // light-accumulation buffer (re-pointed internally on resize).
@@ -689,5 +718,5 @@ int main(int argc, char** argv) {
     Log::Flush();
     
     Log::Shutdown();
-    return 0;
+    return exitCode;
 }

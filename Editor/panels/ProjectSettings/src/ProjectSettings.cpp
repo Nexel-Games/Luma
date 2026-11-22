@@ -51,35 +51,28 @@ void ProjectSettingsPanel::Close() {
 
 void ProjectSettingsPanel::DrawSidebar(Slate::Context& ui, const Rect& rect) {
     Slate::Theme& t = ui.theme();
+    // Editor Preferences style: a large group title per category, then the
+    // pages as selectable items with an accent bar on the selected one.
     ui.Panel(rect, t.surface1);
-    f32 y = rect.y + 8.0f;
+    f32 y = rect.y + 15.0f;
     for (const std::string& category : m_pages.Categories()) {
-        ui.LabelIn({rect.x + 12.0f, y, rect.w - 24.0f, 22.0f}, category, t.textDim);
-        y += 24.0f;
+        ui.LabelIn({rect.x + 12.0f, y, rect.w - 20.0f, 36.0f}, category, t.text, Slate::Align::Left, true);
+        y += 44.0f;
         for (const SettingsPageDesc* page : m_pages.PagesIn(category)) {
-            const Rect row{rect.x + 4.0f, y, rect.w - 8.0f, 24.0f};
+            const Rect item{rect.x + 15.0f, y, rect.w - 27.0f, 30.0f};
             const bool selected = page->id == m_selected;
-            const bool hovered = row.Contains(ui.mouse());
-            if (selected) {
-                ui.PanelRounded(row, t.selectionBg, t.radius.sm);
-            } else if (hovered) {
-                ui.PanelRounded(row, t.surface2, t.radius.sm);
-            }
             std::string label = page->title;
             if (m_store && m_store->IsDirty(page->id)) label += " *";
-            ui.LabelIn({row.x + 20.0f, row.y, row.w - 24.0f, row.h}, label,
-                       selected ? t.selectionText : t.text);
-            if (hovered && ui.mousePressed(0)) {
+            const u64 itemId = Slate::Context::ID("ps.page." + page->id);
+            if (ui.Selectable(itemId, item, label, selected)) {
                 m_selected = page->id;
                 m_scroll = 0.0f;
             }
-            if (!page->tooltip.empty()) {
-                ui.Tooltip(Slate::Context::ID("ps.page." + page->id), row,
-                           page->title + "\n" + page->tooltip);
-            }
-            y += 26.0f;
+            if (selected) ui.Panel({item.x, item.y + 5.0f, 2.0f, item.h - 10.0f}, t.accent);
+            if (!page->tooltip.empty()) ui.Tooltip(itemId ^ 0x7177ull, item, page->title + "\n" + page->tooltip);
+            y += 32.0f;
         }
-        y += 8.0f;
+        y += 12.0f;
     }
 }
 
@@ -100,13 +93,16 @@ void ProjectSettingsPanel::Draw(Slate::Context& ui, f32 width, f32 height) {
     const Rect sidebar{content.x, content.y, sidebarW, content.h};
     DrawSidebar(ui, sidebar);
     ui.Panel({sidebar.Right(), content.y, 1.0f, content.h}, t.separator);
-    const Rect pageRect{sidebar.Right() + 16.0f, content.y, content.w - sidebarW - 16.0f,
+    const Rect pageRect{sidebar.Right() + 22.0f, content.y, content.w - sidebarW - 44.0f,
                         content.h};
 
     if (const SettingsPageDesc* page = m_pages.Find(m_selected)) {
-        ui.Heading({pageRect.x, pageRect.y, pageRect.w, 28.0f},
-                   page->category + " - " + page->title, t.text);
-        const Rect body{pageRect.x, pageRect.y + 36.0f, pageRect.w, pageRect.h - 36.0f};
+        // Title + subtitle, as in Editor Preferences.
+        ui.LabelIn({pageRect.x, pageRect.y + 15.0f, pageRect.w, 40.0f}, page->category + " - " + page->title, t.text,
+                   Slate::Align::Left, true);
+        ui.LabelIn({pageRect.x, pageRect.y + 55.0f, pageRect.w, 24.0f},
+                   "Project settings, saved to Config/" + page->configFile, t.textDim);
+        const Rect body{pageRect.x, pageRect.y + 89.0f, pageRect.w, std::max(0.0f, pageRect.h - 101.0f)};
         m_scroll = ui.VerticalScroll(id ^ 0x51, body, page->contentHeight, m_scroll);
         ui.PushClip(body);
         const bool changed = page->draw(ui, {body.x, body.y - m_scroll, std::max(1.0f, body.w - 12), body.h});
