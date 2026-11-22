@@ -3,6 +3,7 @@
 add_library(LumaScene STATIC
     src/Scene.cpp
     src/ComponentReflection.cpp
+    src/ComponentRegistry.cpp
     src/SceneSerializer.cpp
     src/MaterialMigration.cpp)
 

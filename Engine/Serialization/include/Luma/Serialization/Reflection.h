@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -71,8 +72,39 @@ struct PropertyMeta {
     bool readOnly = false;
 };
 
+// Type-erased view of a reflected type: its name and each property's name and
+// metadata, without the typed accessors. Runtime systems that only see a type
+// through a registry (the component registry, the Inspector's reflection-driven
+// drawer) use this; values travel as SerialValue through the owner's read/write.
+class TypeInfoBase {
+public:
+    TypeInfoBase() = default;
+    TypeInfoBase(const TypeInfoBase&) = default;
+    TypeInfoBase(TypeInfoBase&&) noexcept = default;
+    TypeInfoBase& operator=(const TypeInfoBase&) = default;
+    TypeInfoBase& operator=(TypeInfoBase&&) noexcept = default;
+    virtual ~TypeInfoBase() = default;
+
+    const std::string& Name() const { return m_name; }
+    virtual usize PropertyCount() const = 0;
+    virtual const std::string& PropertyName(usize index) const = 0;
+    virtual const PropertyMeta& PropertyMetaAt(usize index) const = 0;
+
+    // Index of the property called `name`, or PropertyCount() if there is none.
+    usize FindProperty(std::string_view name) const {
+        const usize n = PropertyCount();
+        for (usize i = 0; i < n; ++i) {
+            if (PropertyName(i) == name) return i;
+        }
+        return n;
+    }
+
+    // Populated by TypeBuilder<T>.
+    std::string m_name;
+};
+
 template <class T>
-class TypeInfo {
+class TypeInfo final : public TypeInfoBase {
 public:
     struct Property {
         std::string name;
@@ -81,11 +113,15 @@ public:
         std::function<void(T&, const SerialValue&)> set;
     };
 
-    const std::string& Name() const { return m_name; }
     const std::vector<Property>& Properties() const { return m_props; }
 
+    usize PropertyCount() const override { return m_props.size(); }
+    const std::string& PropertyName(usize index) const override { return m_props[index].name; }
+    const PropertyMeta& PropertyMetaAt(usize index) const override {
+        return m_props[index].meta;
+    }
+
     // Populated by TypeBuilder<T>.
-    std::string m_name;
     std::vector<Property> m_props;
 };
 
