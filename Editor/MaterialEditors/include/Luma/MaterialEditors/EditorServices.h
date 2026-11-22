@@ -38,6 +38,8 @@ struct MaterialEditorServices {
     std::function<std::vector<std::string>()> listMeshes;
     std::function<std::vector<std::string>()> listTextures;
     std::function<void(const std::string&)> browseToAsset;
+    // Opens a material / instance in its editor (material slot double-click).
+    std::function<void(const std::string&)> openAsset;
     // Compile status (MaterialSceneBridge::Errors / PendingCompiles).
     std::function<std::string(std::string_view)> compileErrors;
     std::function<u32()> pendingCompiles;

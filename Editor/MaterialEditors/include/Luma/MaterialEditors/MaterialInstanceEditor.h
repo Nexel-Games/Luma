@@ -38,6 +38,9 @@ private:
     void DrawDetails(Slate::Context& ui, const Slate::Rect& area);
     f32 DrawParameter(Slate::Context& ui, const InstanceParameter& p, f32 x, f32 y, f32 w);
     void SaveWithMessage();
+    void ApplyParent(const std::string& parent);
+    // The UE-style material slot: icon, name, path; arrow picks, double-click opens.
+    void DrawParentSlot(Slate::Context& ui, f32 x, f32& y, f32 w);
 
     InstanceParameterModel m_model;
     MaterialEditorServices m_services;

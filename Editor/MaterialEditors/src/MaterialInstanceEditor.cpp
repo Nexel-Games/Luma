@@ -7,6 +7,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Slate/Icons.h"
+#include "Luma/Slate/Menu.h"
 
 namespace Luma::MaterialEditors {
 
@@ -119,6 +120,78 @@ void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& panel) {
     ui.LabelIn({area.x + 8.0f, area.y + 6.0f, area.w - 16.0f, 18.0f}, "Perspective  |  Lit", t.textDim);
 }
 
+void MaterialInstanceEditor::ApplyParent(const std::string& parent) {
+    if (parent.empty() || parent == m_model.Parent()) return;
+    m_parentError.clear();
+    if (!m_model.SetParent(parent, &m_parentError)) {
+        LUMA_USER_ERROR("Materials", "Can't set parent of '{}': {}", m_model.Path(), m_parentError);
+    }
+}
+
+void MaterialInstanceEditor::DrawParentSlot(Context& ui, f32 x, f32& y, f32 w) {
+    const Slate::Theme& t = ui.theme();
+    constexpr f32 kSlotH = 50.0f;
+    // Row chrome like the other properties (label column, black lines).
+    ui.LabelIn({x + 12.0f, y, kLabelW - 18.0f, kSlotH}, "Parent", t.text);
+    ui.Panel({x, y + kSlotH - 1.0f, w, 1.0f}, kDividerColor);
+    ui.Panel({x + kLabelW - 4.0f, y, 1.0f, kSlotH - 1.0f}, kDividerColor);
+    const Rect slot{x + kLabelW, y + 4.0f, w - kLabelW - 4.0f, kSlotH - 8.0f};
+    y += kSlotH;
+
+    const std::string current = m_model.Parent();
+    const Rect arrow{slot.Right() - 28.0f, slot.y + (slot.h - 24.0f) * 0.5f, 24.0f, 24.0f};
+    const Rect browse{arrow.x - 28.0f, arrow.y, 24.0f, 24.0f};
+    const bool hover = slot.Contains(ui.mouse()) && !ui.inputBlocked();
+    ui.PanelRoundedBordered(slot, t.fieldBg, hover ? t.accent : Slate::Color::RGB(70, 70, 72), 5.0f);
+    // Thumbnail tile with the material icon.
+    const Rect thumb{slot.x + 5.0f, slot.y + 4.0f, slot.h - 8.0f, slot.h - 8.0f};
+    ui.PanelRounded(thumb, t.surface3, 4.0f);
+    if (const TextureHandle icon = IconTexture(m_services, EditorIcon::Sphere)) {
+        ui.Image(icon, thumb.Inset(4.0f, 4.0f));
+    }
+    const f32 tx = thumb.Right() + 8.0f, tw = std::max(browse.x - tx - 6.0f, 20.0f);
+    ui.LabelIn({tx, slot.y + 3.0f, tw, 20.0f}, current.empty() ? std::string("None") : AssetName(current), t.text);
+    ui.LabelIn({tx, slot.y + 21.0f, tw, 16.0f}, current, t.textDim);
+
+    // Browse to the parent in the Content Browser.
+    if (ui.Button(Context::ID("mie.parent.browse." + m_model.Path()), browse, {}) && m_services.browseToAsset &&
+        !current.empty()) {
+        m_services.browseToAsset(current);
+    }
+    Slate::DrawIcon(ui, browse.Inset(4.0f, 4.0f), Slate::Icon::Search, t.textDim);
+    ui.Tooltip(Context::ID("mie.parent.browse.tip"), browse, "Browse to the parent in the Content Browser");
+
+    // Arrow: pick a parent from a searchable list.
+    if (ui.Button(Context::ID("mie.parent.pick." + m_model.Path()), arrow, {})) {
+        std::vector<std::string> items;
+        if (m_services.listMaterials) items = m_services.listMaterials();
+        Slate::MenuBuilder mb;
+        mb.BeginSection("Parent Material");
+        for (const std::string& item : items) {
+            if (item == m_model.Path()) continue;
+            Slate::MenuEntryOptions o;
+            o.tooltip = item;
+            o.checked = item == current;
+            mb.AddEntry(AssetName(item), Slate::Icon::None, [this, item] { ApplyParent(item); }, o);
+        }
+        mb.EndSection();
+        Slate::MenuOptions mo;
+        mo.searchable = true;
+        mo.searchHint = "Search materials";
+        ui.OpenMenuBelow(Context::ID("mie.parent.menu." + m_model.Path()), slot, mb.Build(), mo);
+    }
+    Slate::DrawIcon(ui, arrow.Inset(5.0f, 5.0f), Slate::Icon::ChevronDown, t.text);
+    ui.Tooltip(Context::ID("mie.parent.pick.tip"), arrow, "Choose the parent material");
+
+    // Double-click the slot: open the parent in its editor.
+    if (hover && !arrow.Contains(ui.mouse()) && !browse.Contains(ui.mouse()) && ui.mouseDoubleClicked(0) &&
+        m_services.openAsset && !current.empty()) {
+        m_services.openAsset(current);
+    }
+    ui.Tooltip(Context::ID("mie.parent.slot.tip"), {slot.x, slot.y, browse.x - slot.x, slot.h},
+               "Double-click to open the parent material");
+}
+
 f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& p, f32 x, f32 y, f32 w) {
     const Slate::Theme& t = ui.theme();
     const std::string key = m_model.Path() + ".p." + p.info.name;
@@ -226,18 +299,7 @@ void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
 
     Section(ui, "mie.general." + m_model.Path(), "General", m_generalOpen, x, y, w);
     if (m_generalOpen) {
-        const Rect field = Row(ui, "Parent", x, y, w, false, 12.0f);
-        std::vector<std::string> items;
-        if (m_services.listMaterials) items = m_services.listMaterials();
-        items.erase(std::remove(items.begin(), items.end(), m_model.Path()), items.end());
-        const std::string current = m_model.Parent();
-        const std::string picked = PickString(ui, Context::ID("mie.parent." + m_model.Path()), field, items, current);
-        if (!picked.empty() && picked != current) {
-            m_parentError.clear();
-            if (!m_model.SetParent(picked, &m_parentError)) {
-                LUMA_USER_ERROR("Materials", "Can't set parent of '{}': {}", m_model.Path(), m_parentError);
-            }
-        }
+        DrawParentSlot(ui, x, y, w);
         if (!m_parentError.empty()) {
             ui.LabelIn({x + kLabelW, y, w - kLabelW, 18.0f}, m_parentError, t.error);
             y += 20.0f;

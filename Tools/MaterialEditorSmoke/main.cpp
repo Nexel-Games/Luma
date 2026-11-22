@@ -177,6 +177,8 @@ int main(int argc, char** argv) {
         return std::vector<std::string>{"/Game/Materials/M_Brick", "/Game/Materials/MI_Brick_Red"};
     };
     services.listMeshes = [] { return std::vector<std::string>{"/Game/Meshes/SM_Chair"}; };
+    int smokePage = 0;  // interactive: 0 Material Editor, 1 Instance Editor
+    services.openAsset = [&smokePage](const std::string&) { smokePage = 0; };  // slot double-click opens it
     MaterialEditors::MaterialInstanceEditor instanceEditor("/Game/Materials/MI_Brick_Red", library, services);
     MaterialEditors::MaterialGraphEditor graphEditor("/Game/Materials/M_Brick", library, services);
     // Select the Tint node so Details shows node properties.
@@ -189,7 +191,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) interactive |= std::string(argv[i]) == "--interactive";
     if (interactive) {
         bool running = true;
-        int page = 0;  // 0 graph editor, 1 instance editor
+        int& page = smokePage;  // 0 graph editor, 1 instance editor
         ui.SetClipboardHandlers([&window] { return window->GetClipboardText(); },
                                 [&window](const std::string& text) { window->SetClipboardText(text); });
         window->SetEventCallback([&](Event& e) {
