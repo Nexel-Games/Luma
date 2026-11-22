@@ -6,6 +6,7 @@
 #include "Luma/MaterialEditors/EditorServices.h"
 #include "Luma/MaterialEditors/InstanceParameters.h"
 #include "Luma/Slate/Context.h"
+#include "Luma/Slate/DockSpace.h"
 
 namespace Luma::MaterialEditors {
 
@@ -47,6 +48,9 @@ private:
     bool m_generalOpen = true, m_previewingOpen = true, m_groupsOpen = true;
     std::map<std::string, bool> m_groupOpen;
     std::string m_parentError;
+    // Viewport and Details are dock panels (drag tabs to re-dock).
+    Slate::DockSpace m_dock;
+    bool m_dockBuilt = false;
 };
 
 }  // namespace Luma::MaterialEditors

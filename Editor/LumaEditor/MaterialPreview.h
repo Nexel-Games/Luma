@@ -63,6 +63,7 @@ private:
     Entity m_actor = kNullEntity;
     Entity m_floor = kNullEntity;  // M_GridBox cube under the actor (interactive previews only)
     bool m_showFloor = false;
+    f32 m_fovY = 0.5f;  // vertical FOV of the next frame (Render: wide; captures: narrow)
     std::vector<SceneInstance> m_instances;
     SceneView m_view;
 };

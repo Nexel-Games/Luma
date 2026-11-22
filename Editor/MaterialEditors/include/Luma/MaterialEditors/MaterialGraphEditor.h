@@ -10,6 +10,7 @@
 #include "Luma/GraphEditor/GraphPalette.h"
 #include "Luma/MaterialEditors/EditorServices.h"
 #include "Luma/MaterialEditors/MaterialGraphModel.h"
+#include "Luma/Slate/DockSpace.h"
 
 namespace Luma::Material {
 class MaterialLibrary;
@@ -60,7 +61,7 @@ public:
     bool PaletteVisible() const { return m_paletteVisible; }
     void SetPaletteVisible(bool visible) { m_paletteVisible = visible; }
     bool StatsVisible() const { return m_statsVisible; }
-    void SetStatsVisible(bool visible) { m_statsVisible = visible; }
+    void SetStatsVisible(bool visible);  // closes / re-docks the Stats panel
     GraphEditor::GraphEditorWidget& Widget() { return *m_widget; }
 
 private:
@@ -69,6 +70,9 @@ private:
     void BeginPropertyEdit();
     void DrawToolbar(Slate::Context& ui, const Slate::Rect& bar);
     void DrawPreview(Slate::Context& ui, const Slate::Rect& area);
+    void DrawGraphPanel(Slate::Context& ui, const Slate::Rect& area);
+    void BuildDock(const Slate::Rect& body);
+    std::string PanelId(const char* name) const { return m_path + "#" + name; }
     void DrawDetails(Slate::Context& ui, const Slate::Rect& area);
     void DrawMaterialSettings(Slate::Context& ui, f32 x, f32& y, f32 w);
     void DrawNodeProperties(Slate::Context& ui, MaterialGraph::NodeId node, f32 x, f32& y, f32 w);
@@ -92,7 +96,10 @@ private:
     f32 m_detailsScroll = 0.0f, m_statsScroll = 0.0f;
     bool m_settingsOpen = true, m_nodeOpen = true;
     bool m_paletteVisible = false;  // drawer over the graph, toggled by the side tab
-    bool m_statsVisible = true;     // bottom Stats panel, toggled by its edge handle
+    bool m_statsVisible = true;     // Stats dock panel (tab close / toolbar toggle)
+    // Viewport, Details, Graph and Stats are dock panels (drag tabs to re-dock).
+    Slate::DockSpace m_dock;
+    bool m_dockBuilt = false;
 };
 
 }  // namespace Luma::MaterialEditors

@@ -52,12 +52,18 @@ void MaterialInstanceEditor::Draw(Context& ui, const Rect& rect) {
     }
     DrawToolbar(ui, {rect.x, rect.y, rect.w, kToolbarH});
     const Rect body{rect.x, rect.y + kToolbarH, rect.w, rect.h - kToolbarH};
-    Rect preview, details;
-    ui.SplitterV(Context::ID("mie.split." + m_model.Path()), body, m_split, preview, details, 2.0f);
-    DrawPreview(ui, preview);
-    DrawDetails(ui, details);
+    if (!m_dockBuilt) {
+        m_dockBuilt = true;
+        const std::string vp = m_model.Path() + "#Viewport", dt = m_model.Path() + "#Details";
+        m_dock.AddPanel(vp, "Viewport", [this](Context& c, const Rect& r) { DrawPreview(c, r); },
+                        IconTexture(m_services, EditorIcon::Sphere));
+        m_dock.AddPanel(dt, "Details", [this](Context& c, const Rect& r) { DrawDetails(c, r); },
+                        IconTexture(m_services, EditorIcon::Details));
+        m_dock.DockRoot(vp);
+        m_dock.DockWith(dt, vp, Slate::DockDir::Right, 1.0f - m_split);  // UE: 70% viewport
+    }
+    m_dock.Draw(ui, body);
     HDivider(ui, rect.x, body.y, rect.w);
-    VDivider(ui, (preview.Right() + details.x) * 0.5f, body.y, body.h);
 }
 
 void MaterialInstanceEditor::DrawToolbar(Context& ui, const Rect& bar) {
@@ -201,8 +207,7 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
 void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
     const Slate::Theme& t = ui.theme();
     ui.Panel(area, t.panelBg);
-    const Rect header = PanelTab(ui, "details.tab", area, "Details", IconTexture(m_services, EditorIcon::Details),
-                                 IconAspect(m_services, EditorIcon::Details));
+    const Rect header{area.x, area.y, area.w, 0.0f};  // title: the dock tab
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     const f32 x = view.x + 12.0f, w = view.w - 24.0f;  // left margin so rows never hug the edge

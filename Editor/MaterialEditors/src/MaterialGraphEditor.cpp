@@ -129,76 +129,10 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
         else LUMA_USER_ERROR("Materials", "Failed to save '{}': {}", m_path, error);
     }
     DrawToolbar(ui, {rect.x, rect.y, rect.w, kToolbarH});
-    const f32 top = rect.y + kToolbarH;
-    const f32 h = rect.h - kToolbarH;
-    const f32 leftW = std::min(m_leftW, rect.w * 0.3f);
-    // Palette drawer: a slim handle on the right edge (or the toolbar's
-    // Palette toggle) slides the palette over the graph and hides it again.
-    constexpr f32 kTabW = 14.0f;
-    const Rect tab{rect.Right() - kTabW, top, kTabW, h};
-    const Rect left{rect.x, top, leftW, h};
-    const Rect centre{left.Right() + 2.0f, top, tab.x - left.Right() - 3.0f, h};
-    // Stats collapses behind a slim horizontal edge handle (like the palette's).
-    constexpr f32 kStatsHandleH = 12.0f;
-    const f32 statsH = m_statsVisible ? std::min(m_statsH, centre.h * 0.4f) : 0.0f;
-    const Rect graph{centre.x, centre.y, centre.w, centre.h - statsH - kStatsHandleH};
-    const Rect statsHandle{centre.x, graph.Bottom(), centre.w, kStatsHandleH};
-    const Rect stats{centre.x, statsHandle.Bottom(), centre.w, statsH};
-
-    Rect preview, details;
-    ui.SplitterH(Context::ID("mge.lsplit." + m_path), left, m_previewSplit, preview, details, 2.0f);
-    DrawPreview(ui, preview);
-    DrawDetails(ui, details);
-    const f32 drawerW = std::min(m_rightW + 60.0f, graph.w * 0.6f);
-    const Rect drawer{tab.x - drawerW, graph.y, drawerW, graph.h};
-    if (m_paletteVisible) m_widget->SetInputExclusion(drawer);
-    m_widget->Draw(ui, graph);
-    if (m_statsVisible) DrawStats(ui, stats);
-    {
-        // Edge handle: a horizontal grip pill with chevrons pointing where Stats goes.
-        const bool hover = statsHandle.Contains(ui.mouse()) && !ui.inputBlocked() && !ui.AnyMenuOpen() &&
-                           !m_widget->PaletteOpen();
-        ui.Panel(statsHandle, hover ? t.surface2 : t.panelBg);
-        if (hover && ui.mousePressed(0)) m_statsVisible = !m_statsVisible;
-        const f32 cx = statsHandle.x + statsHandle.w * 0.5f, cy = statsHandle.y + statsHandle.h * 0.5f;
-        ui.PanelRounded({cx - 34.0f, cy - 3.0f, 68.0f, 6.0f}, hover ? t.accent : t.surface4, 3.0f);
-        const f32 dir = m_statsVisible ? 1.0f : -1.0f;  // v hides, ^ shows
-        const Slate::Color chev = hover ? t.text : t.textDim;
-        for (f32 ox : {-48.0f, 48.0f}) {
-            ui.drawList().AddLine({cx + ox - 4.0f, cy - 2.5f * dir}, {cx + ox, cy + 2.5f * dir}, chev, 1.5f);
-            ui.drawList().AddLine({cx + ox, cy + 2.5f * dir}, {cx + ox + 4.0f, cy - 2.5f * dir}, chev, 1.5f);
-        }
-        ui.Tooltip(Context::ID("mge.stats.handle.tip"), statsHandle, m_statsVisible ? "Hide Stats" : "Show Stats");
-    }
-    if (m_paletteVisible) {
-        ui.drawList().AddRectShadow(drawer, 2.0f, 0.7f);
-        m_palette.Draw(ui, drawer, m_model->Actions(nullptr));
-        VDivider(ui, drawer.x, drawer.y, drawer.h);
-    }
-    {
-        // Edge handle: a grip pill with a chevron pointing where the drawer goes.
-        const bool hover = tab.Contains(ui.mouse()) && !ui.inputBlocked() && !ui.AnyMenuOpen();
-        ui.Panel(tab, hover ? t.surface2 : t.panelBg);
-        if (hover && ui.mousePressed(0)) m_paletteVisible = !m_paletteVisible;
-        const f32 cx = tab.x + tab.w * 0.5f, cy = graph.y + graph.h * 0.5f;
-        const Rect pill{cx - 3.0f, cy - 34.0f, 6.0f, 68.0f};
-        ui.PanelRounded(pill, hover ? t.accent : t.surface4, 3.0f);
-        const f32 dir = m_paletteVisible ? 1.0f : -1.0f;  // > closes, < opens
-        const Slate::Color chev = hover ? t.text : t.textDim;
-        for (f32 oy : {-48.0f, 48.0f}) {
-            ui.drawList().AddLine({cx - 2.5f * dir, cy + oy - 4.0f}, {cx + 2.5f * dir, cy + oy}, chev, 1.5f);
-            ui.drawList().AddLine({cx + 2.5f * dir, cy + oy}, {cx - 2.5f * dir, cy + oy + 4.0f}, chev, 1.5f);
-        }
-        ui.Tooltip(Context::ID("mge.palette.tab.tip"), tab,
-                   m_paletteVisible ? "Hide the Palette" : "Show the Palette");
-    }
-    // Black dividers between every panel.
-    HDivider(ui, rect.x, top, rect.w);
-    VDivider(ui, (left.Right() + centre.x) * 0.5f, top, h);
-    VDivider(ui, (centre.Right() + tab.x) * 0.5f, top, h);
-    HDivider(ui, left.x, (preview.Bottom() + details.y) * 0.5f, left.w);
-    HDivider(ui, centre.x, statsHandle.y, centre.w);
-    if (m_statsVisible) HDivider(ui, centre.x, statsHandle.Bottom(), centre.w);
+    const Rect body{rect.x, rect.y + kToolbarH, rect.w, rect.h - kToolbarH};
+    if (!m_dockBuilt) BuildDock(body);
+    m_dock.Draw(ui, body);
+    HDivider(ui, rect.x, body.y, rect.w);
 
     m_widget->DrawOverlays(ui);  // right-click palette above every panel
 
@@ -207,6 +141,76 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
         m_controller->History().Push("Edit Property", std::move(*m_pendingEdit), m_model->Snapshot());
         m_pendingEdit.reset();
     }
+}
+
+void MaterialGraphEditor::BuildDock(const Rect& body) {
+    m_dockBuilt = true;
+    m_dock.AddPanel(PanelId("Graph"), "Graph", [this](Context& ui, const Rect& r) { DrawGraphPanel(ui, r); },
+                    IconTexture(m_services, EditorIcon::Palette));
+    m_dock.AddPanel(PanelId("Viewport"), "Viewport", [this](Context& ui, const Rect& r) { DrawPreview(ui, r); },
+                    IconTexture(m_services, EditorIcon::Sphere));
+    m_dock.AddPanel(PanelId("Details"), "Details", [this](Context& ui, const Rect& r) { DrawDetails(ui, r); },
+                    IconTexture(m_services, EditorIcon::Details));
+    m_dock.DockRoot(PanelId("Graph"));
+    // Left column with a square viewport on top (UE), Details below.
+    const f32 leftFrac = std::clamp(m_leftW / std::max(body.w, 1.0f), 0.15f, 0.35f);
+    m_dock.DockWith(PanelId("Viewport"), PanelId("Graph"), Slate::DockDir::Left, leftFrac);
+    constexpr f32 kTabBar = 27.0f;  // DockSpace tab bar
+    const f32 viewportFrac = std::clamp((body.w * leftFrac + kTabBar) / std::max(body.h, 1.0f), 0.2f, 0.75f);
+    m_dock.DockWith(PanelId("Details"), PanelId("Viewport"), Slate::DockDir::Down, 1.0f - viewportFrac);
+    if (m_statsVisible) {
+        m_statsVisible = false;
+        SetStatsVisible(true);
+    }
+}
+
+void MaterialGraphEditor::SetStatsVisible(bool visible) {
+    if (visible == m_statsVisible) return;
+    m_statsVisible = visible;
+    if (!m_dockBuilt) return;  // BuildDock adds it
+    const std::string id = PanelId("Stats");
+    if (!visible) {
+        m_dock.ClosePanel(id);
+        return;
+    }
+    m_dock.AddPanel(id, "Stats", [this](Context& ui, const Rect& r) { DrawStats(ui, r); },
+                    IconTexture(m_services, EditorIcon::Stats));
+    m_dock.DockWith(id, PanelId("Graph"), Slate::DockDir::Down, 0.16f);
+    m_dock.SetCloseHandler(id, [this] {
+        m_statsVisible = false;
+        return true;
+    });
+}
+
+void MaterialGraphEditor::DrawGraphPanel(Context& ui, const Rect& area) {
+    const Slate::Theme& t = ui.theme();
+    // Palette drawer: a slim handle on the right edge slides the palette over
+    // the graph and hides it again (right-click opens it at the cursor too).
+    constexpr f32 kTabW = 14.0f;
+    const Rect tab{area.Right() - kTabW, area.y, kTabW, area.h};
+    const Rect graph{area.x, area.y, area.w - kTabW - 1.0f, area.h};
+    const f32 drawerW = std::min(m_rightW + 60.0f, graph.w * 0.6f);
+    const Rect drawer{tab.x - drawerW, graph.y, drawerW, graph.h};
+    if (m_paletteVisible) m_widget->SetInputExclusion(drawer);
+    m_widget->Draw(ui, graph);
+    if (m_paletteVisible) {
+        ui.drawList().AddRectShadow(drawer, 2.0f, 0.7f);
+        m_palette.Draw(ui, drawer, m_model->Actions(nullptr));
+        VDivider(ui, drawer.x, drawer.y, drawer.h);
+    }
+    const bool hover = tab.Contains(ui.mouse()) && !ui.inputBlocked() && !ui.AnyMenuOpen();
+    ui.Panel(tab, hover ? t.surface2 : t.panelBg);
+    if (hover && ui.mousePressed(0)) m_paletteVisible = !m_paletteVisible;
+    const f32 cx = tab.x + tab.w * 0.5f, cy = graph.y + graph.h * 0.5f;
+    ui.PanelRounded({cx - 3.0f, cy - 34.0f, 6.0f, 68.0f}, hover ? t.accent : t.surface4, 3.0f);
+    const f32 dir = m_paletteVisible ? 1.0f : -1.0f;  // > closes, < opens
+    const Slate::Color chev = hover ? t.text : t.textDim;
+    for (f32 oy : {-48.0f, 48.0f}) {
+        ui.drawList().AddLine({cx - 2.5f * dir, cy + oy - 4.0f}, {cx + 2.5f * dir, cy + oy}, chev, 1.5f);
+        ui.drawList().AddLine({cx + 2.5f * dir, cy + oy}, {cx - 2.5f * dir, cy + oy + 4.0f}, chev, 1.5f);
+    }
+    ui.Tooltip(Context::ID("mge.palette.tab.tip"), tab, m_paletteVisible ? "Hide the Palette" : "Show the Palette");
+    VDivider(ui, tab.x, tab.y, tab.h);
 }
 
 void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
@@ -238,6 +242,9 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
         m_services.browseToAsset(m_path);
     if (button("home", 76.0f, EditorIcon::Home, Slate::Icon::Refresh, "Home", "Frame the whole graph (F frames the selection)", false))
         m_widget->RequestFrame();
+    if (button("stats", 76.0f, EditorIcon::Stats, Slate::Icon::Gear, "Stats", "Stats\nShow or hide the Stats panel.",
+               m_statsVisible))
+        SetStatsVisible(!m_statsVisible);
     if (button("live", 112.0f, EditorIcon::LiveUpdate, Slate::Icon::Play, "Live Update", "Apply every change as you edit.", liveUpdate)) {
         liveUpdate = !liveUpdate;
         if (liveUpdate && m_unapplied) Apply();
@@ -407,8 +414,7 @@ void MaterialGraphEditor::DrawNodeProperties(Context& ui, MaterialGraph::NodeId 
 void MaterialGraphEditor::DrawDetails(Context& ui, const Rect& area) {
     const Slate::Theme& t = ui.theme();
     ui.Panel(area, t.panelBg);
-    const Rect header = PanelTab(ui, "details.tab", area, "Details", IconTexture(m_services, EditorIcon::Details),
-                                 IconAspect(m_services, EditorIcon::Details));
+    const Rect header{area.x, area.y, area.w, 0.0f};  // title: the dock tab
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     const f32 x = view.x + 12.0f, w = view.w - 24.0f;  // left margin so rows never hug the edge
@@ -437,8 +443,7 @@ void MaterialGraphEditor::DrawDetails(Context& ui, const Rect& area) {
 void MaterialGraphEditor::DrawStats(Context& ui, const Rect& area) {
     const Slate::Theme& t = ui.theme();
     ui.Panel(area, t.panelBg);
-    const Rect header = PanelTab(ui, "stats.tab", area, "Stats", IconTexture(m_services, EditorIcon::Stats),
-                                 IconAspect(m_services, EditorIcon::Stats));
+    const Rect header{area.x, area.y, area.w, 0.0f};  // title: the dock tab
     const Rect view{area.x, area.y + header.h, area.w, area.h - header.h};
     ui.PushClip(view);
     f32 y = view.y + 4.0f - m_statsScroll;

@@ -22,7 +22,8 @@
 namespace Luma {
 namespace {
 
-constexpr f32 kFovY = 0.5f;  // narrow lens: little perspective distortion
+constexpr f32 kFovY = 0.5f;          // thumbnails: narrow lens, little perspective distortion
+constexpr f32 kPreviewFovY = 0.95f;  // interactive preview: wider lens, more depth (UE-like)
 // Thumbnails view the actor slightly from above and to the side.
 constexpr f32 kThumbnailYaw = 0.6f;
 constexpr f32 kThumbnailPitch = 0.3f;
@@ -62,7 +63,7 @@ MaterialPreview::MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
     m_view.grid.enabled = false;
     // Auto exposure as in the viewport; captures snap it (delta time 0).
     m_view.viewMode = ViewMode::Lit;
-    m_view.fovYRadians = kFovY;
+    m_view.fovYRadians = m_fovY;
     m_view.nearZ = 0.05f;
     m_view.farZ = 200.0f;
 }
@@ -108,7 +109,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
     m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
     const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
-    const f32 halfFov = std::min(kFovY, 2.0f * std::atan(std::tan(kFovY * 0.5f) * aspect)) * 0.5f;
+    const f32 halfFov = std::min(m_fovY, 2.0f * std::atan(std::tan(m_fovY * 0.5f) * aspect)) * 0.5f;
     const f32 distance = radius / std::sin(halfFov) * 1.08f;
     const Math::Vec3 eye = center + Math::Vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
                                                std::cos(pitch) * std::cos(yaw)) * distance;
@@ -134,11 +135,12 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     frame.cameraPosition = eye;
     frame.cameraDirection = Math::Normalize(center - eye);
     frame.viewMatrix = m_view.view;
-    frame.projectionMatrix = Math::PerspectiveForViewport(kFovY, static_cast<f32>(width),
+    frame.projectionMatrix = Math::PerspectiveForViewport(m_fovY, static_cast<f32>(width),
                                                           static_cast<f32>(height),
                                                           m_view.nearZ, m_view.farZ);
     frame.viewProjectionMatrix = frame.projectionMatrix * frame.viewMatrix;
-    frame.fov = kFovY;
+    frame.fov = m_fovY;
+    m_view.fovYRadians = m_fovY;
     frame.nearPlane = m_view.nearZ;
     frame.farPlane = m_view.farZ;
     frame.width = width;
@@ -161,10 +163,12 @@ TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShap
     mr.materials = {OrPreviewDefault(materialPath)};
     m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
     m_showFloor = floor;
+    m_fovY = kPreviewFovY;
     // Interactive: exposure adapts over frames like the viewport.
     RenderFrame(yaw, pitch, width, height, 1.0f / 60.0f);
     m_view.sky.enabled = true;  // thumbnails always use the sky
     m_showFloor = false;        // ... and no floor
+    m_fovY = kFovY;             // ... and the narrow lens
     return m_renderer.GetViewportTextureHandle();
 }
 
