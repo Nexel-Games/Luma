@@ -22,6 +22,7 @@
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/MenuRegistry.h"
 #include "Luma/Editor/PanelRegistry.h"
+#include "Luma/Editor/SettingsPageRegistry.h"
 #include "Luma/Serialization/Json.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
@@ -100,6 +101,15 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
     m_materials = std::make_unique<Material::MaterialLibrary>(m_assetPaths);
 
     LoadPanelLayout();
+    if (m_project) {
+        // Project Settings pages read their Config/ sections before anything
+        // uses them (e.g. Maps & Modes picks the scene to open).
+        m_settingsStore = std::make_unique<Editor::Panels::ProjectSettingsStore>(
+            Editor::SettingsPages(), m_project->ConfigDir());
+        m_settingsStore->LoadAll();
+        m_projectSettings.SetStore(m_settingsStore.get());
+        m_scenePath = Editor::Panels::EditorStartupScenePath(*m_project, m_mapsAndModes);
+    }
     if (!LoadScene()) {
         EnsureAutoCreatedEntities(m_scene);
         // New projects already declare a startup scene path. Materialize the
@@ -132,6 +142,11 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
 }
 
 EditorScreen::~EditorScreen() {
+    // Unsaved Project Settings edits are written on the way out.
+    if (m_projectSettings.IsOpen()) m_projectSettings.Close();
+    if (m_settingsStore) m_settingsStore->SaveAll();
+    // Unregister before the members the registrations point at go away.
+    m_uiRegistrations.Reset();
     // The thumbnail manager outlives the editor; drop the callback into it.
     ThumbnailManager::Get().SetRenderCallback({});
 }
@@ -168,9 +183,9 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
 
 bool EditorScreen::LoadScene() {
     if (!m_project) return false;
-    std::filesystem::path path = m_project->StartupScenePath();
+    const std::filesystem::path path = m_scenePath;
     std::error_code ec;
-    if (!std::filesystem::exists(path, ec)) return false;
+    if (path.empty() || !std::filesystem::exists(path, ec)) return false;
     std::string err;
     LegacyMaterialList legacy;
     if (!SceneSerializer::LoadFromFile(m_scene, path, &err, &legacy)) {
@@ -574,7 +589,8 @@ void EditorScreen::SaveScene() {
         LUMA_USER_ERROR("Scene", "Scene not saved: fix the material save errors above first");
         return;
     }
-    std::filesystem::path path = m_project->StartupScenePath();
+    const std::filesystem::path path =
+        m_scenePath.empty() ? m_project->StartupScenePath() : m_scenePath;
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     std::string err;
@@ -1046,6 +1062,31 @@ void EditorScreen::RegisterEditorUi() {
         reg.Add(menus.RegisterEntry(std::move(e)));
     }
     {
+        MenuEntryDesc e = entry("Edit.ProjectSettings", "Edit", "Configuration",
+                                "Project Settings...", "Gear", 200,
+                                [this] { m_projectSettings.Open(); });
+        e.tooltip = "Settings stored in this project's Config folder.";
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    reg.Add(Editor::Panels::RegisterMapsAndModesPage(
+        Editor::SettingsPages(), m_mapsAndModes, [this] {
+            // Every scene file under Assets/, as a project-relative path.
+            std::vector<std::string> scenes;
+            if (!m_project) return scenes;
+            std::error_code ec;
+            for (auto it = std::filesystem::recursive_directory_iterator(m_project->AssetsDir(), ec);
+                 !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+                if (it->is_regular_file(ec) && it->path().extension() == Project::kSceneExtension) {
+                    scenes.push_back(
+                        std::filesystem::relative(it->path(), m_project->RootDir(), ec)
+                            .generic_string());
+                }
+            }
+            std::sort(scenes.begin(), scenes.end());
+            return scenes;
+        }));
+    {
         Editor::MenuSectionDesc s;
         s.id = "Window.Panels";
         s.menu = "Window";
@@ -1467,6 +1508,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
     }
     if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
+    m_projectSettings.Draw(ui, width, height);
     DrawMaterialEditorClosePrompt(ui);
     DrawClosePrompt(ui);
 }

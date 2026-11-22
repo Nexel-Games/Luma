@@ -88,6 +88,7 @@ private:
 
     Entity m_pendingRemoveEntity = kNullEntity;
     std::string m_pendingRemoveId;
+    bool m_removeDialogOpen = false;  // the confirmation modal is open in the Context
 };
 
 // Registers the Inspector drawers of the built-in components into `registry`

@@ -10,6 +10,7 @@
 #include "Luma/Core/Types.h"
 #include "Luma/Core/Registration.h"
 #include "Luma/Editor/EditorIcons.h"
+#include "Luma/Editor/MenuRegistry.h"
 #include "Luma/Editor/ProjectBrowser.h"
 #include "Luma/Platform/Process.h"
 #include "Luma/Platform/Window.h"
@@ -130,6 +131,7 @@ int main(int argc, char** argv) {
     std::filesystem::path projectFile;
     std::string screenshotPath;
     std::string selectName;  // --select <EntityName>: preselect for captures
+    std::vector<std::string> menuCommands;  // --menu <EntryId>: run menu entries (captures)
     // --preview-capture <material virtual path> <png>: material preview capture
     std::string previewMaterial;
     std::string previewPng;
@@ -145,6 +147,8 @@ int main(int argc, char** argv) {
             screenshotPath = argv[++i];
         } else if (arg == "--select" && i + 1 < argc) {
             selectName = argv[++i];
+        } else if (arg == "--menu" && i + 1 < argc) {
+            menuCommands.emplace_back(argv[++i]);
         } else if (arg == "--preview-capture" && i + 2 < argc) {
             previewMaterial = argv[++i];
             previewPng = argv[++i];
@@ -374,6 +378,12 @@ int main(int argc, char** argv) {
         if (!previewMaterial.empty() &&
             !editor->CapturePreview(previewMaterial, previewPng, 256)) {
             LUMA_LOG_ERROR("Editor", "--preview-capture failed for '{}'", previewMaterial);
+        }
+        for (const std::string& command : menuCommands) {
+            std::string error;
+            if (!Editor::Menus().Execute(command, &error)) {
+                LUMA_LOG_WARN("Editor", "--menu: {}", error);
+            }
         }
         if (!selectName.empty() && !editor->SelectEntityByName(selectName)) {
             LUMA_LOG_WARN("Editor", "--select: no entity named '{}'", selectName);

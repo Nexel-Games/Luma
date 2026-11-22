@@ -60,6 +60,7 @@ add_executable(LumaTests
     Editor/InspectorRegistryTests.cpp
     Editor/OutlinerRegistryTests.cpp
     Editor/EditorFrameworkTests.cpp
+    Editor/ProjectSettingsTests.cpp
     Editor/TransformGizmoTests.cpp
     Editor/BackgroundTasksTests.cpp
     VFS/PathTests.cpp
@@ -72,7 +73,7 @@ add_executable(LumaTests
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelBackgroundTasks Luma::RenderVulkan Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::VFS Luma::Material Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelProjectSettings Luma::PanelBackgroundTasks Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 

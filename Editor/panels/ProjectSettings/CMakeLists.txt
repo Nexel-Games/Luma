@@ -1,5 +1,6 @@
 add_library(LumaPanelProjectSettings STATIC
-    src/ProjectSettings.cpp)
+    src/ProjectSettings.cpp
+    src/ProjectSettingsStore.cpp)
 
 add_library(Luma::PanelProjectSettings ALIAS LumaPanelProjectSettings)
 
@@ -11,6 +12,7 @@ target_include_directories(LumaPanelProjectSettings
         ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 target_link_libraries(LumaPanelProjectSettings
-    PUBLIC Luma::Core Luma::Math Luma::Scene Luma::Slate)
+    PUBLIC Luma::Core Luma::Math Luma::Scene Luma::Slate Luma::Serialization Luma::Project
+           Luma::EditorFramework)
 
 set_target_properties(LumaPanelProjectSettings PROPERTIES FOLDER "Editor/Panels")

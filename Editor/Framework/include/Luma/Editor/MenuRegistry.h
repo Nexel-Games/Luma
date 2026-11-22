@@ -70,6 +70,8 @@ public:
     // The menu's entries: entries and dynamic sections sorted by order (ties:
     // registration order), each new section heading starting a new section.
     std::vector<Slate::MenuEntry> Build(std::string_view menuId) const;
+    // Runs the entry `entryId` as if picked from its menu (honours isEnabled).
+    bool Execute(std::string_view entryId, std::string* error = nullptr) const;
 
 private:
     struct Item {

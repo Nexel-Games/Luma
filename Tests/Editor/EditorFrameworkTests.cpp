@@ -260,3 +260,21 @@ TEST_CASE("Settings pages are validated and listed by category", "[editor][frame
     set.Reset();
     REQUIRE(reg.All().empty());
 }
+
+TEST_CASE("Menu entries can be executed by id", "[editor][framework]") {
+    MenuRegistry reg;
+    RegistrationToken m = reg.RegisterMenu({"Edit", "Edit", 100, "Engine"});
+    int runs = 0;
+    bool enabled = true;
+    MenuEntryDesc d = Entry("Edit.Run", "Edit", "S", "Run", 0, [&runs] { ++runs; });
+    d.isEnabled = [&enabled] { return enabled; };
+    RegistrationToken e = reg.RegisterEntry(d);
+    std::string error;
+    REQUIRE(reg.Execute("Edit.Run", &error));
+    REQUIRE(runs == 1);
+    enabled = false;
+    REQUIRE_FALSE(reg.Execute("Edit.Run", &error));
+    REQUIRE(error.find("disabled") != std::string::npos);
+    REQUIRE_FALSE(reg.Execute("Edit.Nope", &error));
+    REQUIRE(runs == 1);
+}

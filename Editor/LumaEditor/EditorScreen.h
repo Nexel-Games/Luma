@@ -16,11 +16,14 @@
 #include "Luma/Core/Registration.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
 #include "Luma/Editor/PanelRegistry.h"
+#include "Luma/Editor/SettingsPageRegistry.h"
 #include "Luma/Editor/Panels/BackgroundTasks.h"
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/MaterialEditor.h"
+#include "Luma/Editor/Panels/ProjectSettings.h"
+#include "Luma/Editor/Panels/ProjectSettingsStore.h"
 #include "Luma/Editor/Panels/Viewport.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "MaterialPreview.h"
@@ -247,9 +250,17 @@ private:
     // Hosts the registered panels (Editor::EditorPanels()) in m_dock.
     std::unique_ptr<Editor::EditorPanelHost> m_panelHost;
     bool m_layoutBuilt = false;
-    // Everything the editor registered (menus, panels, images); released when
-    // the editor goes away.
+    // Everything the editor registered (menus, panels, images, settings pages);
+    // released first when the editor goes away.
     RegistrationSet m_uiRegistrations;
+
+    // Project Settings: the Maps & Modes page's values, the Config/ store and the
+    // window (Edit -> Project Settings).
+    Editor::Panels::MapsAndModesSettings m_mapsAndModes;
+    std::unique_ptr<Editor::Panels::ProjectSettingsStore> m_settingsStore;
+    Editor::Panels::ProjectSettingsPanel m_projectSettings{Editor::SettingsPages()};
+    // The scene file open in the editor (saved back to the same file).
+    std::filesystem::path m_scenePath;
 
     // Content Browser — wires to the project's Content/ folder so the
     // registry is populated before the panel is drawn each frame.

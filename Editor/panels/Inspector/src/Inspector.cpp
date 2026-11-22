@@ -699,20 +699,25 @@ void InspectorPanel::DrawFloatingPickers(Slate::Context& ui, PanelContext& ctx) 
     // Draw are shown.
     m_pickers.DrawPanels(ui);
 
-    if (m_pendingRemoveId.empty()) return;
-    if (!ctx.scene || !ctx.scene->IsValid(m_pendingRemoveEntity)) {
-        CancelRemoveUnresolved();
-        return;
-    }
-    const auto* kept = ctx.scene->Registry().try_get<UnresolvedComponents>(m_pendingRemoveEntity);
+    const u64 id = Slate::Context::ID("insp.removemissing");
+    const UnresolvedComponents* kept =
+        (!m_pendingRemoveId.empty() && ctx.scene && ctx.scene->IsValid(m_pendingRemoveEntity))
+            ? ctx.scene->Registry().try_get<UnresolvedComponents>(m_pendingRemoveEntity)
+            : nullptr;
     const UnresolvedComponent* c = kept ? kept->Find(m_pendingRemoveId) : nullptr;
     if (!c) {
-        CancelRemoveUnresolved();
+        // Nothing (left) to confirm: drop the request and a dialog still open
+        // from an earlier frame (the entity or its data went away).
+        if (!m_pendingRemoveId.empty()) CancelRemoveUnresolved();
+        if (m_removeDialogOpen) {
+            ui.EndModal();
+            m_removeDialogOpen = false;
+        }
         return;
     }
     Slate::Theme& t = ui.theme();
-    const u64 id = Slate::Context::ID("insp.removemissing");
     const Rect content = ui.BeginModal(id, "Remove Kept Component Data?", {520.0f, 170.0f});
+    m_removeDialogOpen = true;
     const std::string owner = c->owner.empty() ? std::string("an unknown plugin") : c->owner;
     ui.LabelIn({content.x, content.y, content.w, 22.0f},
                "'" + c->id + "' comes from " + owner + ", which is not loaded.", t.text);
@@ -720,11 +725,13 @@ void InspectorPanel::DrawFloatingPickers(Slate::Context& ui, PanelContext& ctx) 
                "Its data is kept in the scene. Removing it deletes that data", t.textDim);
     ui.LabelIn({content.x, content.y + 46.0f, content.w, 22.0f},
                "the next time the scene is saved.", t.textDim);
+    // The button row closes the modal itself when either button is pressed.
     const Slate::Context::ModalResult r = ui.ModalButtonRow(id, content, "Remove", "Cancel");
-    ui.EndModal();
     if (r.ok) {
+        m_removeDialogOpen = false;
         ConfirmRemoveUnresolved(*ctx.scene);
     } else if (r.cancel || !r.open) {
+        m_removeDialogOpen = false;
         CancelRemoveUnresolved();
     }
 }

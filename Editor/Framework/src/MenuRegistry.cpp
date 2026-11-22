@@ -144,6 +144,20 @@ std::vector<Slate::MenuEntry> MenuRegistry::Build(std::string_view menuId) const
     return b.Build();
 }
 
+bool MenuRegistry::Execute(std::string_view entryId, std::string* error) const {
+    for (const Item& i : m_items) {
+        if (i.isSection || i.entry.id != entryId) continue;
+        if (i.entry.isEnabled && !i.entry.isEnabled()) {
+            if (error) *error = "menu entry '" + std::string(entryId) + "' is disabled";
+            return false;
+        }
+        i.entry.execute();
+        return true;
+    }
+    if (error) *error = "no menu entry '" + std::string(entryId) + "'";
+    return false;
+}
+
 MenuRegistry& Menus() {
     static MenuRegistry registry;
     return registry;
