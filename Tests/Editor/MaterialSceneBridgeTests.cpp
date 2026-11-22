@@ -26,10 +26,13 @@
 namespace fs = std::filesystem;
 using namespace Luma;
 using Luma::Editor::MaterialSceneBridge;
-using Luma::Material::MaterialInput;
-using Luma::Material::MaterialInstance;
+using Luma::Material::GraphMaterial;
+using Luma::Material::GraphMaterialInstance;
 using Luma::Material::MaterialLibrary;
-using Luma::Material::MaterialParameter;
+using Luma::Material::ParameterOverride;
+using Luma::MaterialGraph::NodeId;
+using Luma::MaterialGraph::PinRef;
+using Luma::MaterialGraph::PropertyValue;
 
 namespace {
 
@@ -47,13 +50,19 @@ public:
         return nextTexture++;
     }
     void ReleaseTexture(GpuTextureHandle) override { ++textureReleases; }
-    MaterialHandle UpdateMaterial(u64 key, const MaterialGpuDesc& material) override {
+    MaterialHandle UpdateMaterial(u64 key, const CompiledMaterialGpu& material,
+                                  const MaterialParameterBlock& parameters) override {
         ++materialUpdates;
-        descs[key] = material;
+        compiled[key] = material;
+        blocks[key] = parameters;
         if (key == kDefaultMaterialKey) return kDefaultMaterialHandle;
         auto [it, inserted] = handles.try_emplace(key, nextMaterial);
         if (inserted) ++nextMaterial;
         return it->second;
+    }
+    void UpdateMaterialParameters(MaterialHandle h, const MaterialParameterBlock& b) override {
+        ++parameterUpdates;
+        parameterBlocks[h] = b;
     }
     void ReleaseMaterial(MaterialHandle) override {}
     MeshHandle PrimitiveMesh(MeshPrimitive p) const override {
@@ -64,7 +73,18 @@ public:
     int materialUpdates = 0;
     int textureReleases = 0;
     std::map<u64, usize> sections;
-    std::map<u64, MaterialGpuDesc> descs;
+    int parameterUpdates = 0;
+    std::map<MaterialHandle, MaterialParameterBlock> parameterBlocks;
+    std::map<u64, CompiledMaterialGpu> compiled;
+    std::map<u64, MaterialParameterBlock> blocks;
+
+    // Whether `key`'s block holds `rgb` in some slot (the overridden colour).
+    bool BlockHas(u64 key, Math::Vec3 rgb) const {
+        for (const Math::Vec4& v : blocks.at(key).values) {
+            if (v.x == rgb.x && v.y == rgb.y && v.z == rgb.z) return true;
+        }
+        return false;
+    }
     std::map<u64, MaterialHandle> handles;
     std::vector<bool> textures;  // srgb flag per upload
     MeshHandle nextMesh = 1;
@@ -139,21 +159,31 @@ struct BridgeFixture {
         return e;
     }
 
-    std::vector<SceneInstance> Build(MaterialLibrary& lib, Entity selected = kNullEntity) {
+    // Syncs, then (by default) waits for every shader compile to land.
+    std::vector<SceneInstance> Build(MaterialLibrary& lib, Entity selected = kNullEntity, bool finish = true) {
         bridge.Sync(scene, renderer, lib);
+        if (finish) bridge.FinishCompiles(renderer, lib);
         std::vector<SceneInstance> out;
         bridge.BuildInstances(scene, selected, out);
         return out;
     }
 };
 
-MaterialInstance RedInstance() {
-    MaterialInstance mi;
+// A graph instance of the Default Material with BaseColor overridden.
+GraphMaterialInstance ColorInstance(Math::Vec4 color) {
+    GraphMaterialInstance mi;
     mi.parent = std::string(Luma::Material::kDefaultMaterialPath);
-    MaterialInput base;
-    base.constant = {0.8f, 0.1f, 0.1f, 1.0f};
-    mi.Override(MaterialParameter::BaseColor, base);
+    ParameterOverride o;
+    o.name = "BaseColor";
+    o.kind = ParameterOverride::Kind::Vector;
+    o.vector = color;
+    mi.Set(o);
     return mi;
+}
+
+std::string RedInstance(MaterialLibrary& lib, const std::string& path) {
+    lib.SetGraphInstance(path, ColorInstance({0.8f, 0.1f, 0.1f, 1.0f}));
+    return path;
 }
 
 }  // namespace
@@ -161,7 +191,7 @@ MaterialInstance RedInstance() {
 TEST_CASE("Bridge gives sections without a slot the Default Material", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
-    const std::string red = lib.CreateInMemoryInstance("/Game/Materials/MI_Red", RedInstance());
+    const std::string red = RedInstance(lib, "/Game/Materials/MI_Red");
 
     MeshRendererComponent mr;
     mr.mesh = f.WriteMesh("ThreeParts", 3);
@@ -177,16 +207,17 @@ TEST_CASE("Bridge gives sections without a slot the Default Material", "[bridge]
     CHECK(inst.sectionMaterials[1] == kDefaultMaterialHandle);
     CHECK(inst.sectionMaterials[2] == kDefaultMaterialHandle);
     CHECK(inst.selected);
-    // The slot's material reached the renderer with its resolved values.
-    const auto& base = f.renderer.descs.at(f.renderer.handles.begin()->first)
-                           .inputs[static_cast<usize>(GpuMaterialInput::BaseColor)].constant;
-    CHECK((base.x == 0.8f && base.y == 0.1f && base.z == 0.1f));
+    // The slot's material reached the renderer compiled, with its override in
+    // the parameter block.
+    const u64 key = f.renderer.handles.begin()->first;
+    CHECK(f.renderer.compiled.at(key).HasPass(GpuPass::GBuffer));
+    CHECK(f.renderer.BlockHas(key, {0.8f, 0.1f, 0.1f}));
 }
 
 TEST_CASE("Bridge keeps extra slots on the component", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
-    const std::string red = lib.CreateInMemoryInstance("/Game/Materials/MI_Red", RedInstance());
+    const std::string red = RedInstance(lib, "/Game/Materials/MI_Red");
     MeshRendererComponent mr;
     mr.primitive = MeshPrimitive::Sphere;
     mr.materials = {red, red, "", red, red};
@@ -205,7 +236,7 @@ TEST_CASE("Bridge keeps extra slots on the component", "[bridge]") {
 TEST_CASE("Bridge uploads a material once per version", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
-    const std::string red = lib.CreateInMemoryInstance("/Game/Materials/MI_Red", RedInstance());
+    const std::string red = RedInstance(lib, "/Game/Materials/MI_Red");
     MeshRendererComponent mr;
     mr.materials = {red};
     f.Spawn(mr);
@@ -217,14 +248,16 @@ TEST_CASE("Bridge uploads a material once per version", "[bridge]") {
     f.Build(lib);
     CHECK(f.renderer.materialUpdates == afterFirst);
 
-    MaterialInstance edited = RedInstance();
-    edited.inputs[static_cast<usize>(MaterialParameter::BaseColor)].constant = {0, 1, 0, 1};
-    lib.SetInstance(red, edited);
+    // An instance edit that changes only parameter values is a parameter
+    // update: no shaders, no pipelines.
+    lib.SetGraphInstance(red, ColorInstance({0, 1, 0, 1}));
     f.Build(lib);
-    CHECK(f.renderer.materialUpdates == afterFirst + 1);
-    const auto& base = f.renderer.descs.at(f.renderer.handles.begin()->first)
-                           .inputs[static_cast<usize>(GpuMaterialInput::BaseColor)].constant;
-    CHECK(base.y == 1.0f);
+    CHECK(f.renderer.materialUpdates == afterFirst);
+    REQUIRE(f.renderer.parameterUpdates == 1);
+    const MaterialParameterBlock& edited = f.renderer.parameterBlocks.begin()->second;
+    bool green = false;
+    for (const Math::Vec4& v : edited.values) green = green || (v.x == 0 && v.y == 1 && v.z == 0);
+    CHECK(green);
 }
 
 TEST_CASE("Bridge uploads each mesh asset once", "[bridge]") {
@@ -247,31 +280,37 @@ TEST_CASE("Bridge samples color textures as sRGB and data textures as linear", "
     f.WritePng("T_Wood_diff");
     f.WritePng("T_Wood_nor");
     MaterialLibrary lib(f.paths);
-    MaterialInstance mi = RedInstance();
-    MaterialInput base;
-    base.texture = "/Game/Textures/T_Wood_diff";
-    mi.Override(MaterialParameter::BaseColor, base);
-    MaterialInput normal;
-    normal.texture = "/Game/Textures/T_Wood_nor";
-    mi.Override(MaterialParameter::Normal, normal);
-    const std::string wood = lib.CreateInMemoryInstance("/Game/Materials/MI_Wood", mi);
+    // BaseColor from a colour texture, Normal from a normal map.
+    GraphMaterial m;
+    auto sample = [&](const char* texture, i64 samplerType, u32 outputPin) {
+        const NodeId n = m.graph.AddNode("TextureSample", {0.0f, 0.0f});
+        m.graph.Find(n)->properties["texture"] = PropertyValue(std::string(texture));
+        m.graph.Find(n)->properties["sampler"] = PropertyValue(samplerType);
+        std::string err;
+        REQUIRE(m.graph.Connect(PinRef{n, 0}, PinRef{m.graph.OutputNode(), outputPin}, &err));
+    };
+    sample("/Game/Textures/T_Wood_diff", 0, 0);  // Color -> BaseColor
+    sample("/Game/Textures/T_Wood_nor", 2, 8);   // Normal -> Normal
+    lib.SetGraphMaterial("/Game/Materials/M_Wood", m);
     MeshRendererComponent mr;
-    mr.materials = {wood};
+    mr.materials = {"/Game/Materials/M_Wood"};
     f.Spawn(mr);
     f.Build(lib);
 
     REQUIRE(f.renderer.textures.size() == 2);
-    const MaterialGpuDesc* desc = nullptr;
-    for (const auto& [key, d] : f.renderer.descs) {
-        if (key != kDefaultMaterialKey) desc = &d;
+    const CompiledMaterialGpu* gpu = nullptr;
+    for (const auto& [key, c] : f.renderer.compiled) {
+        if (key != kDefaultMaterialKey) gpu = &c;
     }
-    REQUIRE(desc != nullptr);
-    const auto& gb = desc->inputs[static_cast<usize>(GpuMaterialInput::BaseColor)];
-    const auto& gn = desc->inputs[static_cast<usize>(GpuMaterialInput::Normal)];
-    CHECK(gb.texture != kInvalidHandle);
-    CHECK(gb.view == GpuTextureView::SRGB);
-    CHECK(gn.texture != kInvalidHandle);
-    CHECK(gn.view == GpuTextureView::Linear);
+    REQUIRE(gpu != nullptr);
+    REQUIRE(gpu->textures.size() == 2);
+    u32 srgb = 0, linear = 0;
+    for (const GpuTextureBinding& t : gpu->textures) {
+        CHECK(t.texture != kInvalidHandle);
+        (t.srgb ? srgb : linear) += 1;
+    }
+    CHECK(srgb == 1);
+    CHECK(linear == 1);
 
     // A changed texture file is re-uploaded and the material refreshed.
     const int updates = f.renderer.materialUpdates;
@@ -297,9 +336,9 @@ TEST_CASE("Bridge reports a mesh's section count", "[bridge]") {
 TEST_CASE("Empty slots draw the mesh's section materials", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
-    const std::string a = lib.CreateInMemoryInstance("/Game/Materials/MI_A", RedInstance());
-    const std::string b = lib.CreateInMemoryInstance("/Game/Materials/MI_B", RedInstance());
-    const std::string c = lib.CreateInMemoryInstance("/Game/Materials/MI_C", RedInstance());
+    const std::string a = RedInstance(lib, "/Game/Materials/MI_A");
+    const std::string b = RedInstance(lib, "/Game/Materials/MI_B");
+    const std::string c = RedInstance(lib, "/Game/Materials/MI_C");
     MeshRendererComponent mr;
     mr.mesh = f.WriteMesh("TwoParts", 2, {a, b});
     const Entity e = f.Spawn(mr);
@@ -358,7 +397,7 @@ TEST_CASE("A missing mesh draws its primitive and has no sections", "[bridge]") 
 TEST_CASE("A placement preview is drawn but is not part of the scene", "[bridge]") {
     BridgeFixture f;
     MaterialLibrary lib(f.paths);
-    const std::string a = lib.CreateInMemoryInstance("/Game/Materials/MI_A", RedInstance());
+    const std::string a = RedInstance(lib, "/Game/Materials/MI_A");
     const std::string rock = f.WriteMesh("Rock", 1, {a});
     MeshRendererComponent cube;
     f.Spawn(cube);
@@ -376,4 +415,220 @@ TEST_CASE("A placement preview is drawn but is not part of the scene", "[bridge]
     f.bridge.ClearPlacementPreview();
     instances = f.Build(lib);
     CHECK(instances.size() == 1);
+}
+
+namespace {
+
+// BaseColor = /Game/MPC_Wind.Strength.
+GraphMaterial WindMaterial() {
+    GraphMaterial m;
+    const NodeId n = m.graph.AddNode("CollectionParameter", {0.0f, 0.0f});
+    m.graph.Find(n)->properties["collection"] = PropertyValue(std::string("/Game/MPC_Wind"));
+    m.graph.Find(n)->properties["parameter"] = PropertyValue(std::string("Strength"));
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{n, 0}, PinRef{m.graph.OutputNode(), 0}, &err));
+    return m;
+}
+
+Luma::Material::ParameterCollection Wind(f32 strength) {
+    Luma::Material::ParameterCollection pc;
+    pc.name = "MPC_Wind";
+    pc.scalars.push_back({"Strength", strength});
+    return pc;
+}
+
+bool BlockHasX(const MaterialParameterBlock& b, f32 x) {
+    for (const Math::Vec4& v : b.values) {
+        if (v.x == x) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("Materials reading a collection share its value", "[bridge][collection]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetCollection("/Game/MPC_Wind", Wind(0.5f));
+    lib.SetGraphMaterial("/Game/Materials/M_A", WindMaterial());
+    lib.SetGraphMaterial("/Game/Materials/M_B", WindMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_A", "/Game/Materials/M_B"};
+    f.Spawn(mr);
+    f.Build(lib);
+    int found = 0;
+    for (const auto& [key, block] : f.renderer.blocks) {
+        if (key != kDefaultMaterialKey && BlockHasX(block, 0.5f)) ++found;
+    }
+    CHECK(found == 2);
+}
+
+TEST_CASE("A collection value change updates parameters without recompiling", "[bridge][collection]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetCollection("/Game/MPC_Wind", Wind(0.5f));
+    lib.SetGraphMaterial("/Game/Materials/M_A", WindMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_A"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const int compiles = f.renderer.materialUpdates;
+    REQUIRE(lib.SetCollectionValue("/Game/MPC_Wind", "Strength", {0.9f, 0, 0, 0}));
+    f.Build(lib);
+    CHECK(f.renderer.materialUpdates == compiles);
+    REQUIRE(f.renderer.parameterUpdates == 1);
+    CHECK(BlockHasX(f.renderer.parameterBlocks.begin()->second, 0.9f));
+    f.Build(lib);  // unchanged revision: nothing to do
+    CHECK(f.renderer.parameterUpdates == 1);
+}
+
+TEST_CASE("Deleting a collection keeps the last good material", "[bridge][collection]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetCollection("/Game/MPC_Wind", Wind(0.5f));
+    REQUIRE(lib.SaveGraphAsset("/Game/MPC_Wind"));
+    lib.SetGraphMaterial("/Game/Materials/M_A", WindMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_A"};
+    const Entity e = f.Spawn(mr);
+    f.Build(lib, e);
+    const MaterialHandle good = f.bridge.HandleFor("/Game/Materials/M_A");
+    const int uploads = f.renderer.materialUpdates;
+
+    std::filesystem::remove(f.root / "Assets" / "MPC_Wind.lmpc");
+    lib.Reload("/Game/MPC_Wind");
+    REQUIRE(lib.GetCollection("/Game/MPC_Wind") == nullptr);
+    f.Build(lib, e);
+    CHECK(f.renderer.materialUpdates == uploads);  // the compile failed: nothing new uploaded
+    CHECK(f.bridge.HandleFor("/Game/Materials/M_A") == good);
+}
+
+namespace {
+
+// BaseColor = Static Switch "Red" ? red : blue.
+GraphMaterial SwitchMaterial() {
+    GraphMaterial m;
+    auto node = [&](const char* type) { return m.graph.AddNode(type, {0.0f, 0.0f}); };
+    const NodeId sw = node("StaticSwitchParameter");
+    m.graph.Find(sw)->properties["name"] = PropertyValue(std::string("Red"));
+    const NodeId red = node("Constant3Vector");
+    m.graph.Find(red)->properties["value"] = PropertyValue(Math::Vec4{1, 0, 0, 0});
+    const NodeId blue = node("Constant3Vector");
+    m.graph.Find(blue)->properties["value"] = PropertyValue(Math::Vec4{0, 0, 1, 0});
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{red, 0}, PinRef{sw, 0}, &err));
+    REQUIRE(m.graph.Connect(PinRef{blue, 0}, PinRef{sw, 1}, &err));
+    REQUIRE(m.graph.Connect(PinRef{sw, 0}, PinRef{m.graph.OutputNode(), 0}, &err));
+    return m;
+}
+
+GraphMaterialInstance SwitchInstance(bool red) {
+    GraphMaterialInstance mi;
+    mi.parent = "/Game/Materials/M_Switch";
+    ParameterOverride o;
+    o.name = "Red";
+    o.kind = ParameterOverride::Kind::StaticSwitch;
+    o.staticSwitch = red;
+    mi.Set(o);
+    return mi;
+}
+
+// A function scaling its input; a material calling it.
+Luma::Material::MaterialFunction Scale(f64 factor) {
+    Luma::Material::MaterialFunction f;
+    const NodeId in = f.graph.AddNode("FunctionInput", {0.0f, 0.0f});
+    f.graph.Find(in)->properties["inputType"] = PropertyValue(i64{0});
+    const NodeId mul = f.graph.AddNode("Multiply", {0.0f, 0.0f});
+    const NodeId k = f.graph.AddNode("Constant", {0.0f, 0.0f});
+    f.graph.Find(k)->properties["value"] = PropertyValue(factor);
+    const NodeId out = f.graph.AddNode("FunctionOutput", {0.0f, 0.0f});
+    std::string err;
+    REQUIRE(f.graph.Connect(PinRef{in, 0}, PinRef{mul, 0}, &err));
+    REQUIRE(f.graph.Connect(PinRef{k, 0}, PinRef{mul, 1}, &err));
+    REQUIRE(f.graph.Connect(PinRef{mul, 0}, PinRef{out, 0}, &err));
+    return f;
+}
+
+GraphMaterial CallsScale() {
+    GraphMaterial m;
+    const NodeId uv = m.graph.AddNode("TextureCoordinate", {0.0f, 0.0f});
+    const NodeId call = m.graph.AddNode("MaterialFunctionCall", {0.0f, 0.0f});
+    m.graph.Find(call)->properties["function"] = PropertyValue(std::string("/Game/MF_Scale"));
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{uv, 0}, PinRef{call, 0}, &err));
+    REQUIRE(m.graph.Connect(PinRef{call, 0}, PinRef{m.graph.OutputNode(), 1}, &err));  // Metallic
+    return m;
+}
+
+}  // namespace
+
+TEST_CASE("Slots draw the Default Material until their first compile lands", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    const std::string red = RedInstance(lib, "/Game/Materials/MI_Red");
+    MeshRendererComponent mr;
+    mr.materials = {red};
+    const Entity e = f.Spawn(mr);
+    auto pending = f.Build(lib, e, false);
+    REQUIRE(pending.size() == 1);
+    CHECK(pending[0].sectionMaterials[0] == kDefaultMaterialHandle);
+    CHECK(f.bridge.PendingCompiles() > 0);
+    auto done = f.Build(lib, e);
+    CHECK(done[0].sectionMaterials[0] != kDefaultMaterialHandle);
+    CHECK(f.bridge.PendingCompiles() == 0);
+}
+
+TEST_CASE("A static switch override compiles one permutation that instances share", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetGraphMaterial("/Game/Materials/M_Switch", SwitchMaterial());
+    lib.SetGraphInstance("/Game/Materials/MI_A", SwitchInstance(true));
+    lib.SetGraphInstance("/Game/Materials/MI_B", SwitchInstance(true));
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_Switch"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const u32 sets = f.bridge.ShaderSetsCompiled();
+    mr.materials = {"/Game/Materials/MI_A", "/Game/Materials/MI_B"};
+    f.Spawn(mr);
+    f.Build(lib);
+    CHECK(f.bridge.ShaderSetsCompiled() == sets + 1);  // MI_A and MI_B share the switched set
+}
+
+TEST_CASE("Editing a function recompiles only the materials that call it", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetFunction("/Game/MF_Scale", Scale(2.0));
+    lib.SetGraphMaterial("/Game/Materials/M_Calls", CallsScale());
+    lib.SetGraphMaterial("/Game/Materials/M_Plain", SwitchMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_Calls", "/Game/Materials/M_Plain"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const int uploads = f.renderer.materialUpdates;
+    lib.SetFunction("/Game/MF_Scale", Scale(3.0));
+    f.Build(lib);
+    CHECK(f.renderer.materialUpdates == uploads + 1);
+}
+
+TEST_CASE("A broken edit keeps the last good material", "[bridge][compile]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetGraphMaterial("/Game/Materials/M_Edit", SwitchMaterial());
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/M_Edit"};
+    const Entity e = f.Spawn(mr);
+    f.Build(lib, e);
+    const MaterialHandle good = f.bridge.HandleFor("/Game/Materials/M_Edit");
+    const int uploads = f.renderer.materialUpdates;
+    GraphMaterial broken;
+    const NodeId tex = broken.graph.AddNode("TextureObject", {0.0f, 0.0f});
+    std::string err;
+    REQUIRE(broken.graph.Connect(PinRef{tex, 0}, PinRef{broken.graph.OutputNode(), 0}, &err));  // texture -> BaseColor
+    lib.SetGraphMaterial("/Game/Materials/M_Edit", broken);
+    f.Build(lib, e);
+    f.Build(lib, e);
+    CHECK(f.renderer.materialUpdates == uploads);
+    CHECK(f.bridge.HandleFor("/Game/Materials/M_Edit") == good);
+    CHECK_FALSE(f.bridge.Errors("/Game/Materials/M_Edit").empty());
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -18,13 +19,7 @@ namespace Luma {
 // Created per viewport size (the renderer rebuilds it on resize).
 class VulkanSelectionOutlinePass {
 public:
-    struct Draw {
-        VkBuffer vertices = VK_NULL_HANDLE;  // MeshVertex stream
-        VkBuffer indices = VK_NULL_HANDLE;   // u32
-        u32 firstIndex = 0;
-        u32 indexCount = 0;
-        Math::Mat4 model = Math::Mat4::Identity();
-    };
+    static constexpr VkFormat kMaskFormat = VK_FORMAT_R8G8_UNORM;
 
     // Theme accent (255, 140, 0), 2 px, 35 % through occluders.
     struct Style {
@@ -33,11 +28,10 @@ public:
         f32 occludedAlpha = 0.35f;
     };
 
-    // `sceneDepth` is the G-buffer depth (D32), sampled in
-    // DEPTH_STENCIL_READ_ONLY_OPTIMAL; `targetFormat` is the display image.
+    // `targetFormat` is the display image the outline is blended onto.
     VulkanSelectionOutlinePass(VkPhysicalDevice physical, VkDevice device,
                                const std::string& shaderDir, u32 width, u32 height,
-                               VkImageView sceneDepth, VkFormat targetFormat);
+                               VkFormat targetFormat);
     ~VulkanSelectionOutlinePass();
 
     VulkanSelectionOutlinePass(const VulkanSelectionOutlinePass&) = delete;
@@ -46,14 +40,16 @@ public:
     bool Valid() const { return m_outlinePipeline != VK_NULL_HANDLE; }
 
     // Own rendering scope; leaves the mask ready for sampling.
-    void RecordMask(VkCommandBuffer cmd, const Math::Mat4& viewProj,
-                    const std::vector<Draw>& draws);
+    // Clears the mask and runs `draw` inside its rendering scope (one R8G8
+    // colour target, no depth): the caller draws the selected sections with
+    // their materials' SelectionMask pipelines.
+    void RecordMask(VkCommandBuffer cmd, const std::function<void(VkCommandBuffer)>& draw);
     // Inside an open rendering scope whose color target is the display image.
     void RecordOutline(VkCommandBuffer cmd, const Style& style = {});
 
 private:
     bool CreateMask(VkPhysicalDevice physical);
-    bool CreateDescriptors(VkImageView sceneDepth);
+    bool CreateDescriptors();
     bool CreatePipelines(const std::string& shaderDir, VkFormat targetFormat);
 
     VkDevice m_device = VK_NULL_HANDLE;
@@ -67,15 +63,11 @@ private:
 
     VkDescriptorSetLayout m_setLayout = VK_NULL_HANDLE;
     VkDescriptorPool m_pool = VK_NULL_HANDLE;
-    VkDescriptorSet m_maskSet = VK_NULL_HANDLE;     // scene depth
     VkDescriptorSet m_outlineSet = VK_NULL_HANDLE;  // selection mask
 
-    VkPipelineLayout m_maskLayout = VK_NULL_HANDLE;
-    VkPipeline m_maskPipeline = VK_NULL_HANDLE;
     VkPipelineLayout m_outlineLayout = VK_NULL_HANDLE;
     VkPipeline m_outlinePipeline = VK_NULL_HANDLE;
 
-    static constexpr VkFormat kMaskFormat = VK_FORMAT_R8G8_UNORM;
 };
 
 }  // namespace Luma

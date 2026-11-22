@@ -40,8 +40,18 @@ bool IsColorParameter(MaterialParameter p);
 // channel lets one packed (ORM/ARM) texture drive several scalar inputs.
 enum class TextureChannel : u8 { RGB, R, G, B, A };
 
-enum class BlendMode : u8 { Opaque, Masked };
-enum class ShadingModel : u8 { DefaultLit, Unlit };
+// Unreal's blend modes: Opaque/Masked render in the deferred G-buffer,
+// Translucent/Additive/Modulate in the forward translucency pass.
+enum class BlendMode : u8 { Opaque, Masked, Translucent, Additive, Modulate };
+enum class ShadingModel : u8 { DefaultLit, Unlit, Subsurface, ClearCoat, TwoSidedFoliage };
+// Where a material is used: on surfaces, or as a post-process pass.
+enum class MaterialDomain : u8 { Surface, PostProcess };
+// How translucent surfaces are lit.
+enum class TranslucencyLighting : u8 { SurfacePerPixel, Unlit };
+// How the Refraction input bends the scene behind translucency.
+enum class RefractionMethod : u8 { None, IndexOfRefraction, PixelOffset };
+// Where a post-process material runs in the post chain.
+enum class PostProcessLocation : u8 { BeforeTonemapping, AfterTonemapping };
 
 // How a material input's texture is viewed by the GPU.
 enum class TextureView : u8 { SRGB, Linear };

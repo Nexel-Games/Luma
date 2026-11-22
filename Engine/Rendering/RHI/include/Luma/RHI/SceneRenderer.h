@@ -24,8 +24,15 @@ public:
     virtual GpuTextureHandle UploadTexture(u64 key, const TextureUploadDesc& texture) = 0;
     virtual void ReleaseTexture(GpuTextureHandle texture) = 0;
 
-    // kDefaultMaterialKey always maps to kDefaultMaterialHandle.
-    virtual MaterialHandle UpdateMaterial(u64 key, const MaterialGpuDesc& material) = 0;
+    // Creates or replaces the material for `key` (kDefaultMaterialKey always
+    // maps to kDefaultMaterialHandle). Its pipelines are built for every pass
+    // in `material`; until all exist, the handle keeps drawing with the
+    // previous shader set (or not at all, for a new material).
+    virtual MaterialHandle UpdateMaterial(u64 key, const CompiledMaterialGpu& material,
+                                          const MaterialParameterBlock& parameters) = 0;
+    // New parameter values for an existing material (instance edits,
+    // collection changes): no shader or pipeline work.
+    virtual void UpdateMaterialParameters(MaterialHandle material, const MaterialParameterBlock& parameters) = 0;
     virtual void ReleaseMaterial(MaterialHandle material) = 0;
 
     // Built-in shapes, uploaded when the backend starts.

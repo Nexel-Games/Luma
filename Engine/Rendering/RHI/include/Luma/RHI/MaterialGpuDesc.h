@@ -1,14 +1,16 @@
 #pragma once
 
 #include <array>
+#include <optional>
+#include <vector>
 
 #include "Luma/Core/Types.h"
 #include "Luma/Math/Math.h"
 
-// What a backend needs to shade one material: blend/shading state plus one
-// resolved input per material parameter. These mirror the Luma::Material
-// enums so the RHI does not depend on the material module; the editor's
-// material bridge converts a resolved material into this description.
+// What a backend needs to draw materials: compiled shaders per pass, fixed-
+// function state, the texture table and parameter blocks. The enums mirror
+// Luma::Material / Luma::MaterialCompiler so the RHI depends on neither; the
+// editor's material bridge produces these from compiled material graphs.
 
 namespace Luma {
 
@@ -21,73 +23,76 @@ constexpr u32 kInvalidHandle = ~0u;
 constexpr u64 kDefaultMaterialKey = 0;
 constexpr MaterialHandle kDefaultMaterialHandle = 0;
 
-// Same order as Luma::Material::MaterialParameter.
-enum class GpuMaterialInput : u8 {
-    BaseColor,
-    Metallic,
-    Specular,
-    Roughness,
-    Normal,
-    EmissiveColor,
-    AmbientOcclusion,
-    OpacityMask,
-    Cavity,
-    Height,
-    Bump,
-    Count
-};
-constexpr usize kMaterialGpuInputCount = static_cast<usize>(GpuMaterialInput::Count);
-
-enum class GpuBlendMode : u8 { Opaque, Masked };
-enum class GpuShadingModel : u8 { DefaultLit, Unlit };
+enum class GpuBlendMode : u8 { Opaque, Masked, Translucent, Additive, Modulate };
+enum class GpuShadingModel : u8 { DefaultLit, Unlit, Subsurface, ClearCoat, TwoSidedFoliage };
+enum class GpuPostProcessLocation : u8 { BeforeTonemapping, AfterTonemapping };
 enum class GpuTextureView : u8 { SRGB, Linear };
-enum class GpuTextureChannel : u8 { RGB, R, G, B, A };
 
-struct MaterialGpuDesc {
+// The passes a compiled material can draw in (Luma::MaterialCompiler::Pass).
+enum class GpuPass : u8 { GBuffer, DepthOnly, SelectionMask, Forward, PostProcess, Count };
+constexpr usize kGpuPassCount = static_cast<usize>(GpuPass::Count);
+
+// The backend's immutable sampler table: filter x address (9 entries), then
+// linear filtering without mips per address (render targets, scene textures).
+enum class GpuSamplerFilter : u8 { Linear, Nearest, Anisotropic, LinearNoMips };
+enum class GpuSamplerAddress : u8 { Wrap, Clamp, Mirror };
+constexpr u32 kGpuSamplerCount = 12;
+constexpr u32 GpuSamplerIndex(GpuSamplerFilter filter, GpuSamplerAddress address) {
+    return static_cast<u32>(filter) * 3u + static_cast<u32>(address);
+}
+
+// SPIR-V of one pass. `key` identifies the pair (pipeline cache key part).
+struct GpuShaderPair {
+    std::vector<u32> vertex;
+    std::vector<u32> fragment;
+    u64 key = 0;
+};
+
+// What a parameter-block texture slot is bound to. The backend writes
+// (image index, sampler index, bound, 0) into block[slot] when it uploads.
+struct GpuTextureBinding {
+    u32 slot = 0;
+    GpuTextureHandle texture = kInvalidHandle;  // invalid = the backend's white texture
+    bool srgb = false;
+    u32 sampler = 0;  // GpuSamplerIndex
+    bool cube = false;
+};
+
+// A material compiled for every pass it draws in (Luma::MaterialCompiler +
+// shader compiler output). Backends know nothing about graphs: they get
+// SPIR-V, fixed-function state and the texture table.
+struct CompiledMaterialGpu {
+    u64 shaderKey = 0;  // identity of the whole shader set (pipelines are cached by it)
+    std::array<std::optional<GpuShaderPair>, kGpuPassCount> passes;
     GpuBlendMode blend = GpuBlendMode::Opaque;
     GpuShadingModel shading = GpuShadingModel::DefaultLit;
     bool twoSided = false;
     f32 opacityMaskClip = 0.3333f;
+    bool writesCustomData = false;  // G-buffer RT4 (Subsurface / Clear Coat / Foliage)
+    bool usesWPO = false;           // World Position Offset (no depth pre-pass reuse)
+    bool usesRefraction = false;    // needs the scene-colour copy before the forward pass
+    GpuPostProcessLocation ppLocation = GpuPostProcessLocation::BeforeTonemapping;
+    i32 ppPriority = 0;
+    std::vector<GpuTextureBinding> textures;
 
-    struct Input {
-        Math::Vec4 constant{0.0f, 0.0f, 0.0f, 0.0f};
-        GpuTextureHandle texture = kInvalidHandle;  // invalid = use constant
-        GpuTextureView view = GpuTextureView::Linear;
-        GpuTextureChannel channel = GpuTextureChannel::RGB;
-        Math::Vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
-        Math::Vec2 tiling{1.0f, 1.0f};
-        Math::Vec2 offset{0.0f, 0.0f};
-        f32 normalStrength = 1.0f;  // Normal / Height (scale) / Bump strength
-        bool flipGreen = false;
-        bool invert = false;         // scalar inputs: 1 - value
-        f32 emissiveIntensity = 1.0f;
-    };
-    std::array<Input, kMaterialGpuInputCount> inputs{};
+    bool HasPass(GpuPass pass) const { return passes[static_cast<usize>(pass)].has_value(); }
 };
 
-// The engine Default Material (/Engine/Materials/DefaultMaterial) as a GPU
-// description: the backend's fallback until the editor uploads the asset.
-inline MaterialGpuDesc MakeDefaultMaterialGpuDesc() {
-    MaterialGpuDesc d;
-    auto set = [&d](GpuMaterialInput p, Math::Vec4 v, GpuTextureChannel ch) {
-        auto& in = d.inputs[static_cast<usize>(p)];
-        in.constant = v;
-        in.channel = ch;
-    };
-    set(GpuMaterialInput::BaseColor, {0.82f, 0.82f, 0.85f, 1.0f}, GpuTextureChannel::RGB);
-    set(GpuMaterialInput::Metallic, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::Specular, {0.5f, 0.5f, 0.5f, 0.5f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::Roughness, {0.5f, 0.5f, 0.5f, 0.5f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::Normal, {0.0f, 0.0f, 1.0f, 0.0f}, GpuTextureChannel::RGB);
-    set(GpuMaterialInput::EmissiveColor, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::RGB);
-    set(GpuMaterialInput::AmbientOcclusion, {1.0f, 1.0f, 1.0f, 1.0f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::OpacityMask, {1.0f, 1.0f, 1.0f, 1.0f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::Cavity, {1.0f, 1.0f, 1.0f, 1.0f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::Height, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::R);
-    set(GpuMaterialInput::Bump, {0.0f, 0.0f, 0.0f, 0.0f}, GpuTextureChannel::R);
-    d.inputs[static_cast<usize>(GpuMaterialInput::Height)].normalStrength = 0.05f;
-    return d;
-}
+// One material's (or instance's) parameter block: one vec4 per slot, as the
+// preshader evaluated it. Texture slots are rewritten by the backend.
+struct MaterialParameterBlock {
+    std::vector<Math::Vec4> values;
+
+    bool operator==(const MaterialParameterBlock& o) const {
+        if (values.size() != o.values.size()) return false;
+        for (usize i = 0; i < values.size(); ++i) {
+            const Math::Vec4& a = values[i];
+            const Math::Vec4& b = o.values[i];
+            if (a.x != b.x || a.y != b.y || a.z != b.z || a.w != b.w) return false;
+        }
+        return true;
+    }
+};
 
 // Pixel layouts a backend accepts for material textures. 8-bit gray and
 // gray-alpha sample as (g, g, g, a); R16 samples as (g, g, g, 1).

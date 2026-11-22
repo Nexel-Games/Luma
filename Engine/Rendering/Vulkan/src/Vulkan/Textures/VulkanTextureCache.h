@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <unordered_map>
 #include <vector>
 
@@ -8,16 +9,20 @@
 
 namespace Luma {
 
-// GPU residency for material textures, exposed to shaders as one bindless
-// `sampler2D[]` (update-after-bind, partially bound).
+// GPU residency for material textures: descriptor set 1 of the shared
+// material pipeline layout (material_params.glsl).
+//
+//   binding 0  texture2D lumaTextures[]  (update-after-bind, partially bound)
+//   binding 1  sampler lumaSamplers[12]  (immutable; index = GpuSamplerIndex)
+//   binding 2  textureCube lumaCubes[]   (element 0: a white cube)
 //
 // Every texture owns a slot s with two consecutive array elements: 2*s is
 // its linear (UNORM) view and 2*s+1 its sRGB view, so a material picks the
 // color space per input without duplicating the image. A handle is the slot
 // plus a generation (bits 16..31): once a texture is released and its slot
 // reused, the old handle stops resolving. Handle 0 is a reserved 1x1 white
-// texture; invalid or stale handles resolve to it. Images get a full mip chain (vkCmdBlitImage)
-// and are sampled through one 16x anisotropic repeat sampler.
+// texture; invalid or stale handles resolve to it. Images get a full mip
+// chain (vkCmdBlitImage); materials choose the sampler per texture slot.
 //
 // Released textures stay alive until CollectGarbage(), which the owner calls
 // once the GPU has finished every frame that may still sample them; their
@@ -41,6 +46,11 @@ public:
 
     // Shader array index of `handle` sampled through `view`.
     u32 BindlessIndex(GpuTextureHandle handle, GpuTextureView view) const;
+    // The immutable sampler table (binding 1).
+    const VkSamplerCreateInfo& SamplerInfo(u32 index) const { return m_samplerInfos[index]; }
+    static constexpr u32 kMaxCubes = 64;
+    // The reserved white texture's linear view (a valid read-only image).
+    VkImageView WhiteView() const { return m_entries.empty() ? VK_NULL_HANDLE : m_entries[0].linearView; }
     u32 MipCount(GpuTextureHandle handle) const;
 
     VkDescriptorSetLayout Layout() const { return m_layout; }
@@ -76,7 +86,8 @@ private:
     };
 
     bool CreateDescriptors(u32 maxTextures);
-    bool CreateSampler();
+    bool CreateSamplers();
+    bool CreateWhiteCube();
     bool CanBlitLinear(VkFormat format) const;
     Prepared Prepare(const TextureUploadDesc& desc) const;
     bool CreateImage(const TextureUploadDesc& desc, const Prepared& prepared, Entry& out);
@@ -88,7 +99,11 @@ private:
     VkDevice m_device = VK_NULL_HANDLE;
     VkQueue m_queue = VK_NULL_HANDLE;
     VkCommandPool m_pool = VK_NULL_HANDLE;
-    VkSampler m_sampler = VK_NULL_HANDLE;
+    std::array<VkSampler, kGpuSamplerCount> m_samplers{};
+    std::array<VkSamplerCreateInfo, kGpuSamplerCount> m_samplerInfos{};
+    VkImage m_whiteCube = VK_NULL_HANDLE;
+    VkDeviceMemory m_whiteCubeMemory = VK_NULL_HANDLE;
+    VkImageView m_whiteCubeView = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_layout = VK_NULL_HANDLE;
     VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet m_set = VK_NULL_HANDLE;

@@ -83,6 +83,13 @@ MeshHandle VulkanMeshCache::Upload(u64 key, const MeshData& mesh) {
         return kInvalidHandle;
     }
     entry.mesh.indexCount = indexCount;
+    entry.mesh.boundsMin = entry.mesh.boundsMax = mesh.vertices.front().position;
+    for (const MeshVertex& v : mesh.vertices) {
+        entry.mesh.boundsMin = {std::min(entry.mesh.boundsMin.x, v.position.x), std::min(entry.mesh.boundsMin.y, v.position.y),
+                                std::min(entry.mesh.boundsMin.z, v.position.z)};
+        entry.mesh.boundsMax = {std::max(entry.mesh.boundsMax.x, v.position.x), std::max(entry.mesh.boundsMax.y, v.position.y),
+                                std::max(entry.mesh.boundsMax.z, v.position.z)};
+    }
     entry.mesh.sections = std::move(sections);
     entry.key = key;
     entry.alive = true;
