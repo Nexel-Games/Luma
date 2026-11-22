@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,20 @@ inline bool ToolButton(Slate::Context& ui, u64 id, const Slate::Rect& r, Texture
     const f32 cx = r.x + (r.w - total) * 0.5f + kSlot * 0.5f;
     ui.Image(texture, {cx - kSize * 0.5f, r.y + (r.h - kSize) * 0.5f, kSize, kSize});  // colour is baked in
     return clicked;
+}
+
+// A panel's title as a dock tab (Unreal's tab well): a darker strip with
+// the panel name on a raised tab, so it never reads as one more section
+// header. Returns the header rect it used (kPanelTabH tall).
+constexpr f32 kPanelTabH = 28.0f;
+inline Slate::Rect PanelTab(Slate::Context& ui, std::string_view id, const Slate::Rect& area, std::string_view label) {
+    const Slate::Theme& t = ui.theme();
+    const Slate::Rect well{area.x, area.y, area.w, kPanelTabH};
+    ui.Panel(well, t.tabWell);
+    const f32 tabW = std::min(ui.uiFont().Measure(label).x + 32.0f, area.w - 8.0f);
+    ui.Tab(Slate::Context::ID(id), {well.x + 4.0f, well.y + 3.0f, tabW, well.h - 4.0f}, label, true);
+    ui.Panel({well.x, well.Bottom() - 1.0f, well.w, 1.0f}, kDividerColor);
+    return well;
 }
 
 // Toolbar strip background.
