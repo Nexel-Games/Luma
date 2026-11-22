@@ -93,9 +93,15 @@ struct RenderRig {
         inst.primitive = MeshPrimitive::Cube;
         inst.sectionCount = 1;
         inst.sectionMaterials[0] = material;
-        instances = {inst};
+        return RenderScene({inst});
+    }
+
+    // Renders `scene` from (0, 0, 4) towards the origin; returns pixel (x, y)
+    // (default: the centre).
+    std::array<u8, 4> RenderScene(std::vector<SceneInstance> scene, u32 x = kSize / 2, u32 y = kSize / 2) {
+        instances = std::move(scene);
         view.instances = instances.data();
-        view.instanceCount = 1;
+        view.instanceCount = static_cast<u32>(instances.size());
 
         Renderer2::DeferredSceneView frame;
         frame.cameraPosition = {0.0f, 0.0f, 4.0f};
@@ -111,7 +117,7 @@ struct RenderRig {
         std::vector<u8> rgba;
         u32 w = 0, h = 0;
         REQUIRE(renderer->ReadFinalImage(rgba, w, h));
-        const usize i = (static_cast<usize>(h / 2) * w + w / 2) * 4;
+        const usize i = (static_cast<usize>(y) * w + x) * 4;
         return {rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]};
     }
 };
@@ -268,5 +274,144 @@ TEST_CASE("Two-sided foliage shows its transmission colour from behind", "[vulka
     const auto px = r.RenderCentre(r.renderer->UpdateMaterial(55, foliage.gpu, foliage.block));
     CHECK(px[1] > dark[1] + 20);
     CHECK(px[1] > px[0]);  // tinted by the transmission colour
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+namespace {
+
+// An unlit surface material: Emissive = colour; translucent ones get Opacity.
+GraphMaterial Emissive(Math::Vec4 color, Material::BlendMode blend, f64 opacity = 1.0) {
+    GraphMaterial m;
+    m.settings.shadingModel = Material::ShadingModel::Unlit;
+    m.settings.blendMode = blend;
+    const NodeId c = Node(m, "Constant3Vector");
+    m.graph.Find(c)->properties["value"] = PropertyValue(color);
+    Link(m, c, 5);  // Emissive Color
+    if (blend != Material::BlendMode::Opaque) LinkConstant(m, kOpacity, opacity);
+    return m;
+}
+
+SceneInstance Cube(MaterialHandle material, f32 z, f32 scale = 1.0f) {
+    SceneInstance inst;
+    inst.primitive = MeshPrimitive::Cube;
+    inst.sectionCount = 1;
+    inst.sectionMaterials[0] = material;
+    inst.model = Math::Translate({0.0f, 0.0f, z}) * Math::Scale({scale, scale, 0.1f});
+    return inst;
+}
+
+// Display values equal linear colour (sRGB-encoded): no exposure, bloom or
+// tone curve.
+void LinearDisplay(RenderRig& r) {
+    r.view.viewMode = ViewMode::Lit;
+    r.view.sky.enabled = false;
+    r.view.lighting.iblIntensity = 0.0f;
+    r.view.postProcess.autoExposure = false;
+    r.view.postProcess.bloomEnabled = false;
+    r.view.postProcess.toneMapper = PostProcessParams::ToneMapper::Linear;
+}
+
+MaterialHandle Upload(RenderRig& r, u64 key, const GraphMaterial& m) {
+    const auto b = r.Build(m);
+    return r.renderer->UpdateMaterial(key, b.gpu, b.block);
+}
+
+bool NearLinear(u8 actual, f32 linear) { return Near(actual, ToSrgb(std::clamp(linear, 0.0f, 1.0f)) * 255.0f); }
+
+}  // namespace
+
+TEST_CASE("Translucency blends over the opaque scene", "[vulkan][render][translucency]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 60, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle red = Upload(r, 61, Emissive({1, 0, 0, 0}, Material::BlendMode::Translucent, 0.5));
+    const auto px = r.RenderScene({Cube(white, 0.0f, 2.0f), Cube(red, 1.0f)});
+    CHECK(NearLinear(px[0], 1.0f));
+    CHECK(NearLinear(px[1], 0.5f));
+    CHECK(NearLinear(px[2], 0.5f));
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Translucent surfaces draw back to front", "[vulkan][render][translucency]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 60, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle red = Upload(r, 61, Emissive({1, 0, 0, 0}, Material::BlendMode::Translucent, 0.5));
+    const MaterialHandle green = Upload(r, 62, Emissive({0, 1, 0, 0}, Material::BlendMode::Translucent, 0.5));
+    // Listed near-first both times: only sorting can get them right.
+    const auto greenFront = r.RenderScene({Cube(white, 0.0f, 2.0f), Cube(green, 2.0f), Cube(red, 1.0f)});
+    CHECK(greenFront[1] > greenFront[0]);
+    const auto redFront = r.RenderScene({Cube(white, 0.0f, 2.0f), Cube(red, 2.0f), Cube(green, 1.0f)});
+    CHECK(redFront[0] > redFront[1]);
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Additive adds and Modulate multiplies", "[vulkan][render][translucency]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle gray = Upload(r, 60, Emissive({0.25f, 0.25f, 0.25f, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle add = Upload(r, 63, Emissive({0.5f, 0, 0, 0}, Material::BlendMode::Additive, 1.0));
+    const auto added = r.RenderScene({Cube(gray, 0.0f, 2.0f), Cube(add, 1.0f)});
+    CHECK(NearLinear(added[0], 0.75f));
+    CHECK(NearLinear(added[1], 0.25f));
+    const MaterialHandle white = Upload(r, 64, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle mod = Upload(r, 65, Emissive({0.5f, 1, 1, 0}, Material::BlendMode::Modulate, 1.0));
+    const auto modulated = r.RenderScene({Cube(white, 0.0f, 2.0f), Cube(mod, 1.0f)});
+    CHECK(NearLinear(modulated[0], 0.5f));
+    CHECK(NearLinear(modulated[1], 1.0f));
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Refraction shifts what is seen through the surface", "[vulkan][render][translucency]") {
+    RenderRig r;
+    LinearDisplay(r);
+    const MaterialHandle white = Upload(r, 60, Emissive({1, 1, 1, 0}, Material::BlendMode::Opaque));
+    const MaterialHandle black = Upload(r, 66, Emissive({0, 0, 0, 0}, Material::BlendMode::Opaque));
+    GraphMaterial glass = Emissive({0, 0, 0, 0}, Material::BlendMode::Translucent, 0.0);
+    const MaterialHandle plain = Upload(r, 67, glass);
+    glass.settings.refraction = Material::RefractionMethod::PixelOffset;
+    LinkConstant(glass, 15, -30.0);  // Refraction: 30 pixels against the normal (inwards)
+    const MaterialHandle bent = Upload(r, 68, glass);
+    // White left half, black right half; a glass sphere over the seam.
+    auto scene = [&](MaterialHandle g) {
+        SceneInstance left = Cube(white, 0.0f, 2.0f);
+        left.model = Math::Translate({-1.0f, 0.0f, 0.0f}) * Math::Scale({1.0f, 2.0f, 0.1f});
+        SceneInstance right = Cube(black, 0.0f, 2.0f);
+        right.model = Math::Translate({1.0f, 0.0f, 0.0f}) * Math::Scale({1.0f, 2.0f, 0.1f});
+        SceneInstance sphere;
+        sphere.primitive = MeshPrimitive::Sphere;
+        sphere.sectionCount = 1;
+        sphere.sectionMaterials[0] = g;
+        sphere.model = Math::Translate({0.0f, 0.0f, 1.0f}) * Math::Scale({0.8f, 0.8f, 0.8f});
+        return std::vector<SceneInstance>{left, right, sphere};
+    };
+    // Just right of the seam (black); refraction pulls the lookup across it (white).
+    const u32 x = kSize / 2 + 6, y = kSize / 2;
+    const auto straight = r.RenderScene(scene(plain), x, y);
+    const auto refracted = r.RenderScene(scene(bent), x, y);
+    CHECK(std::abs(static_cast<int>(straight[0]) - static_cast<int>(refracted[0])) > 40);
+    CHECK(r.f.ValidationErrors().empty());
+}
+
+TEST_CASE("Translucent surfaces receive sun shadows", "[vulkan][render][translucency]") {
+    RenderRig r;
+    r.view.viewMode = ViewMode::Lit;
+    r.view.sky.enabled = false;
+    r.view.lighting.iblIntensity = 0.0f;
+    r.view.lighting.sunDirection = Math::Normalize(Math::Vec3{0.0f, 0.7f, 0.7f});  // above and in front
+    r.view.lighting.sunShadows = true;
+    r.view.postProcess.autoExposure = false;
+    r.view.postProcess.bloomEnabled = false;
+    GraphMaterial litGlass = TintMaterial({0.8f, 0.8f, 0.8f, 1.0f});
+    litGlass.settings.blendMode = Material::BlendMode::Translucent;
+    LinkConstant(litGlass, kOpacity, 0.9);
+    const MaterialHandle glass = Upload(r, 70, litGlass);
+    const MaterialHandle wall = Upload(r, 71, TintMaterial({0.2f, 0.2f, 0.2f, 1.0f}));
+    // A slab on the sun's path to the glass, outside the camera's view.
+    SceneInstance blocker = Cube(wall, 0.0f);
+    blocker.model = Math::Translate({0.0f, 2.1f, 2.1f}) * Math::Scale({1.5f, 0.05f, 1.5f});
+    const auto lit = r.RenderScene({Cube(glass, 0.0f)});
+    const auto shadowed = r.RenderScene({Cube(glass, 0.0f), blocker});
+    CHECK(Brightness(shadowed) + 20 < Brightness(lit));
     CHECK(r.f.ValidationErrors().empty());
 }

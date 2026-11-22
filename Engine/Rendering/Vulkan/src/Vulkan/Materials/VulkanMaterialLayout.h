@@ -72,6 +72,7 @@ public:
         VkSampler environmentSampler = VK_NULL_HANDLE;
         VkImageView skyCube = VK_NULL_HANDLE;
         VkSampler skySampler = VK_NULL_HANDLE;
+        VkImageLayout skyLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         VkBuffer skySH = VK_NULL_HANDLE;
         VkDeviceSize skySHSize = 0;
     };

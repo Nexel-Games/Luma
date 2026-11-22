@@ -201,7 +201,9 @@ void VulkanMaterialLayout::SetSceneTextures(u32 slot, const std::array<VkImageVi
                                             VkSampler sampler) {
     std::array<VkDescriptorImageInfo, kSceneTextureCount> images{};
     for (u32 i = 0; i < kSceneTextureCount; ++i) {
-        images[i] = {sampler, views[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        // Scene depth (index 1) is sampled while it stays a read-only depth attachment.
+        images[i] = {sampler, views[i],
+                     i == 1 ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     }
     VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     w.dstSet = FrameSet(slot);
@@ -218,7 +220,7 @@ void VulkanMaterialLayout::SetLighting(u32 slot, const Lighting& l) {
     const VkDescriptorImageInfo images[3] = {
         {l.shadowSampler, l.shadowMap, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {l.environmentSampler, l.environment, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {l.skySampler, l.skyCube, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        {l.skySampler, l.skyCube, l.skyLayout}};
     VkWriteDescriptorSet w[5]{};
     for (u32 i = 0; i < 5; ++i) {
         w[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

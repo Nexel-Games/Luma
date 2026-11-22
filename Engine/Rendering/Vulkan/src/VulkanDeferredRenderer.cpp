@@ -198,6 +198,107 @@ void VulkanDeferredRenderer::RegisterMaterialTargets() {
     VulkanMaterialPipelines::Target selection;
     selection.colorFormats = {VulkanSelectionOutlinePass::kMaskFormat};
     m_materialPipelines->SetTarget(GpuPass::SelectionMask, selection);
+    VulkanMaterialPipelines::Target forward;
+    forward.colorFormats = {kLightFormat};
+    forward.depthFormat = kDepthFormat;
+    m_materialPipelines->SetTarget(GpuPass::Forward, forward);
+}
+
+void VulkanDeferredRenderer::RecordTranslucency(const SceneView& source, const Math::Vec3& cameraPosition) {
+    struct Draw {
+        u32 instance;
+        f32 distance;
+    };
+    std::vector<Draw> draws;
+    bool refraction = false;
+    for (u32 i = 0; i < source.instanceCount; ++i) {
+        const SceneInstance& inst = source.instances[i];
+        const GpuMesh* mesh = ResolveMesh(inst);
+        if (!mesh) continue;
+        bool translucent = false;
+        for (u32 s = 0; s < mesh->sections.size(); ++s) {
+            const CompiledMaterialGpu* m = m_materials->Drawable(SectionMaterial(inst, s));
+            if (!m || !m->HasPass(GpuPass::Forward)) continue;
+            translucent = true;
+            refraction = refraction || m->usesRefraction;
+        }
+        if (!translucent) continue;
+        const Math::Vec3 d = m_instanceCenters[i] - cameraPosition;
+        draws.push_back({i, Math::Dot(d, d)});
+    }
+    if (draws.empty()) return;
+    // Back to front (per object, as Unreal sorts translucency).
+    std::stable_sort(draws.begin(), draws.end(), [](const Draw& a, const Draw& b) { return a.distance > b.distance; });
+
+    auto imageBarrier = [&](VkImage image, VkImageLayout from, VkImageLayout to, VkAccessFlags srcAccess,
+                            VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        b.srcAccessMask = srcAccess;
+        b.dstAccessMask = dstAccess;
+        vkCmdPipelineBarrier(m_commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    VkImageLayout lightLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    if (refraction) {
+        // The scene behind the translucent surfaces, as refraction samples it.
+        imageBarrier(m_gBuffer.lightAccum.image, lightLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT);
+        imageBarrier(m_gBuffer.sceneColor.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.dstSubresource = copy.srcSubresource;
+        copy.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height), 1};
+        vkCmdCopyImage(m_commandBuffer, m_gBuffer.lightAccum.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       m_gBuffer.sceneColor.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        imageBarrier(m_gBuffer.sceneColor.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        lightLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    }
+    imageBarrier(m_gBuffer.lightAccum.image, lightLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                 VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_SHADER_READ_BIT,
+                 VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                 VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+    // Depth is tested, never written: read-only, so the shaders can sample it.
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color.imageView = m_gBuffer.lightAccum.view;
+    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depth.imageView = m_gBuffer.depth.view;
+    depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    depth.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+    VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    rendering.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)};
+    rendering.layerCount = 1;
+    rendering.colorAttachmentCount = 1;
+    rendering.pColorAttachments = &color;
+    rendering.pDepthAttachment = &depth;
+    vkCmdBeginRendering(m_commandBuffer, &rendering);
+    const VkViewport viewport{0, 0, static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height), 0, 1};
+    const VkRect2D scissor{{0, 0}, {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}};
+    vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
+    vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
+    BindMaterialSets(m_mainViewOffset);
+    for (const Draw& d : draws) {
+        DrawMaterialSections(source.instances[d.instance], m_instanceObjects[d.instance], GpuPass::Forward);
+    }
+    vkCmdEndRendering(m_commandBuffer);
+    imageBarrier(m_gBuffer.lightAccum.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                 VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
 
 void VulkanDeferredRenderer::BindMaterialSets(u32 viewOffset) {
@@ -443,6 +544,7 @@ void VulkanDeferredRenderer::Cleanup() {
     DestroyAttachment(m_gBuffer.albedo);
     DestroyAttachment(m_gBuffer.emissive);
     DestroyAttachment(m_gBuffer.custom);
+    DestroyAttachment(m_gBuffer.sceneColor);
 
     if (m_gBuffer.sampler)
         vkDestroySampler(m_device, m_gBuffer.sampler, nullptr);
@@ -510,8 +612,14 @@ bool VulkanDeferredRenderer::CreateGBuffer(int32_t width, int32_t height) {
     }
     // HDR light accumulation (scene-referred linear radiance).
     if (!CreateAttachment(kLightFormat,
-                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                           &m_gBuffer.lightAccum)) {
+        return false;
+    }
+    // Its copy for refraction (translucent materials read what is behind them).
+    if (!CreateAttachment(kLightFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                          &m_gBuffer.sceneColor)) {
         return false;
     }
 
@@ -1394,6 +1502,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     const SceneView& source = *scene.sceneData;
     // Per-object data (bounds, world-to-local) for every instance.
     m_instanceObjects.assign(source.instanceCount, 0u);
+    m_instanceCenters.assign(source.instanceCount, Math::Vec3{0.0f, 0.0f, 0.0f});
     for (u32 i = 0; i < source.instanceCount; ++i) {
         const SceneInstance& inst = source.instances[i];
         VulkanMaterialLayout::ObjectData object{};
@@ -1409,6 +1518,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                                         Math::Length(Math::Vec3{inst.model.m[4], inst.model.m[5], inst.model.m[6]}),
                                         Math::Length(Math::Vec3{inst.model.m[8], inst.model.m[9], inst.model.m[10]})});
             SetVec3(object.boundsCenterRadius, worldCenter, Math::Length(extent) * scale);
+            m_instanceCenters[i] = worldCenter;
             SetVec3(object.boundsExtent, extent, 0.0f);
         }
         m_instanceObjects[i] = m_materialLayout->AddObject(object);
@@ -1513,7 +1623,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         // translucency / post-process (white until then).
         const VkImageView white = m_textures->WhiteView();
         m_materialLayout->SetSceneTextures(m_frameSlot,
-                                           {white, m_gBuffer.depth.view, m_gBuffer.albedo.view, m_gBuffer.normal.view,
+                                           {m_gBuffer.sceneColor.view, m_gBuffer.depth.view, m_gBuffer.albedo.view, m_gBuffer.normal.view,
                                             m_gBuffer.material.view, m_gBuffer.custom.view, white},
                                            m_gBuffer.sampler);
         VulkanMaterialLayout::Lighting l;
@@ -1525,6 +1635,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         l.environmentSampler = m_environmentSampler;
         l.skyCube = m_skyLight->FilteredCubeView();
         l.skySampler = m_skyLight->Sampler();
+        l.skyLayout = VulkanSkyLight::kCubeLayout;
         l.skySH = m_skyLight->SHBuffer();
         l.skySHSize = m_skyLight->SHBufferSize();
         m_materialLayout->SetLighting(m_frameSlot, l);
@@ -1634,6 +1745,9 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                 VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     }
+
+    // --- Translucency: forward-lit, sorted, over the opaque scene (+ grid).
+    RecordTranslucency(source, scene.cameraPosition);
 
     // --- HDR post: bloom + exposure + tone map (composite), then FXAA on the
     // display-encoded result. Without the composite (resource failure) FXAA
