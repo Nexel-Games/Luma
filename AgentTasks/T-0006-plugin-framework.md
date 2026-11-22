@@ -1,9 +1,9 @@
 # T-0006 — Luma Plugin Framework (production)
 
-**Status:** Draft (becomes Approved when T-0005 is merged to `dev` and the owner signs off on this plan)
+**Status:** Approved (owner signed off 2026-11-22; T-0005 is on `dev`)
 **Assigned to:** engine agent (plugin agent)
 **Created:** 2026-11-21 by lead
-**Blocked by:** T-0005 Core Extensibility (registries); pending icon-atlas work pushed to `dev`
+**Blocked by:** nothing (T-0005 registries and the icon work are on `dev`)
 **Area / files:** new `Engine/Plugins/**`, new `Plugins/**` (engine plugins), `cmake/LumaPlugins.cmake`, new
 `Tests/Plugins/**`, `docs/plugins/**`, the Plugins page under `Editor/panels/ProjectSettings/` (new files),
 plus the exact call sites listed in §7. Nothing else.
