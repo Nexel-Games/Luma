@@ -525,6 +525,12 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         f32 tx = startX + col * colW;
         f32 ty = startY + row * (kTileH + kTileGap);
         Rect card{tx, ty, kTileW, kTileH};
+        // Clicks, drags and drops use only the part of the card visible in
+        // the pane: rows scrolled out of view (drawn clipped) must not catch
+        // clicks over the panels next to the Content Browser.
+        const f32 hitTop = std::max(card.y, rect.y);
+        const f32 hitBottom = std::min(card.Bottom(), rect.Bottom());
+        const Rect hitCard{card.x, hitTop, card.w, std::max(0.0f, hitBottom - hitTop)};
 
         // Stable id so Animate() can interpolate hover/select per card
         // across frames without resetting.
@@ -552,13 +558,13 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             if (auto th = m_thumbnailCache.find(a->id); th != m_thumbnailCache.end()) {
                 payload.icon = th->second;
             }
-            ui.BeginDrag(cardId ^ 0xD2A6ull, card, payload);
+            ui.BeginDrag(cardId ^ 0xD2A6ull, hitCard, payload);
         }
         if (a->IsFolder()) {
             if (card.Contains(ui.mouse()) && rect.Contains(ui.mouse())) {
                 m_importDropFolder = a->packagePath;
             }
-            if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, card)) {
+            if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, hitCard)) {
                 MoveDropped(*drop, a->packagePath, ctx);
             }
         }
@@ -574,7 +580,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         Rect playR{card.x + 8.0f, card.y + kThumbH - 26.0f, 20.0f, 20.0f};
         const bool onPlay = soundTile && playR.Contains(ui.mouse());
         bool allowCard = !(selected && onNameRow);
-        if (ui.Selectable(cardId, card, "", false, Icon::None) && allowCard && !onPlay) {
+        if (ui.Selectable(cardId, hitCard, "", false, Icon::None) && allowCard && !onPlay) {
             if (a->IsFolder()) {
                 m_currentFolder = a->packagePath;
                 m_selected = a->id;

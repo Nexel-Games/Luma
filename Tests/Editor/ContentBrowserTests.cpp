@@ -327,3 +327,62 @@ TEST_CASE("Plugin assets appear in browser filters for already indexed files", "
     token.Reset();
     CHECK_FALSE(AssetTypes().FindByExtension("curve"));
 }
+
+TEST_CASE("Cards scrolled out of the grid pane don't catch clicks outside it", "[contentbrowser]") {
+    TempDir dir;
+    for (int i = 0; i < 80; ++i) dir.Touch("tex_" + std::to_string(100 + i) + ".png");
+    AssetRegistry r;
+    r.AddRoot(dir.Path());
+    r.Scan();
+    ContentBrowserPanel p;
+    p.SetRegistry(&r);
+    Context ui;
+    NullRenderer nr;
+    ui.Init(nr, TestTypography());
+    PanelContext ctx;
+    ctx.assetRegistry = &r;
+
+    // The browser fills the lower half; the upper half stands for the viewport.
+    const Rect body{0, 300, 800, 300};
+    auto frame = [&](auto&& input) {
+        ui.BeginFrame(800, 600, 0.0166f);
+        input();
+        p.Draw(ui, body, ctx);
+        ui.EndFrame();
+    };
+    auto click = [&](f32 x, f32 y) {
+        frame([&] {
+            ui.OnMouseMove(x, y);
+            ui.OnMouseButton(0, true);
+        });
+        frame([&] { ui.OnMouseButton(0, false); });
+        frame([] {});
+    };
+    frame([] {});
+    // Scroll the grid well down: the first rows move above the pane.
+    for (int i = 0; i < 40; ++i) {
+        frame([&] {
+            ui.OnMouseMove(500.0f, 500.0f);
+            ui.OnScroll(-3.0f);
+        });
+    }
+    // Clicks over the "viewport" above the pane, where scrolled rows now sit.
+    // (Checked after every click: a second click on the same card deselects.)
+    for (f32 y = 120.0f; y < 300.0f; y += 30.0f) {
+        for (f32 x = 260.0f; x < 780.0f; x += 60.0f) {
+            click(x, y);
+            INFO("click at " << x << ", " << y);
+            REQUIRE_FALSE(p.Selected().IsValid());
+        }
+    }
+
+    // Sanity: a click on a visible card inside the pane still selects it.
+    bool selectedInside = false;
+    for (f32 y = 400.0f; y < 580.0f && !selectedInside; y += 20.0f) {
+        for (f32 x = 260.0f; x < 780.0f && !selectedInside; x += 30.0f) {
+            click(x, y);
+            selectedInside = p.Selected().IsValid();
+        }
+    }
+    REQUIRE(selectedInside);
+}
