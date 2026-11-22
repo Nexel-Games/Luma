@@ -214,8 +214,10 @@ int main(int argc, char** argv) {
         return primary.empty() ? std::string(fallback) : primary;
     };
 
-    // Use Red Hat Display variable font for all weights
-    std::string redHatFont = "D:/Luma Engine/Red_Hat_Display/RedHatDisplay-VariableFont_wght.ttf";
+    // Use Red Hat Display variable font for all weights (shipped under
+    // Content/Editor/Fonts; empty when it can't be found -> Segoe UI).
+    std::string redHatFont =
+        FindEditorAsset("Fonts/RedHatDisplay/RedHatDisplay-VariableFont_wght.ttf");
     std::string bodyFont = fontPathOr(redHatFont, "C:/Windows/Fonts/segoeui.ttf");
     std::string mediumFont = fontPathOr(redHatFont, bodyFont.c_str());
     std::string uiFont = fontPathOr(redHatFont, bodyFont.c_str());
