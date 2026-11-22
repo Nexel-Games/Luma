@@ -87,7 +87,7 @@ VulkanTextureCache::VulkanTextureCache(VkPhysicalDevice physical, VkDevice devic
         LUMA_LOG_ERROR("TextureCache", "Failed to create the upload command pool");
         return;
     }
-    if (!CreateSampler() || !CreateDescriptors(maxTextures)) {
+    if (!CreateSamplers() || !CreateDescriptors(maxTextures) || !CreateWhiteCube()) {
         LUMA_LOG_ERROR("TextureCache", "Failed to create the bindless texture table");
         return;
     }
@@ -119,23 +119,118 @@ VulkanTextureCache::~VulkanTextureCache() {
     for (Entry& e : m_entries) DestroyEntry(e);
     if (m_descriptorPool) vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
     if (m_layout) vkDestroyDescriptorSetLayout(m_device, m_layout, nullptr);
-    if (m_sampler) vkDestroySampler(m_device, m_sampler, nullptr);
+    if (m_whiteCubeView) vkDestroyImageView(m_device, m_whiteCubeView, nullptr);
+    if (m_whiteCube) vkDestroyImage(m_device, m_whiteCube, nullptr);
+    if (m_whiteCubeMemory) vkFreeMemory(m_device, m_whiteCubeMemory, nullptr);
+    for (VkSampler s : m_samplers) {
+        if (s) vkDestroySampler(m_device, s, nullptr);
+    }
     if (m_pool) vkDestroyCommandPool(m_device, m_pool, nullptr);
 }
 
-bool VulkanTextureCache::CreateSampler() {
+bool VulkanTextureCache::CreateSamplers() {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(m_physical, &props);
-    VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    info.magFilter = VK_FILTER_LINEAR;
-    info.minFilter = VK_FILTER_LINEAR;
-    info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    info.addressModeU = info.addressModeV = info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    info.anisotropyEnable = VK_TRUE;
-    info.maxAnisotropy = std::min(16.0f, props.limits.maxSamplerAnisotropy);
-    info.minLod = 0.0f;
-    info.maxLod = VK_LOD_CLAMP_NONE;
-    return vkCreateSampler(m_device, &info, nullptr, &m_sampler) == VK_SUCCESS;
+    const VkSamplerAddressMode addresses[3] = {VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                               VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT};
+    for (u32 f = 0; f < 4; ++f) {
+        for (u32 a = 0; a < 3; ++a) {
+            const auto filter = static_cast<GpuSamplerFilter>(f);
+            VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            const bool nearest = filter == GpuSamplerFilter::Nearest;
+            info.magFilter = info.minFilter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+            info.mipmapMode = nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            info.addressModeU = info.addressModeV = info.addressModeW = addresses[a];
+            info.anisotropyEnable = filter == GpuSamplerFilter::Anisotropic ? VK_TRUE : VK_FALSE;
+            info.maxAnisotropy = info.anisotropyEnable ? std::min(16.0f, props.limits.maxSamplerAnisotropy) : 1.0f;
+            info.minLod = 0.0f;
+            info.maxLod = filter == GpuSamplerFilter::LinearNoMips ? 0.0f : VK_LOD_CLAMP_NONE;
+            const u32 index = GpuSamplerIndex(filter, static_cast<GpuSamplerAddress>(a));
+            m_samplerInfos[index] = info;
+            if (vkCreateSampler(m_device, &info, nullptr, &m_samplers[index]) != VK_SUCCESS) return false;
+        }
+    }
+    return true;
+}
+
+bool VulkanTextureCache::CreateWhiteCube() {
+    VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    image.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    image.imageType = VK_IMAGE_TYPE_2D;
+    image.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image.extent = {1, 1, 1};
+    image.mipLevels = 1;
+    image.arrayLayers = 6;
+    image.samples = VK_SAMPLE_COUNT_1_BIT;
+    image.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    image.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(m_device, &image, nullptr, &m_whiteCube) != VK_SUCCESS) return false;
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(m_device, m_whiteCube, &req);
+    VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = req.size;
+    alloc.memoryTypeIndex = FindMemoryType(m_physical, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (alloc.memoryTypeIndex == ~0u || vkAllocateMemory(m_device, &alloc, nullptr, &m_whiteCubeMemory) != VK_SUCCESS) {
+        return false;
+    }
+    vkBindImageMemory(m_device, m_whiteCube, m_whiteCubeMemory, 0);
+
+    VkCommandBufferAllocateInfo cbAlloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    cbAlloc.commandPool = m_pool;
+    cbAlloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbAlloc.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(m_device, &cbAlloc, &cmd) != VK_SUCCESS) return false;
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
+    VkImageMemoryBarrier toDst{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    toDst.srcAccessMask = 0;
+    toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toDst.srcQueueFamilyIndex = toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toDst.image = m_whiteCube;
+    toDst.subresourceRange = range;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &toDst);
+    const VkClearColorValue white{{1.0f, 1.0f, 1.0f, 1.0f}};
+    vkCmdClearColorImage(cmd, m_whiteCube, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &white, 1, &range);
+    VkImageMemoryBarrier toRead = toDst;
+    toRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &toRead);
+    vkEndCommandBuffer(cmd);
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    const bool ok = vkQueueSubmit(m_queue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS && vkQueueWaitIdle(m_queue) == VK_SUCCESS;
+    vkFreeCommandBuffers(m_device, m_pool, 1, &cmd);
+    if (!ok) return false;
+
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = m_whiteCube;
+    view.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    view.format = VK_FORMAT_R8G8B8A8_UNORM;
+    view.subresourceRange = range;
+    if (vkCreateImageView(m_device, &view, nullptr, &m_whiteCubeView) != VK_SUCCESS) return false;
+
+    VkDescriptorImageInfo info{VK_NULL_HANDLE, m_whiteCubeView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = m_set;
+    write.dstBinding = 2;
+    write.dstArrayElement = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    write.pImageInfo = &info;
+    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+    return true;
 }
 
 bool VulkanTextureCache::CreateDescriptors(u32 maxTextures) {
@@ -144,50 +239,54 @@ bool VulkanTextureCache::CreateDescriptors(u32 maxTextures) {
     props2.pNext = &p12;
     vkGetPhysicalDeviceProperties2(m_physical, &props2);
     u32 count = std::max(maxTextures, 2u);
-    count = std::min({count, p12.maxPerStageDescriptorUpdateAfterBindSampledImages,
-                      p12.maxDescriptorSetUpdateAfterBindSampledImages,
-                      p12.maxPerStageDescriptorUpdateAfterBindSamplers,
-                      p12.maxDescriptorSetUpdateAfterBindSamplers});
+    count = std::min({count, p12.maxPerStageDescriptorUpdateAfterBindSampledImages - kMaxCubes,
+                      p12.maxDescriptorSetUpdateAfterBindSampledImages - kMaxCubes});
     count = std::min(count, kMaxSlots * 2);
     count &= ~1u;  // two views per texture
     if (count < 2) return false;
     m_slotCapacity = count / 2;
 
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    binding.descriptorCount = count;
-    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    const VkDescriptorBindingFlags flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-                                           VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
-                                           VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+    const VkShaderStageFlags stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutBinding bindings[3]{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    bindings[0].descriptorCount = count;
+    bindings[0].stageFlags = stages;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    bindings[1].descriptorCount = kGpuSamplerCount;
+    bindings[1].stageFlags = stages;
+    bindings[1].pImmutableSamplers = m_samplers.data();
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    bindings[2].descriptorCount = kMaxCubes;
+    bindings[2].stageFlags = stages;
+    const VkDescriptorBindingFlags bindless =
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+    const VkDescriptorBindingFlags flags[3] = {bindless, 0, bindless};
     VkDescriptorSetLayoutBindingFlagsCreateInfo flagInfo{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-    flagInfo.bindingCount = 1;
-    flagInfo.pBindingFlags = &flags;
+    flagInfo.bindingCount = 3;
+    flagInfo.pBindingFlags = flags;
     VkDescriptorSetLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     layoutInfo.pNext = &flagInfo;
     layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &binding;
+    layoutInfo.bindingCount = 3;
+    layoutInfo.pBindings = bindings;
     if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_layout) != VK_SUCCESS)
         return false;
 
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count};
+    const VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, count + kMaxCubes},
+                                           {VK_DESCRIPTOR_TYPE_SAMPLER, kGpuSamplerCount}};
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &size;
+    poolInfo.poolSizeCount = 2;
+    poolInfo.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS)
         return false;
 
-    VkDescriptorSetVariableDescriptorCountAllocateInfo variable{
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO};
-    variable.descriptorSetCount = 1;
-    variable.pDescriptorCounts = &count;
     VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    alloc.pNext = &variable;
     alloc.descriptorPool = m_descriptorPool;
     alloc.descriptorSetCount = 1;
     alloc.pSetLayouts = &m_layout;
@@ -333,14 +432,14 @@ bool VulkanTextureCache::CreateImage(const TextureUploadDesc& desc, const Prepar
 void VulkanTextureCache::WriteDescriptors(u32 slot, VkImageView linearView,
                                           VkImageView srgbView) {
     VkDescriptorImageInfo images[2] = {
-        {m_sampler, linearView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {m_sampler, srgbView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        {VK_NULL_HANDLE, linearView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {VK_NULL_HANDLE, srgbView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     write.dstSet = m_set;
     write.dstBinding = 0;
     write.dstArrayElement = slot * 2;
     write.descriptorCount = 2;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     write.pImageInfo = images;
     vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
 }

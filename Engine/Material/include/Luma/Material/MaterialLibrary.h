@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "Luma/Asset/AssetPath.h"
+#include "Luma/Material/GraphAssets.h"
 #include "Luma/Material/Material.h"
 #include "Luma/Material/MaterialInstance.h"
 
@@ -59,8 +60,9 @@ public:
     bool IsDirty(std::string_view path) const;
     std::vector<std::string> DirtyAssets() const;
 
-    // Re-reads the asset from disk (external change). Skipped, with a warning,
-    // when the asset has unsaved edits.
+    // Re-reads the asset from disk (external change; graph assets reload on
+    // their next Get*, so a deleted file stops resolving). Skipped, with a
+    // warning, when the asset has unsaved edits.
     void Reload(std::string_view path);
     // Discards unsaved edits: re-reads the asset from disk; an asset that was
     // never saved returns to the state CreateInMemoryInstance made it in.
@@ -77,6 +79,28 @@ public:
 
     u64 Version(std::string_view path) const;
     const AssetPathResolver& Paths() const { return m_paths; }
+
+    // --- Graph assets (v4 materials, v2 instances, functions, collections) --
+    // Loaded lazily from .lmat (v4) / .lmatinst (v2) / .lmatfunc / .lmpc;
+    // nullptr when missing, of another kind/version, or malformed (warned once).
+    const GraphMaterial* GetGraphMaterial(std::string_view path);
+    const GraphMaterialInstance* GetGraphInstance(std::string_view path);
+    const MaterialFunction* GetFunction(std::string_view path);
+    const ParameterCollection* GetCollection(std::string_view path);
+    // In-memory edits (dirty until SaveGraphAsset; version bumps).
+    void SetGraphMaterial(std::string_view path, GraphMaterial material);
+    void SetGraphInstance(std::string_view path, GraphMaterialInstance instance);
+    void SetFunction(std::string_view path, MaterialFunction function);
+    void SetCollection(std::string_view path, ParameterCollection collection);
+    // Runtime collection value change (not a file edit): bumps the
+    // collection's revision. `value.x` for scalars. False if unknown.
+    bool SetCollectionValue(std::string_view path, std::string_view parameter, Math::Vec4 value);
+    bool SaveGraphAsset(std::string_view path, std::string* outError = nullptr);
+    bool IsGraphAssetDirty(std::string_view path) const;
+    u64 GraphVersion(std::string_view path) const;
+    // Loaded graph assets that reference `path` (function calls, collection
+    // parameters, textures, instance parents), sorted.
+    std::vector<std::string> Dependents(std::string_view path) const;
 
 private:
     struct Entry {
@@ -95,7 +119,18 @@ private:
     u64 ChainKey(std::string_view path);
     void WarnOnce(const std::string& key, const std::string& message);
 
+    struct GraphEntry {
+        std::variant<GraphMaterial, GraphMaterialInstance, MaterialFunction, ParameterCollection> asset;
+        bool dirty = false;
+        u64 version = 0;
+    };
+    template <typename T>
+    T* LoadGraph(std::string_view path, const char* ext);
+    template <typename T>
+    void SetGraph(std::string_view path, T asset);
+
     AssetPathResolver& m_paths;
+    std::unordered_map<std::string, GraphEntry> m_graph;
     std::unordered_map<std::string, Entry> m_entries;
     std::unordered_map<std::string, CachedResolve> m_resolved;
     std::set<std::string> m_missing;

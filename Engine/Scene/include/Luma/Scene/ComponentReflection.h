@@ -45,6 +45,33 @@ struct SerialTraits<std::vector<std::string>> {
     }
 };
 
+// Post-process material stack <-> JSON array of {material, weight, enabled}.
+template <>
+struct SerialTraits<std::vector<PostProcessMaterial>> {
+    static SerialValue Write(const std::vector<PostProcessMaterial>& v) {
+        SerialValue a = SerialValue::MakeArray();
+        for (const PostProcessMaterial& m : v) {
+            SerialValue o = SerialValue::MakeObject();
+            o["material"] = SerialValue{m.material};
+            o["weight"] = SerialValue{static_cast<f64>(m.weight)};
+            o["enabled"] = SerialValue{m.enabled};
+            a.PushBack(std::move(o));
+        }
+        return a;
+    }
+    static void Read(const SerialValue& s, std::vector<PostProcessMaterial>& v) {
+        if (!s.IsArray()) return;
+        v.clear();
+        for (const SerialValue& e : s.Elements()) {
+            PostProcessMaterial m;
+            if (const SerialValue* p = e.Find("material")) m.material = p->AsString();
+            if (const SerialValue* p = e.Find("weight")) m.weight = static_cast<f32>(p->AsFloat(1.0));
+            if (const SerialValue* p = e.Find("enabled")) m.enabled = p->AsBool(true);
+            v.push_back(std::move(m));
+        }
+    }
+};
+
 // Per-component descriptors (defined in ComponentReflection.cpp).
 template <>
 const TypeInfo<NameComponent>& GetTypeInfo<NameComponent>();

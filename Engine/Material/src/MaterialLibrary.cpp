@@ -1,6 +1,10 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Material/MaterialLibrary.h"
 
+#include <type_traits>
+
+#include "Luma/Material/MaterialMigrationV4.h"
+
 #include <algorithm>
 #include <filesystem>
 #include <system_error>
@@ -244,6 +248,15 @@ std::vector<std::string> MaterialLibrary::DirtyAssets() const {
 
 void MaterialLibrary::Reload(std::string_view rawPath) {
     const std::string path = Normalize(rawPath);
+    // Graph assets (v4 materials, instances, functions, collections) reload
+    // lazily on their next Get*; a deleted file then stops resolving.
+    if (const auto it = m_graph.find(path); it != m_graph.end()) {
+        if (it->second.dirty) {
+            LUMA_USER_WARN("Material", "'{}' changed on disk but has unsaved edits — keeping the edits.", path);
+            return;
+        }
+        m_graph.erase(it);
+    }
     if (IsDirty(path)) {
         LUMA_USER_WARN("Material", "'{}' changed on disk but has unsaved edits — keeping the edits.",
                        path);
@@ -302,6 +315,173 @@ std::string MaterialLibrary::CreateInMemoryInstance(std::string_view desiredPath
 u64 MaterialLibrary::Version(std::string_view path) const {
     const Entry* e = Find(path);
     return e ? e->version : 0;
+}
+
+// --- Graph assets -------------------------------------------------------------
+
+template <typename T>
+T* MaterialLibrary::LoadGraph(std::string_view rawPath, const char* ext) {
+    const std::string path = Normalize(rawPath);
+    if (auto it = m_graph.find(path); it != m_graph.end()) return std::get_if<T>(&it->second.asset);
+    auto file = m_paths.ToFile(path, {ext});
+    if (!file) return nullptr;
+    T asset;
+    std::string err;
+    // Phase-1 files (version < 4) convert on load; the converted asset is
+    // clean (not dirty) and is written in the new format on its next save.
+    if constexpr (std::is_same_v<T, GraphMaterial> || std::is_same_v<T, GraphMaterialInstance>) {
+        if (GraphAssetSerializer::ProbeVersion(*file) < kGraphMaterialVersion) {
+            std::vector<std::string> notes;
+            if constexpr (std::is_same_v<T, GraphMaterial>) {
+                const Material* legacy = GetMaterial(path);
+                if (!legacy) return nullptr;
+                asset = MigrateV3(*legacy, &notes);
+            } else {
+                const MaterialInstance* legacy = GetInstance(path);
+                if (!legacy) return nullptr;
+                const ResolvedMaterial& parent = Resolve(legacy->parent);
+                Material resolved;
+                resolved.settings = parent.settings;
+                resolved.inputs = parent.inputs;
+                asset = MigrateInstanceV1(*legacy, resolved, &notes);
+            }
+            for (const std::string& n : notes) LUMA_LOG_INFO("Materials", "{}: {}", path, n);
+            LUMA_USER_INFO("Materials", "'{}' was converted to the node-graph format (saved on next save)",
+                           path);
+            GraphEntry& e = m_graph[path];
+            e.asset = std::move(asset);
+            e.version = m_nextVersion++;
+            return std::get_if<T>(&e.asset);
+        }
+    }
+    if (!GraphAssetSerializer::Load(asset, *file, &err)) {
+        WarnOnce("graph:" + path, "'" + path + "' could not be loaded: " + err);
+        return nullptr;
+    }
+    GraphEntry& e = m_graph[path];
+    e.asset = std::move(asset);
+    e.version = m_nextVersion++;
+    return std::get_if<T>(&e.asset);
+}
+
+template <typename T>
+void MaterialLibrary::SetGraph(std::string_view rawPath, T asset) {
+    GraphEntry& e = m_graph[Normalize(rawPath)];
+    e.asset = std::move(asset);
+    e.dirty = true;
+    e.version = m_nextVersion++;
+}
+
+const GraphMaterial* MaterialLibrary::GetGraphMaterial(std::string_view path) {
+    return LoadGraph<GraphMaterial>(path, "lmat");
+}
+const GraphMaterialInstance* MaterialLibrary::GetGraphInstance(std::string_view path) {
+    return LoadGraph<GraphMaterialInstance>(path, "lmatinst");
+}
+const MaterialFunction* MaterialLibrary::GetFunction(std::string_view path) {
+    return LoadGraph<MaterialFunction>(path, "lmatfunc");
+}
+const ParameterCollection* MaterialLibrary::GetCollection(std::string_view path) {
+    return LoadGraph<ParameterCollection>(path, "lmpc");
+}
+void MaterialLibrary::SetGraphMaterial(std::string_view path, GraphMaterial material) {
+    SetGraph(path, std::move(material));
+}
+void MaterialLibrary::SetGraphInstance(std::string_view path, GraphMaterialInstance instance) {
+    SetGraph(path, std::move(instance));
+}
+void MaterialLibrary::SetFunction(std::string_view path, MaterialFunction function) {
+    SetGraph(path, std::move(function));
+}
+void MaterialLibrary::SetCollection(std::string_view path, ParameterCollection collection) {
+    SetGraph(path, std::move(collection));
+}
+
+bool MaterialLibrary::SetCollectionValue(std::string_view path, std::string_view parameter,
+                                         Math::Vec4 value) {
+    if (!LoadGraph<ParameterCollection>(path, "lmpc")) return false;
+    auto* pc = std::get_if<ParameterCollection>(&m_graph[Normalize(path)].asset);
+    for (auto& s : pc->scalars) {
+        if (s.name == parameter) {
+            s.value = value.x;
+            ++pc->revision;
+            return true;
+        }
+    }
+    for (auto& v : pc->vectors) {
+        if (v.name == parameter) {
+            v.value = value;
+            ++pc->revision;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MaterialLibrary::SaveGraphAsset(std::string_view rawPath, std::string* outError) {
+    const std::string path = Normalize(rawPath);
+    auto it = m_graph.find(path);
+    if (it == m_graph.end()) {
+        if (outError) *outError = "'" + path + "' is not loaded";
+        return false;
+    }
+    GraphEntry& e = it->second;
+    const char* ext = std::holds_alternative<GraphMaterial>(e.asset)           ? "lmat"
+                      : std::holds_alternative<GraphMaterialInstance>(e.asset) ? "lmatinst"
+                      : std::holds_alternative<MaterialFunction>(e.asset)      ? "lmatfunc"
+                                                                               : "lmpc";
+    auto file = m_paths.ToFile(path, {ext});
+    if (!file) file = m_paths.MakeFilePath(path, ext);
+    if (!file) {
+        if (outError) *outError = "'" + path + "' is not under the project or engine content";
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(file->parent_path(), ec);
+    const bool ok = std::visit(
+        [&](const auto& a) { return GraphAssetSerializer::Save(a, *file, outError); }, e.asset);
+    if (ok) e.dirty = false;
+    return ok;
+}
+
+bool MaterialLibrary::IsGraphAssetDirty(std::string_view path) const {
+    auto it = m_graph.find(Normalize(path));
+    return it != m_graph.end() && it->second.dirty;
+}
+
+u64 MaterialLibrary::GraphVersion(std::string_view path) const {
+    auto it = m_graph.find(Normalize(path));
+    return it == m_graph.end() ? 0 : it->second.version;
+}
+
+std::vector<std::string> MaterialLibrary::Dependents(std::string_view rawPath) const {
+    const std::string target = Normalize(rawPath);
+    auto graphUses = [&](const MaterialGraph::Graph& g) {
+        for (const auto& n : g.Nodes()) {
+            for (const char* key : {"function", "collection", "texture"}) {
+                auto p = n.properties.find(key);
+                if (p != n.properties.end() && Normalize(p->second.AsString()) == target) return true;
+            }
+        }
+        return false;
+    };
+    std::vector<std::string> out;
+    for (const auto& [path, e] : m_graph) {
+        bool uses = false;
+        if (auto* m = std::get_if<GraphMaterial>(&e.asset)) {
+            uses = graphUses(m->graph);
+        } else if (auto* fn = std::get_if<MaterialFunction>(&e.asset)) {
+            uses = graphUses(fn->graph);
+        } else if (auto* inst = std::get_if<GraphMaterialInstance>(&e.asset)) {
+            uses = Normalize(inst->parent) == target;
+            for (const auto& o : inst->overrides) {
+                uses = uses || (!o.texture.empty() && Normalize(o.texture) == target);
+            }
+        }
+        if (uses && path != target) out.push_back(path);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 }  // namespace Luma::Material

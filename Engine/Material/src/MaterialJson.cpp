@@ -44,10 +44,24 @@ bool ReadVec2(const SerialValue& v, Math::Vec2& out) {
 }
 
 const char* BlendModeName(BlendMode m) {
-    return m == BlendMode::Masked ? "Masked" : "Opaque";
+    switch (m) {
+        case BlendMode::Masked: return "Masked";
+        case BlendMode::Translucent: return "Translucent";
+        case BlendMode::Additive: return "Additive";
+        case BlendMode::Modulate: return "Modulate";
+        case BlendMode::Opaque: break;
+    }
+    return "Opaque";
 }
 const char* ShadingModelName(ShadingModel m) {
-    return m == ShadingModel::Unlit ? "Unlit" : "DefaultLit";
+    switch (m) {
+        case ShadingModel::Unlit: return "Unlit";
+        case ShadingModel::Subsurface: return "Subsurface";
+        case ShadingModel::ClearCoat: return "ClearCoat";
+        case ShadingModel::TwoSidedFoliage: return "TwoSidedFoliage";
+        case ShadingModel::DefaultLit: break;
+    }
+    return "DefaultLit";
 }
 const char* ChannelName(TextureChannel c) {
     switch (c) {
@@ -63,11 +77,17 @@ const char* ChannelName(TextureChannel c) {
 bool ParseBlendMode(const std::string& s, BlendMode& out) {
     if (s == "Opaque") { out = BlendMode::Opaque; return true; }
     if (s == "Masked") { out = BlendMode::Masked; return true; }
+    if (s == "Translucent") { out = BlendMode::Translucent; return true; }
+    if (s == "Additive") { out = BlendMode::Additive; return true; }
+    if (s == "Modulate") { out = BlendMode::Modulate; return true; }
     return false;
 }
 bool ParseShadingModel(const std::string& s, ShadingModel& out) {
     if (s == "DefaultLit") { out = ShadingModel::DefaultLit; return true; }
     if (s == "Unlit") { out = ShadingModel::Unlit; return true; }
+    if (s == "Subsurface") { out = ShadingModel::Subsurface; return true; }
+    if (s == "ClearCoat") { out = ShadingModel::ClearCoat; return true; }
+    if (s == "TwoSidedFoliage") { out = ShadingModel::TwoSidedFoliage; return true; }
     return false;
 }
 bool ParseChannel(const std::string& s, TextureChannel& out) {

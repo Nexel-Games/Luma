@@ -172,3 +172,25 @@ TEST_CASE("Loading a missing scene file fails with an error",
         scene, "Z:/luma/does/not/exist.lscene", &err));
     REQUIRE_FALSE(err.empty());
 }
+
+TEST_CASE("Post-process materials survive a save/load round-trip", "[scene][serialize]") {
+    Scene original;
+    Luma::Entity e = original.CreateEntity("Post Process Volume");
+    auto& pp = original.Registry().emplace<Luma::PostProcessComponent>(e);
+    pp.materials.push_back({"/Game/Materials/PP_Invert", 0.5f, true});
+    pp.materials.push_back({"/Game/Materials/PP_Outline", 1.0f, false});
+
+    const std::string json = SceneSerializer::SaveToString(original);
+    Scene loaded;
+    std::string err;
+    REQUIRE(SceneSerializer::LoadFromString(loaded, json, &err));
+    auto view = loaded.Registry().view<const Luma::PostProcessComponent>();
+    REQUIRE(view.size() == 1);
+    const auto& out = view.get<const Luma::PostProcessComponent>(view.front());
+    REQUIRE(out.materials.size() == 2);
+    CHECK(out.materials[0].material == "/Game/Materials/PP_Invert");
+    CHECK(out.materials[0].weight == 0.5f);
+    CHECK(out.materials[0].enabled);
+    CHECK(out.materials[1].material == "/Game/Materials/PP_Outline");
+    CHECK_FALSE(out.materials[1].enabled);
+}

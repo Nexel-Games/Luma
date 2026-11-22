@@ -213,6 +213,14 @@ struct PostProcessParams {
     // outlier-trimmed average luminance is mapped to 18% grey, adapting over
     // time. On by default, as in Unreal. `exposure` still compensates on top.
     bool autoExposure = true;
+    // Post-process materials (resolved by the editor): each runs at its own
+    // location (before / after tone mapping) in ascending material priority;
+    // weight 0 skips it.
+    struct Material {
+        MaterialHandle material = kInvalidHandle;
+        f32 weight = 1.0f;
+    };
+    std::vector<Material> materials;
     f32 autoExposureSpeed = 3.0f;          // adaptation rate (EV-space, per s)
     f32 autoExposureMinLuminance = 0.03f;  // clamp on the adapted-to average
     f32 autoExposureMaxLuminance = 16.0f;  //   scene luminance (UE Min/Max Brightness)

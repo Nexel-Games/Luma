@@ -62,6 +62,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     width = std::max(width, 1u);
     height = std::max(height, 1u);
     m_bridge.Sync(m_scene, m_renderer, m_library);
+    m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
     m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
 
     // Frame the actor's bounding sphere.

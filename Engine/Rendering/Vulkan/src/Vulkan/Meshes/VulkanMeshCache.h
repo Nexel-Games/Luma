@@ -16,6 +16,8 @@ struct GpuMesh {
     GpuBuffer indices;
     u32 indexCount = 0;
     std::vector<MeshSection> sections;
+    Math::Vec3 boundsMin{0.0f, 0.0f, 0.0f};  // local space
+    Math::Vec3 boundsMax{0.0f, 0.0f, 0.0f};
 };
 
 // GPU residency for meshes. Uploading a key twice returns the first handle.

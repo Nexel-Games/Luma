@@ -148,11 +148,23 @@ struct EnvironmentComponent {
 // Attach to an entity with a Transform (position/rotation define the volume bounds;
 // scale defines the volume extent). Priority determines which volume wins when
 // multiple volumes overlap (higher = takes precedence).
+// A post-process material in a volume's stack (Unreal: Post Process
+// Materials / blendables). The material's own Blendable Location and
+// Priority decide where in the post chain it runs.
+struct PostProcessMaterial {
+    std::string material;  // virtual path of a Post Process domain material
+    f32 weight = 1.0f;     // 0..1 blend of its output over its input
+    bool enabled = true;
+};
+
 struct PostProcessComponent {
     bool enabled = true;
     i32 priority = 0;              // higher wins when volumes overlap
     f32 blendRadius = 500.0f;      // world-unit blend distance outside the volume
     f32 blendWeight = 1.0f;        // 0..1 overall influence of this volume
+
+    // --- Post Process Materials ---
+    std::vector<PostProcessMaterial> materials;
 
     // --- Bloom ---
     bool bloomEnabled = true;

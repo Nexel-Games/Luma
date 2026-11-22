@@ -166,6 +166,7 @@ const TypeInfo<PostProcessComponent>& GetTypeInfo<PostProcessComponent>() {
         b.Property("blendRadius", &PostProcessComponent::blendRadius).Category("General");
         b.Property("blendWeight", &PostProcessComponent::blendWeight)
             .Category("General").Range(0.0, 1.0);
+        b.Property("materials", &PostProcessComponent::materials).Category("Post Process Materials");
         // Bloom
         b.Property("bloomEnabled", &PostProcessComponent::bloomEnabled).Category("Bloom");
         b.Property("bloomIntensity", &PostProcessComponent::bloomIntensity)
