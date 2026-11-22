@@ -12,6 +12,6 @@ target_include_directories(LumaPanelViewport
         ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 target_link_libraries(LumaPanelViewport
-    PUBLIC Luma::Core Luma::Math Luma::Scene Luma::Slate Luma::Gizmo)
+    PUBLIC Luma::Core Luma::Math Luma::Scene Luma::Slate Luma::Gizmo Luma::Profiling)
 
 set_target_properties(LumaPanelViewport PROPERTIES FOLDER "Editor/Panels")

@@ -1,6 +1,7 @@
 add_library(LumaPanelProjectSettings STATIC
     src/ProjectSettings.cpp
     src/SimulationPage.cpp
+    src/GraphicsPages.cpp
     src/ProjectSettingsStore.cpp)
 
 add_library(Luma::PanelProjectSettings ALIAS LumaPanelProjectSettings)
@@ -14,6 +15,6 @@ target_include_directories(LumaPanelProjectSettings
 
 target_link_libraries(LumaPanelProjectSettings
     PUBLIC Luma::Core Luma::Math Luma::Scene Luma::Slate Luma::Serialization Luma::Project
-           Luma::EditorFramework)
+           Luma::EditorFramework Luma::GraphicsSettings)
 
 set_target_properties(LumaPanelProjectSettings PROPERTIES FOLDER "Editor/Panels")

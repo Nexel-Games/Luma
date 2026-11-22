@@ -35,6 +35,8 @@ public:
         m_capturePath = pngPath;
     }
     void WaitIdle() override;
+    void SetPresentMode(PresentMode mode) override;
+    PresentMode ActivePresentMode() const override { return m_swapchain->ActivePresentMode(); }
     void* GetRhiDevice() const override { return m_device.get(); }
     
     // Register an external Vulkan image view as a UI texture (for deferred renderer output)
@@ -86,6 +88,7 @@ private:
     u32 m_imageIndex = 0;
     bool m_frameActive = false;
     bool m_resizePending = false;
+    std::unique_ptr<class VulkanGpuTimer> m_gpuTimer;  // UI / present command stream
     std::string m_capturePath;  // non-empty => capture this frame
 };
 

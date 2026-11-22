@@ -45,6 +45,10 @@ public:
     // 1.0 if the backend can't query it (e.g. headless / unknown platform).
     virtual f32 ContentScale() const = 0;
 
+    // Input focus / minimized state (frame pacing throttles background windows).
+    virtual bool IsFocused() const { return true; }
+    virtual bool IsMinimized() const { return false; }
+
     // Sets the window/taskbar icon from tightly-packed RGBA8 pixels.
     virtual void SetIcon(u32 width, u32 height, const void* rgba8Pixels) = 0;
 

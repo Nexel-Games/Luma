@@ -21,6 +21,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Math/MathUtils.h"
 #include "Luma/Mesh/Mesh.h"
+#include "Luma/Profiling/Profiler.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Vulkan/Grid/VulkanGridPass.h"
 #include "Vulkan/Materials/VulkanMaterialLayout.h"
@@ -30,6 +31,7 @@
 #include "Vulkan/Selection/VulkanSelectionOutlinePass.h"
 #include "Vulkan/Textures/VulkanTextureCache.h"
 #include "Vulkan/Overlay/VulkanOverlayLinePass.h"
+#include "Vulkan/Profiling/VulkanGpuTimer.h"
 #include "Vulkan/EyeAdaptation/VulkanEyeAdaptation.h"
 #include "Vulkan/SkyLight/VulkanSkyLight.h"
 #include "Vulkan/UI/VulkanUIPass.h"
@@ -140,6 +142,8 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
     m_materialLayout = std::make_unique<VulkanMaterialLayout>(physicalDevice, device, m_textures->Layout());
     m_materialPipelines = std::make_unique<VulkanMaterialPipelines>(device, m_materialLayout->PipelineLayout());
     m_materials = std::make_unique<VulkanMaterialSystem>(*m_materialPipelines);
+    m_gpuTimer = std::make_unique<VulkanGpuTimer>(physicalDevice, device, graphicsQueueFamilyIndex, 1,
+                                                  m_profileName);
     if (!m_textures->IsValid() || !m_materialLayout->IsValid()) {
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Scene content caches failed to initialize");
     }
@@ -149,6 +153,12 @@ VulkanDeferredRenderer::VulkanDeferredRenderer(
         // Reserved keys: the top bits mark built-in content.
         m_primitiveMeshes[i] = m_meshes->Upload(0xB1170000'00000000ull | i, BuildPrimitive(kinds[i]));
     }
+}
+
+void VulkanDeferredRenderer::SetProfileName(std::string name) {
+    m_profileName = std::move(name);
+    m_gpuTimer = std::make_unique<VulkanGpuTimer>(m_physicalDevice, m_device, m_graphicsQueueFamilyIndex, 1,
+                                                  m_profileName);
 }
 
 VulkanDeferredRenderer::~VulkanDeferredRenderer() {
@@ -398,6 +408,7 @@ void VulkanDeferredRenderer::BindMaterialSets(u32 viewOffset) {
                                      m_materialLayout->ParamSet(m_frameSlot)};
     vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_materialLayout->PipelineLayout(), 0, 3,
                             sets, 1, &viewOffset);
+    ++m_stats.descriptorBinds;
 }
 
 Math::Mat4 VulkanDeferredRenderer::NormalMatrix(const Math::Mat4& model) const {
@@ -431,12 +442,16 @@ void VulkanDeferredRenderer::DrawMaterialSections(const SceneInstance& inst, u32
             bound = true;
         }
         vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        ++m_stats.pipelineBinds;
         push.paramOffset = m_materials->ParamOffset(handle);
         push.opacityMaskClip = material->opacityMaskClip;
         vkCmdPushConstants(m_commandBuffer, m_materialLayout->PipelineLayout(),
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
         const MeshSection& section = mesh->sections[s];
         vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
+        ++m_stats.drawCalls;
+        m_stats.triangles += section.indexCount / 3;
+        if (pass == GpuPass::DepthOnly) ++m_stats.shadowDraws;
     }
 }
 
@@ -1610,9 +1625,14 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         LUMA_LOG_ERROR("VulkanDeferredRenderer", "Cannot render - not initialized");
         return;
     }
-    vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, std::numeric_limits<u64>::max());
+    LUMA_PROFILE_SCOPE(m_profileName + " Render");
+    {
+        LUMA_PROFILE_SCOPE("Wait Previous Frame");
+        vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, std::numeric_limits<u64>::max());
+    }
     vkResetFences(m_device, 1, &m_fence);
     vkResetCommandBuffer(m_commandBuffer, 0);
+    m_stats = Profiling::FrameCounters{};
 
     // The previous frame has finished: content released since is unused now,
     // and this frame's material table copy can be published.
@@ -1780,7 +1800,11 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     // Sky light capture (compute; records nothing unless the sky changed).
     // Always called so the first frame initializes the cubes before lighting
     // samples them.
-    m_skyLight->Record(m_commandBuffer, lighting.atmo, scene.cameraPosition);
+    m_gpuTimer->BeginFrame(m_commandBuffer, 0);
+    {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Sky Light Capture");
+        m_skyLight->Record(m_commandBuffer, lighting.atmo, scene.cameraPosition);
+    }
     auto barrier = [&](VkImage image, VkImageAspectFlags aspect, VkImageLayout oldLayout, VkImageLayout newLayout, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
         VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
         b.oldLayout = oldLayout; b.newLayout = newLayout; b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; b.image = image; b.subresourceRange = {aspect, 0, 1, 0, 1}; b.srcAccessMask = srcAccess; b.dstAccessMask = dstAccess;
@@ -1812,6 +1836,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
     VkClearValue clears[6]{}; clears[0].color = {{0, 0, 0, 1}}; clears[1].color = {{0.5f, 0.5f, 1, 1}}; clears[2].color = {{0, 0.5f, 1, 0}}; clears[3].color = {{0, 0, 0, 0}}; clears[4].color = {{0, 0, 0, 0}}; clears[5].depthStencil = {1.0f, 0};
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO}; rp.renderPass = m_gBuffer.renderPass; rp.framebuffer = m_gBuffer.framebuffer; rp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}; rp.clearValueCount = 6; rp.pClearValues = clears;
+    const u32 gbufferScope = m_gpuTimer->Begin(m_commandBuffer, "G-Buffer");
     vkCmdBeginRenderPass(m_commandBuffer, &rp, VK_SUBPASS_CONTENTS_INLINE);
     VkViewport viewport{0, 0, static_cast<f32>(m_gBuffer.width), static_cast<f32>(m_gBuffer.height), 0, 1}; VkRect2D scissor{{0, 0}, {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}}; vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
     BindMaterialSets(m_mainViewOffset);
@@ -1819,16 +1844,24 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         DrawMaterialSections(source.instances[i], m_instanceObjects[i], GpuPass::GBuffer);
     }
     vkCmdEndRenderPass(m_commandBuffer);
+    m_gpuTimer->End(m_commandBuffer, gbufferScope);
     barrier(m_gBuffer.depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     // The lighting pass clears the light buffer: its previous contents (last
     // frame's, or none on the first frame) are discarded.
     barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
     // Sun cascade depth passes (always recorded so every layer is cleared and
     // in SHADER_READ_ONLY before the lighting pass samples it).
-    RecordSunShadows(source, cascades, sunShadows);
+    {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Sun Shadows");
+        RecordSunShadows(source, cascades, sunShadows);
+    }
     m_shadowImageInitialized = true;
+    const u32 lightingScope = m_gpuTimer->Begin(m_commandBuffer, "Lighting");
     VkClearValue lightClear{}; lightClear.color = {{0, 0, 0, 1}}; VkRenderPassBeginInfo lightRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO}; lightRp.renderPass = m_gBuffer.lightingRenderPass; lightRp.framebuffer = m_gBuffer.lightingFramebuffer; lightRp.renderArea.extent = {static_cast<u32>(m_gBuffer.width), static_cast<u32>(m_gBuffer.height)}; lightRp.clearValueCount = 1; lightRp.pClearValues = &lightClear; vkCmdBeginRenderPass(m_commandBuffer, &lightRp, VK_SUBPASS_CONTENTS_INLINE); vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport); vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor); vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline); vkCmdBindDescriptorSets(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingLayout, 0, 1, &m_lightingSet, 0, nullptr); vkCmdDraw(m_commandBuffer, 3, 1, 0, 0); vkCmdEndRenderPass(m_commandBuffer);
+    m_gpuTimer->End(m_commandBuffer, lightingScope);
+    ++m_stats.drawCalls;
     if (m_gridPass && source.grid.enabled) {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Grid");
         barrier(m_gBuffer.lightAccum.image, VK_IMAGE_ASPECT_COLOR_BIT,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1883,7 +1916,11 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     }
 
     // --- Translucency: forward-lit, sorted, over the opaque scene (+ grid).
-    RecordTranslucency(source, scene.cameraPosition);
+    {
+        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Translucency");
+        RecordTranslucency(source, scene.cameraPosition);
+    }
+    const u32 postScope = m_gpuTimer->Begin(m_commandBuffer, "Post Process");
     // --- Post-process materials placed before tone mapping (HDR scene).
     RecordPostProcessMaterials(source.postProcess, GpuPostProcessLocation::BeforeTonemapping,
                                m_gBuffer.lightAccum.image, m_gBuffer.lightAccum.view);
@@ -1909,7 +1946,9 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         PointFXAAAt(m_gBuffer.lightAccum.view);
     }
 
+    m_gpuTimer->End(m_commandBuffer, postScope);
     if (m_fxaaRenderPass && m_fxaaPipeline) {
+        const u32 fxaaScope = m_gpuTimer->Begin(m_commandBuffer, "FXAA");
         VkClearValue fxaaClear{}; fxaaClear.color = {{0, 0, 0, 1}};
         VkRenderPassBeginInfo fxaaRp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         fxaaRp.renderPass = m_fxaaRenderPass;
@@ -1926,6 +1965,8 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         vkCmdPushConstants(m_commandBuffer, m_fxaaLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(res), &res);
         vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
         vkCmdEndRenderPass(m_commandBuffer);
+        m_gpuTimer->End(m_commandBuffer, fxaaScope);
+        const u32 editorScope = m_gpuTimer->Begin(m_commandBuffer, "Editor Overlays");
 
         // Editor decorations on the final, display-encoded image: the
         // selection outline (Unreal-style), then the gizmo lines on top (no
@@ -2006,10 +2047,20 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
                                  nullptr, 1, &toRead);
         }
+        m_gpuTimer->End(m_commandBuffer, editorScope);
     }
 
+    m_gpuTimer->EndFrame(m_commandBuffer);
+    m_stats.instances = source.instanceCount;
+    Profiling::Global().Counters() += m_stats;
     if (vkEndCommandBuffer(m_commandBuffer) != VK_SUCCESS) return;
-    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO}; submit.commandBufferCount = 1; submit.pCommandBuffers = &m_commandBuffer; vkQueueSubmit(m_graphicsQueue, 1, &submit, m_fence);
+    {
+        LUMA_PROFILE_SCOPE("Submit");
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &m_commandBuffer;
+        vkQueueSubmit(m_graphicsQueue, 1, &submit, m_fence);
+    }
     m_gBufferInitialized = true;
 }
 

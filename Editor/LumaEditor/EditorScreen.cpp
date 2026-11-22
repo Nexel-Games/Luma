@@ -1499,6 +1499,10 @@ void EditorScreen::RegisterEditorUi() {
     stop.isEnabled = [this] { return m_runner.PlayScene() != nullptr; };
     reg.Add(menus.RegisterEntry(std::move(stop)));
     reg.Add(Editor::Panels::RegisterSimulationPage(Editor::SettingsPages(), m_simulation));
+    reg.Add(Editor::Panels::RegisterDisplayPage(Editor::SettingsPages(), m_graphics.display, [this] {
+        return m_activePresentMode ? m_activePresentMode() : std::string{};
+    }));
+    reg.Add(Editor::Panels::RegisterRenderingPage(Editor::SettingsPages(), m_graphics.rendering));
     reg.Add(Editor::Panels::RegisterMapsAndModesPage(
         Editor::SettingsPages(), m_mapsAndModes, [this] {
             // Every scene file under Assets/, as a project-relative path.

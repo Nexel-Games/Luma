@@ -256,6 +256,14 @@ f32 GlfwWindow::ContentScale() const {
     return 0.5f * (x + y);
 }
 
+bool GlfwWindow::IsFocused() const {
+    return m_window && glfwGetWindowAttrib(m_window, GLFW_FOCUSED) == GLFW_TRUE;
+}
+
+bool GlfwWindow::IsMinimized() const {
+    return m_window && glfwGetWindowAttrib(m_window, GLFW_ICONIFIED) == GLFW_TRUE;
+}
+
 std::vector<const char*> GlfwWindow::RequiredVulkanInstanceExtensions() const {
     u32 count = 0;
     const char** extensions = glfwGetRequiredInstanceExtensions(&count);

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "Luma/Math/Math.h"
+#include "Luma/Profiling/Profiler.h"
 #include "Luma/RHI/SceneRenderer.h"
 #include "Luma/Renderer/CascadeShadows.h"
 #include "Luma/Renderer/DeferredSceneView.h"
@@ -26,6 +27,7 @@ class VulkanMaterialSystem;
 class VulkanMaterialLayout;
 class VulkanMaterialPipelines;
 class VulkanSelectionOutlinePass;
+class VulkanGpuTimer;
 struct GpuMesh;
 namespace Rendering {
 
@@ -135,6 +137,12 @@ public:
     // descriptor set, samplers).
     bool IsInitialized() const { return m_initialized; }
 
+    // Name GPU timings and CPU scopes are reported under ("Viewport",
+    // "Preview"). Set before the first frame.
+    void SetProfileName(std::string name);
+    // Counters of the last RenderScene (draws, triangles, culled instances).
+    const Profiling::FrameCounters& LastFrameStats() const { return m_stats; }
+
 private:
     struct GpuLight {
         f32 posType[4];   // xyz position, w type (0 dir, 1 point, 2 spot)
@@ -216,6 +224,10 @@ private:
     // when `enabled`) and leaves the array in SHADER_READ_ONLY for lighting.
     void RecordSunShadows(const SceneView& source,
                           const Renderer2::SunCascades& cascades, bool enabled);
+
+    std::string m_profileName = "Viewport";
+    std::unique_ptr<VulkanGpuTimer> m_gpuTimer;
+    Profiling::FrameCounters m_stats;
 
     // Scene content residency (lives as long as the renderer).
     std::unique_ptr<VulkanTextureCache> m_textures;
