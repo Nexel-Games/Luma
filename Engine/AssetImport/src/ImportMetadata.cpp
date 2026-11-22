@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/AssetImport/ImportMetadata.h"
 
 #include <fstream>
@@ -19,15 +20,7 @@ std::string ToHex(u64 value) {
     return out.str();
 }
 
-AssetType TypeFromName(std::string_view name) {
-    for (u8 i = 0; i < static_cast<u8>(AssetType::Count); ++i) {
-        const auto type = static_cast<AssetType>(i);
-        if (AssetTypeName(type) == name) {
-            return type;
-        }
-    }
-    return AssetType::Unknown;
-}
+
 
 }  // namespace
 
@@ -113,7 +106,8 @@ bool WriteMetadata(const std::filesystem::path& assetFile, const ImportMetadata&
                    std::string* err) {
     SerialValue root = SerialValue::MakeObject();
     root["guid"] = ToString(meta.guid);
-    root["type"] = AssetTypeName(meta.type);
+    root["type"] = meta.type == AssetType::Unknown && !meta.typeId.empty()
+        ? meta.typeId : AssetTypeName(meta.type);
     root["sourceFile"] = meta.sourceFile;
     root["sourceHash"] = meta.sourceHash;
     root["sourceMtime"] = meta.sourceMtime;
@@ -159,7 +153,8 @@ std::optional<ImportMetadata> ReadMetadata(const std::filesystem::path& assetFil
         meta.guid = FromString(guid->AsString());
     }
     if (const SerialValue* type = json->Find("type")) {
-        meta.type = TypeFromName(type->AsString());
+        meta.type = AssetTypeFromName(type->AsString());
+        if (meta.type == AssetType::Unknown) meta.typeId = type->AsString();
     }
     if (const SerialValue* source = json->Find("sourceFile")) {
         meta.sourceFile = source->AsString();

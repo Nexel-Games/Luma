@@ -16,7 +16,8 @@ class ITranslator {
 public:
     virtual ~ITranslator() = default;
     virtual std::string_view Name() const = 0;
-    virtual bool CanTranslate(const std::filesystem::path& file) const = 0;
+    virtual std::vector<std::string> Extensions() const = 0;
+    virtual bool CanTranslate(const std::filesystem::path& file) const;
     // Adds a File node and its children. Does not create assets.
     virtual bool Translate(const std::filesystem::path& file, ImportScene& out,
                            std::string* error) = 0;
@@ -59,7 +60,7 @@ private:
 class ModelTranslator final : public ITranslator {
 public:
     std::string_view Name() const override;
-    bool CanTranslate(const std::filesystem::path& file) const override;
+    std::vector<std::string> Extensions() const override;
     bool Translate(const std::filesystem::path& file, ImportScene& out,
                    std::string* error) override;
 

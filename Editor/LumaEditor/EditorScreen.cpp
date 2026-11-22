@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "EditorScreen.h"
 
 #include <atomic>
@@ -1505,7 +1506,7 @@ void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& 
     std::filesystem::path target = m_contentBrowser.ImportDropFolder();
     if (target.empty()) target = m_contentBrowser.CurrentFolder();
     if (target.empty()) target = m_project->AssetsDir();
-    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    auto& registry = Import::Translators();
     std::vector<std::filesystem::path> supported;
     for (const std::filesystem::path& file : files) CollectImportFiles(file, registry, supported);
     OpenImport(supported, target, false);
@@ -1514,7 +1515,7 @@ void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& 
 void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
     if (!m_project) return;
     std::filesystem::path target = folder.empty() ? m_project->AssetsDir() : folder;
-    Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
+    auto& registry = Import::Translators();
     const std::vector<char> filter = ImportFileFilter(registry);
     std::vector<std::filesystem::path> picked;
 #ifdef _WIN32
@@ -1856,7 +1857,10 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         m_contentBrowser.ClearActivated();
         if (const AssetData* data = activated.IsValid() ? m_assetRegistry.Lookup(activated)
                                                         : nullptr) {
-            if (data->type == AssetType::Material || data->type == AssetType::MaterialInstance) {
+            const auto desc = AssetTypes().FindByExtension(data->extension);
+            if (desc && desc->open) {
+                desc->open(data->packagePath);
+            } else if (data->type == AssetType::Material || data->type == AssetType::MaterialInstance) {
                 if (auto path = m_assetPaths.ToVirtual(data->packagePath)) OpenMaterialEditor(*path);
             }
         }

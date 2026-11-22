@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Core/Log.h"
@@ -319,7 +320,14 @@ bool ThumbnailManager::GenerateThumbnail(const AssetId& assetId,
     // One extension table for the whole engine (AssetType.cpp): textures
     // (incl. PSD/HDR/EXR), .lmesh, materials, sounds.
     std::string ext = nativePath.extension().string();
-    AssetType type = AssetTypeFromExtension(ext);
+    const auto desc = AssetTypes().FindByExtension(ext);
+    if (desc && desc->thumbnail) {
+        std::error_code ec;
+        std::filesystem::create_directories(outputPath.parent_path(), ec);
+        return !ec && desc->thumbnail(nativePath, outputPath, settings.width, settings.height) &&
+               std::filesystem::is_regular_file(outputPath, ec);
+    }
+    AssetType type = desc ? desc->builtin : AssetType::Unknown;
     // Instances render through the material preview.
     if (type == AssetType::MaterialInstance) type = AssetType::Material;
     

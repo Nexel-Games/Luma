@@ -26,7 +26,7 @@ Slate::Icon IconByName(std::string_view name) {
         {"Cube", Icon::Cube},                 {"Sphere", Icon::Sphere},
         {"Plane", Icon::Plane},               {"Cylinder", Icon::Cylinder},
         {"Refresh", Icon::Refresh},           {"ArrowLeft", Icon::ArrowLeft},
-        {"Reset", Icon::Reset},               {"Image", Icon::Image},
+        {"StaticMesh", Icon::StaticMesh},       {"Reset", Icon::Reset},               {"Image", Icon::Image},
     };
     for (const auto& [n, icon] : kIcons) {
         if (n == name) return icon;

@@ -1,3 +1,4 @@
+#include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Material/MaterialLibrary.h"
 
 #include <algorithm>
@@ -168,7 +169,7 @@ const ResolvedMaterial& MaterialLibrary::Resolve(std::string_view rawPath) {
     // Textures that no longer exist fall back to the input's constant.
     for (MaterialInput& input : out.inputs) {
         if (input.texture.empty()) continue;
-        if (!m_paths.ToFileAny(input.texture, TypeExtensions{}.texture)) {
+        if (!m_paths.ToFileAny(input.texture, AssetTypes().FindBuiltin(AssetType::Texture)->extensions)) {
             WarnOnce("texture:" + path + ">" + input.texture,
                      "Texture '" + input.texture + "' used by '" + path +
                          "' is missing — using the constant value.");
