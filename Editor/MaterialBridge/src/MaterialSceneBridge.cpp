@@ -261,6 +261,7 @@ void MaterialSceneBridge::BuildInstances(const Scene& scene, Entity selected,
     out.clear();
     auto view = scene.Registry().view<const TransformComponent, const MeshRendererComponent>();
     for (Entity e : view) {
+        if (scene.Registry().all_of<EditorHiddenComponent>(e)) continue;
         const auto& mr = view.get<const MeshRendererComponent>(e);
         SceneInstance inst;
         inst.model = view.get<const TransformComponent>(e).Matrix();

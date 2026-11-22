@@ -33,6 +33,9 @@ public:
         return m_registry.view<const NameComponent>().size();
     }
 
+    // `base` when that name is free; otherwise "base 1", "base 2", ...
+    std::string UniqueEntityName(const std::string& base) const;
+
 private:
     entt::registry m_registry;
 };

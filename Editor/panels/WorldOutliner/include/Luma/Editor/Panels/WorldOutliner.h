@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "PanelContext.h"
@@ -72,10 +73,12 @@ private:
                          const std::function<void(CreateActorKind)>& create);
     // Right-click menu for one entity row.
     std::vector<Slate::MenuEntry> BuildEntityMenu(Entity e, PanelContext& ctx);
+    std::vector<Slate::MenuEntry> BuildEmptyMenu(PanelContext& ctx);
 
     std::string m_entityFilter; // filters the outliner entity list by name
     u64 m_pressedRow = 0;       // row/button id currently mouse-held
     // Inline rename (F2 / context menu "Rename").
+    std::unordered_set<Entity> m_collapsed;
     Entity m_renaming = kNullEntity;
     std::string m_renameBuf;
     bool m_renameFocusPending = false;

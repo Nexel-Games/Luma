@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include "Luma/Scene/ComponentReflection.h"
+#include "Luma/Scene/Hierarchy.h"
 #include "Luma/Serialization/Json.h"
 #include "Luma/Serialization/Reflection.h"
 
@@ -58,8 +59,19 @@ std::string SceneSerializer::SaveToString(const Scene& scene, bool pretty) {
     const entt::registry& reg = scene.Registry();
     // NameComponent marks the canonical scene objects; iterate those.
     auto view = reg.view<const NameComponent>();
-    for (auto e : view) {
+    std::vector<Entity> order;
+    for (auto e : view) order.push_back(e);
+    for (usize index = 0; index < order.size(); ++index) {
+        Entity e = order[index];
         SerialValue entity = SerialValue::MakeObject();
+        if (Entity parent = ParentOf(scene, e); parent != kNullEntity) {
+            for (usize parentIndex = 0; parentIndex < order.size(); ++parentIndex) {
+                if (order[parentIndex] == parent) {
+                    entity["parent"] = static_cast<i64>(parentIndex);
+                    break;
+                }
+            }
+        }
         SerialValue comps = SerialValue::MakeObject();
         WriteComponent<NameComponent>(reg, e, comps, "Name");
         WriteComponent<TransformComponent>(reg, e, comps, "Transform");
@@ -91,10 +103,14 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
     reg.clear();  // replace any existing contents
     if (outLegacy) outLegacy->clear();
 
+    std::vector<Entity> created;
+    std::vector<i64> parents;
     for (const SerialValue& entity : entities->Elements()) {
         const SerialValue* comps = entity.Find("components");
         if (!comps) continue;
         entt::entity e = reg.create();
+        created.push_back(e);
+        parents.push_back(entity.Find("parent") ? entity.Find("parent")->AsInt(-1) : -1);
         ReadComponent<NameComponent>(reg, e, *comps, "Name");
         ReadComponent<TransformComponent>(reg, e, *comps, "Transform");
         ReadComponent<MeshRendererComponent>(reg, e, *comps, "MeshRenderer");
@@ -103,6 +119,11 @@ bool SceneSerializer::LoadFromString(Scene& scene, std::string_view json,
         ReadComponent<LightComponent>(reg, e, *comps, "Light");
         ReadComponent<EnvironmentComponent>(reg, e, *comps, "Environment");
         ReadComponent<PostProcessComponent>(reg, e, *comps, "PostProcess");
+    }
+    for (usize index = 0; index < created.size(); ++index) {
+        const i64 parentIndex = parents[index];
+        if (parentIndex < 0 || static_cast<usize>(parentIndex) >= created.size()) continue;
+        SetParent(scene, created[index], created[static_cast<usize>(parentIndex)]);
     }
     return true;
 }

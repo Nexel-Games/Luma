@@ -24,6 +24,7 @@ add_executable(LumaTests
     Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
     Scene/SceneTests.cpp
+    Scene/HierarchyTests.cpp
     Math/MathTests.cpp
     Slate/ThemeTests.cpp
     Slate/DrawListTests.cpp
@@ -83,6 +84,12 @@ add_executable(LumaTests
 target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
+
+add_executable(LumaPreferencesTests Editor/PreferencesTests.cpp)
+target_compile_definitions(LumaPreferencesTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(LumaPreferencesTests PRIVATE Luma::PanelPreferences Catch2::Catch2WithMain)
+set_target_properties(LumaPreferencesTests PROPERTIES FOLDER "Tests")
+add_test(NAME LumaPreferencesTests COMMAND LumaPreferencesTests)
 
 # One ctest entry that runs the whole Catch2 binary (reports per-assertion on
 # failure). Fine-grained catch_discover_tests can be adopted later.

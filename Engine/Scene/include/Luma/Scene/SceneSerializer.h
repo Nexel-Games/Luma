@@ -11,7 +11,10 @@
 // Saves/loads a Scene to Luma's JSON scene format. The document is:
 //
 //   { "version": 2,
-//     "entities": [ { "components": { "Name": {...}, "Transform": {...}, ... } } ] }
+//     "entities": [ { "parent": <index>, "components": { "Name": {...}, ... } } ] }
+//
+// "parent" is optional. It is the index of the parent in this entities array.
+// Transforms stay in world space across that link.
 //
 // Only entities carrying a NameComponent (the canonical scene objects) are
 // written. Loading clears the target scene first, then reconstructs entities and

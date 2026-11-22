@@ -23,6 +23,9 @@ struct DragPayload {
     std::string type;   // e.g. "material", "mesh"
     std::string data;   // e.g. a virtual asset path
     std::string label;  // shown in the drag ghost
+    // Absolute file or folder this drag came from, when it can be moved
+    // between content folders. Empty for drags that only assign a reference.
+    std::string sourcePath;
     TextureHandle icon = 0;
 };
 

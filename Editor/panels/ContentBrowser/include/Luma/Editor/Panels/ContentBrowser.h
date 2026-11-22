@@ -89,6 +89,11 @@ public:
     std::filesystem::path CurrentFolder() const noexcept {
         return m_currentFolder;
     }
+
+    // Folder under the pointer on the last Draw: a tree row, a folder tile,
+    // a breadcrumb, or the open folder. Empty when the pointer is elsewhere.
+    // OS file drops import into this folder.
+    std::filesystem::path ImportDropFolder() const noexcept { return m_importDropFolder; }
     
     // Thumbnail helpers
     u64 GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer);
@@ -135,6 +140,10 @@ private:
     AssetId m_contextTarget{};
     AssetId m_soundPress{};
     bool m_hovered = false;
+    std::filesystem::path m_importDropFolder;
+    std::string m_pendingMoveSource;
+    std::filesystem::path m_pendingMoveFolder;
+    bool m_rescan = false;
     // Set when a menu action starts an inline rename; the rename field takes
     // keyboard focus on the next frame it is drawn.
     bool m_renameFocusPending = false;
@@ -204,6 +213,12 @@ private:
     // Inline rename lifecycle.
     void CommitRename(const AssetData& a, PanelContext& ctx);
     void CancelRename() noexcept;
+    void DrawRenameField(Slate::Context& ui, const Slate::Rect& nameR, const AssetData& asset,
+                         PanelContext& ctx);
+    const Slate::DragPayload* AcceptAssetDrop(Slate::Context& ui, const Slate::Rect& target) const;
+    void MoveDropped(const Slate::DragPayload& drop, const std::filesystem::path& folder,
+                     PanelContext& ctx);
+    void FinishMutations(PanelContext& ctx);
 };
 
 }  // namespace Luma::Editor::Panels
