@@ -29,10 +29,11 @@ public:
                     Material::MaterialLibrary& library);
 
     // Renders `materialPath` on `shape`, orbiting by yaw/pitch (radians), at
-    // width x height; `sky` = sky backdrop + sky light (else a dark studio).
+    // width x height; `sky` = HDRI backdrop (blurred) + its lighting (else a
+    // dark studio); `floor` = a M_GridBox floor cube under the mesh.
     // Returns the UI texture showing the result.
     TextureHandle Render(std::string_view materialPath, PreviewShape shape, f32 yaw, f32 pitch,
-                         u32 width, u32 height, bool sky = true);
+                         u32 width, u32 height, bool sky = true, bool floor = true);
 
     // Square RGBA8 captures (top row first) for thumbnails.
     bool CaptureMaterial(std::string_view materialPath, u32 size, std::vector<u8>& outRgba);
@@ -60,6 +61,9 @@ private:
     Editor::MaterialSceneBridge m_bridge;
     Scene m_scene;
     Entity m_actor = kNullEntity;
+    Entity m_floor = kNullEntity;  // M_GridBox cube under the actor (interactive previews only)
+    bool m_showFloor = false;
+    f32 m_fovY = 0.5f;  // vertical FOV of the next frame (Render: wide; captures: narrow)
     std::vector<SceneInstance> m_instances;
     SceneView m_view;
 };

@@ -310,6 +310,7 @@ void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
 }
 
 void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
+    if (OpenGraphMaterialEditor(assetPath)) return;  // node-graph editors
     const std::string id = "mated:" + assetPath;
     if (m_dock.HasPanel(id)) {
         m_dock.FocusPanel(id);
@@ -353,6 +354,119 @@ void EditorScreen::DockMaterialEditor(Editor::Panels::MaterialEditorPanel* raw) 
     });
 }
 
+void EditorScreen::LoadMaterialEditorAssets() {
+    if (m_materialEditorAssetsLoaded || !m_renderer) return;
+    m_materialEditorAssetsLoaded = true;
+    // Content/Editor sits above Fonts/<family>/<file> (staged next to the exe).
+    std::filesystem::path editorRoot = std::filesystem::path(m_uiFontPath).parent_path().parent_path().parent_path();
+    std::error_code ec;
+    if (!std::filesystem::exists(editorRoot / "MaterialEditor", ec)) editorRoot = "Content/Editor";
+    // Icons: amber -> deep orange gradient (the editor's icon theme).
+    m_materialEditorIcons.Load(*m_renderer, editorRoot / "MaterialEditor" / "Icons", Slate::Color{255, 196, 64, 255},
+                               Slate::Color{232, 88, 12, 255});  // (RGB is a Windows macro here)
+    auto watermark = std::make_unique<Slate::Font>();
+    if (watermark->LoadFromFile(*m_renderer, (editorRoot / "Fonts/RubikIso/RubikIso-Regular.ttf").string(), 64.0f)) {
+        m_materialWatermarkFont = std::move(watermark);
+    }
+    // Small sizes of the UI font so zoomed-out graph nodes stay legible.
+    if (!m_uiFontPath.empty()) {
+        for (f32 px : {6.0f, 7.5f, 9.0f, 10.5f, 12.0f, 14.0f}) {
+            auto f = std::make_unique<Slate::Font>();
+            if (f->LoadFromFile(*m_renderer, m_uiFontPath, px)) m_materialGraphFonts.push_back(std::move(f));
+        }
+    }
+}
+
+MaterialEditors::MaterialEditorServices EditorScreen::MakeMaterialEditorServices() {
+    LoadMaterialEditorAssets();
+    MaterialEditors::MaterialEditorServices s;
+    s.renderPreview = [this](const MaterialEditors::PreviewRequest& q) -> TextureHandle {
+        if (!m_preview) return 0;
+        const int shape = std::min(static_cast<int>(q.shape), 3);
+        return m_preview->Render(q.materialPath, static_cast<PreviewShape>(shape), q.yaw, q.pitch, q.width, q.height,
+                                 q.sky, q.floor);
+    };
+    auto listOf = [this](std::initializer_list<AssetType> types) {
+        std::vector<std::string> out;
+        for (AssetType type : types)
+            for (const AssetData* a : m_assetRegistry.FilterByType(type))
+                if (auto path = m_assetPaths.ToVirtual(a->packagePath)) out.push_back(*path);
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    s.listMaterials = [listOf] { return listOf({AssetType::Material, AssetType::MaterialInstance}); };
+    s.listMeshes = [listOf] { return listOf({AssetType::Mesh}); };
+    s.listTextures = [listOf] { return listOf({AssetType::Texture}); };
+    s.browseToAsset = [this](const std::string& path) {
+        auto ctx = BuildPanelContext();
+        if (ctx.onBrowseToAsset) ctx.onBrowseToAsset(path);
+    };
+    s.openAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
+    s.compileErrors = [this](std::string_view path) { return std::string(m_bridge.Errors(path)); };
+    s.pendingCompiles = [this] { return m_bridge.PendingCompiles(); };
+    s.thumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
+    s.icons = &m_materialEditorIcons;
+    s.watermarkFont = m_materialWatermarkFont.get();
+    for (const auto& f : m_materialGraphFonts) s.graphFonts.push_back(f.get());
+    return s;
+}
+
+bool EditorScreen::IsGraphEditor(const std::string& assetPath) const {
+    return std::any_of(m_graphEditors.begin(), m_graphEditors.end(),
+                       [&](const auto& e) { return e->AssetPath() == assetPath; }) ||
+           std::any_of(m_instanceEditors.begin(), m_instanceEditors.end(),
+                       [&](const auto& e) { return e->AssetPath() == assetPath; });
+}
+
+bool EditorScreen::SaveGraphEditor(const std::string& assetPath, std::string* error) {
+    for (const auto& e : m_graphEditors)
+        if (e->AssetPath() == assetPath) return e->Save(error);
+    for (const auto& e : m_instanceEditors)
+        if (e->AssetPath() == assetPath) return e->Save(error);
+    return false;
+}
+
+bool EditorScreen::OpenGraphMaterialEditor(const std::string& assetPath) {
+    const std::string id = "graphmated:" + assetPath;
+    if (m_dock.HasPanel(id)) {
+        m_dock.FocusPanel(id);
+        return true;
+    }
+    const bool instance = m_materials->GetGraphInstance(assetPath) != nullptr;
+    const bool material = !instance && m_materials->GetGraphMaterial(assetPath) != nullptr;
+    if (!instance && !material) return false;  // legacy asset: the Phase-1 panel
+    MaterialEditors::MaterialEditorServices services = MakeMaterialEditorServices();
+    std::function<std::string()> title;
+    std::function<bool()> dirty;
+    if (instance) {
+        auto editor = std::make_unique<MaterialEditors::MaterialInstanceEditor>(assetPath, *m_materials, services);
+        MaterialEditors::MaterialInstanceEditor* raw = editor.get();
+        m_instanceEditors.push_back(std::move(editor));
+        m_dock.AddPanel(id, raw->Title(), [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); },
+                        m_icons.tabDetails);
+        dirty = [raw] { return raw->IsDirty(); };
+    } else {
+        auto editor = std::make_unique<MaterialEditors::MaterialGraphEditor>(assetPath, *m_materials, services);
+        MaterialEditors::MaterialGraphEditor* raw = editor.get();
+        m_graphEditors.push_back(std::move(editor));
+        m_dock.AddPanel(id, raw->Title(), [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); },
+                        m_icons.tabDetails);
+        dirty = [raw] { return raw->IsDirty() || raw->HasUnappliedChanges(); };
+    }
+    m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
+    m_dock.SetCloseHandler(id, [this, assetPath, dirty] {
+        if (dirty()) {
+            m_closingEditor = assetPath;  // ask Save / Don't Save / Cancel
+            return false;
+        }
+        m_editorsToDelete.push_back(assetPath);
+        return true;
+    });
+    LUMA_USER_INFO("Materials", "Opened '{}' in the {}", assetPath,
+                   instance ? "Material Instance Editor" : "Material Editor");
+    return true;
+}
+
 void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
     if (m_closingEditor.empty()) return;
     const u64 id = Slate::Context::ID("editor.closematerial");
@@ -370,13 +484,15 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
         for (const auto& e : m_materialEditors) {
             if (e->AssetPath() == path) e->ClosePopups();
         }
-        m_dock.ClosePanel("mated:" + path);
+        m_dock.ClosePanel((IsGraphEditor(path) ? "graphmated:" : "mated:") + path);
         m_editorsToDelete.push_back(path);
         m_closingEditor.clear();
     };
     if (ui.Button(id ^ 0x5A5Eull, save, "Save")) {
         std::string err;
-        if (m_materials->Save(m_closingEditor, &err)) {
+        const bool saved = IsGraphEditor(m_closingEditor) ? SaveGraphEditor(m_closingEditor, &err)
+                                                          : m_materials->Save(m_closingEditor, &err);
+        if (saved) {
             LUMA_USER_INFO("Materials", "Saved '{}'", m_closingEditor);
             close();
         } else {
@@ -1802,6 +1918,8 @@ void EditorScreen::PollImport() {
 }
 
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
+    ui.drawList().SetAntiAliased(true);       // smooth (anti-aliased) edges across the editor UI
+    m_uiFontPath = ui.theme().type.uiRegular;  // the material editors load extra sizes of it
     PollTranslate();
     PollImport();
     if (m_sourceWatch) m_sourceWatch->Update();
@@ -1916,6 +2034,8 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     for (const auto& editor : m_materialEditors) {
         m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
     }
+    for (const auto& editor : m_graphEditors) m_dock.SetTitle("graphmated:" + editor->AssetPath(), editor->Title());
+    for (const auto& editor : m_instanceEditors) m_dock.SetTitle("graphmated:" + editor->AssetPath(), editor->Title());
     for (const auto& editor : m_materialEditors) editor->BeginFrame();
     constexpr f32 kStatusBarH = 24.0f;
     m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f - kStatusBarH});
@@ -1929,6 +2049,8 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     for (const std::string& path : m_editorsToDelete) {
         std::erase_if(m_materialEditors,
                       [&](const auto& e) { return e->AssetPath() == path; });
+        std::erase_if(m_graphEditors, [&](const auto& e) { return e->AssetPath() == path; });
+        std::erase_if(m_instanceEditors, [&](const auto& e) { return e->AssetPath() == path; });
     }
     m_editorsToDelete.clear();
     HandleShortcuts(ui);
@@ -1957,6 +2079,8 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         auto ctx = BuildPanelContext();
         m_inspectorPanel.DrawFloatingPickers(ui, ctx);
         for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
+        for (const auto& editor : m_graphEditors) editor->DrawFloating(ui);
+        for (const auto& editor : m_instanceEditors) editor->DrawFloating(ui);
     }
     if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
     m_projectSettings.Draw(ui, width, height);

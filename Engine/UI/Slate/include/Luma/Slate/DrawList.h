@@ -15,6 +15,13 @@ class DrawList {
 public:
     void Begin(f32 displayWidth, f32 displayHeight);
 
+    // Anti-aliased edges (ImGui-style 1px alpha fringe) for polygons, rounded
+    // rects, circles, rounded outlines and diagonal lines; curves also get
+    // radius-adaptive segment counts. Off by default (exact geometry); the
+    // editor turns it on once. Persists across Begin().
+    void SetAntiAliased(bool on) { m_antiAliased = on; }
+    bool AntiAliased() const { return m_antiAliased; }
+
     // Live counts (pre-Build) for tests + advanced widgets.
     usize vertexCount() const { return m_vertices.size(); }
     usize indexCount() const { return m_indices.size(); }
@@ -66,12 +73,19 @@ private:
     void AddQuad(TextureHandle texture, const Rect& dst, const Rect& uv,
                  Color color);
     Rect CurrentClip() const;
+    // Anti-aliased convex fill: core inset 0.5px + 1px fringe fading out.
+    void FillConvexAA(const Vec2* points, int count, Color color);
+    // Anti-aliased stroke along a polyline (closed = loop), `thickness` wide.
+    void StrokeAA(const Vec2* points, int count, bool closed, Color color, f32 thickness);
+    // Points of a rounded-rect path (clockwise from the top-left arc).
+    static void RoundedRectPath(const Rect& rect, f32 radius, std::vector<Vec2>& out);
 
     std::vector<UIVertex> m_vertices;
     std::vector<u32> m_indices;
     std::vector<UIDrawCommand> m_commands;
     std::vector<Rect> m_clipStack;
 
+    bool m_antiAliased = false;
     f32 m_displayWidth = 0.0f;
     f32 m_displayHeight = 0.0f;
     UIDrawData m_data;

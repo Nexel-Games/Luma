@@ -30,6 +30,8 @@
 #include "Luma/Editor/Panels/MeshPlacement.h"
 #include "Luma/Editor/Panels/WorldOutliner.h"
 #include "MaterialPreview.h"
+#include "Luma/MaterialEditors/MaterialGraphEditor.h"
+#include "Luma/MaterialEditors/MaterialInstanceEditor.h"
 #include "PanelContext.h"
 #include "Luma/Gizmo/TransformGizmo.h"
 #include "Luma/Material/MaterialLibrary.h"
@@ -199,6 +201,12 @@ private:
 
     // Material Editor tabs (one per open asset).
     void OpenMaterialEditor(const std::string& assetPath);
+    // Node-graph Material Editor / Material Instance Editor (graph assets).
+    bool OpenGraphMaterialEditor(const std::string& assetPath);
+    MaterialEditors::MaterialEditorServices MakeMaterialEditorServices();
+    void LoadMaterialEditorAssets();
+    bool IsGraphEditor(const std::string& assetPath) const;
+    bool SaveGraphEditor(const std::string& assetPath, std::string* error);
     void DrawMaterialEditorClosePrompt(Slate::Context& ui);
     TextureHandle AssetThumbnail(const std::string& assetPath);
     // Content Browser material workflows.
@@ -346,6 +354,13 @@ private:
     // Preview scene for material/mesh thumbnails and the Material Editor.
     std::unique_ptr<MaterialPreview> m_preview;
     std::vector<std::unique_ptr<Editor::Panels::MaterialEditorPanel>> m_materialEditors;
+    std::vector<std::unique_ptr<MaterialEditors::MaterialGraphEditor>> m_graphEditors;
+    std::vector<std::unique_ptr<MaterialEditors::MaterialInstanceEditor>> m_instanceEditors;
+    MaterialEditors::EditorIconSet m_materialEditorIcons;
+    std::unique_ptr<Slate::Font> m_materialWatermarkFont;
+    std::vector<std::unique_ptr<Slate::Font>> m_materialGraphFonts;
+    std::string m_uiFontPath;  // the UI font file (Content/Editor/Fonts/...), for the editors' extra sizes
+    bool m_materialEditorAssetsLoaded = false;
     std::string m_closingEditor;                // dirty tab awaiting Save/Discard/Cancel
     std::vector<std::string> m_editorsToDelete;  // closed tabs, freed after the dock draws
     bool m_closeRequested = false;
