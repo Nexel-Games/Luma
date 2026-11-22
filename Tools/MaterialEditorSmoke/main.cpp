@@ -149,7 +149,6 @@ int main(int argc, char** argv) {
     services.listMeshes = [] { return std::vector<std::string>{"/Game/Meshes/SM_Chair"}; };
     MaterialEditors::MaterialInstanceEditor instanceEditor("/Game/Materials/MI_Brick_Red", library, services);
     MaterialEditors::MaterialGraphEditor graphEditor("/Game/Materials/M_Brick", library, services);
-    graphEditor.SetPaletteVisible(true);  // show the palette drawer
     // Select the Tint node so Details shows node properties.
     for (const auto& n : graphEditor.Model().Material().graph.Nodes())
         if (n.type == "VectorParameter") graphEditor.Controller().SelectOnly(n.id);

@@ -128,9 +128,9 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     const f32 top = rect.y + kToolbarH;
     const f32 h = rect.h - kToolbarH;
     const f32 leftW = std::min(m_leftW, rect.w * 0.3f);
-    // Unreal's palette drawer: a vertical "Palette" tab on the right edge
-    // slides the palette over the graph; the tab hides it again.
-    constexpr f32 kTabW = 22.0f;
+    // Palette drawer: a slim handle on the right edge (or the toolbar's
+    // Palette toggle) slides the palette over the graph and hides it again.
+    constexpr f32 kTabW = 14.0f;
     const Rect tab{rect.Right() - kTabW, top, kTabW, h};
     const Rect left{rect.x, top, leftW, h};
     const Rect centre{left.Right() + 2.0f, top, tab.x - left.Right() - 3.0f, h};
@@ -153,16 +153,20 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
         VDivider(ui, drawer.x, drawer.y, drawer.h);
     }
     {
-        // The side tab: "Palette" written top to bottom, like UE's tab well.
-        const bool hover = tab.Contains(ui.mouse());
-        ui.Panel(tab, m_paletteVisible ? t.surface3 : (hover ? t.surface2 : t.surface1));
-        if (ui.Button(Context::ID("mge.palette.tab." + m_path), {tab.x, tab.y, tab.w, 96.0f}, {}))
-            m_paletteVisible = !m_paletteVisible;
-        const char* word = "PALETTE";
-        f32 ly = tab.y + 8.0f;
-        for (const char* c = word; *c; ++c, ly += 12.0f)
-            ui.LabelIn({tab.x, ly, tab.w, 12.0f}, std::string(1, *c), m_paletteVisible ? t.text : t.textDim, Align::Center);
-        ui.Tooltip(Context::ID("mge.palette.tab.tip"), {tab.x, tab.y, tab.w, 96.0f},
+        // Edge handle: a grip pill with a chevron pointing where the drawer goes.
+        const bool hover = tab.Contains(ui.mouse()) && !ui.inputBlocked() && !ui.AnyMenuOpen();
+        ui.Panel(tab, hover ? t.surface2 : t.panelBg);
+        if (hover && ui.mousePressed(0)) m_paletteVisible = !m_paletteVisible;
+        const f32 cx = tab.x + tab.w * 0.5f, cy = graph.y + graph.h * 0.5f;
+        const Rect pill{cx - 3.0f, cy - 34.0f, 6.0f, 68.0f};
+        ui.PanelRounded(pill, hover ? t.accent : t.surface4, 3.0f);
+        const f32 dir = m_paletteVisible ? 1.0f : -1.0f;  // > closes, < opens
+        const Slate::Color chev = hover ? t.text : t.textDim;
+        for (f32 oy : {-48.0f, 48.0f}) {
+            ui.drawList().AddLine({cx - 2.5f * dir, cy + oy - 4.0f}, {cx + 2.5f * dir, cy + oy}, chev, 1.5f);
+            ui.drawList().AddLine({cx + 2.5f * dir, cy + oy}, {cx - 2.5f * dir, cy + oy + 4.0f}, chev, 1.5f);
+        }
+        ui.Tooltip(Context::ID("mge.palette.tab.tip"), tab,
                    m_paletteVisible ? "Hide the Palette" : "Show the Palette");
     }
     // Black dividers between every panel.
@@ -207,6 +211,9 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
         m_services.browseToAsset(m_path);
     if (button("home", 70.0f, Slate::Icon::Refresh, "Home", "Frame the whole graph (F frames the selection)", false))
         m_widget->RequestFrame();
+    if (button("palette", 86.0f, Slate::Icon::Search, "Palette", "Palette\nShow or hide the expression palette.",
+               m_paletteVisible))
+        m_paletteVisible = !m_paletteVisible;
     if (button("live", 106.0f, Slate::Icon::Play, "Live Update", "Apply every change as you edit.", liveUpdate)) {
         liveUpdate = !liveUpdate;
         if (liveUpdate && m_unapplied) Apply();
