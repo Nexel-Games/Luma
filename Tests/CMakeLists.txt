@@ -58,6 +58,7 @@ add_executable(LumaTests
     Editor/InspectorMaterialTests.cpp
     Editor/InspectorRegistryTests.cpp
     Editor/OutlinerRegistryTests.cpp
+    Editor/EditorFrameworkTests.cpp
     Editor/TransformGizmoTests.cpp
     Editor/BackgroundTasksTests.cpp
     VFS/PathTests.cpp

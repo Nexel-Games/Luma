@@ -13,7 +13,9 @@
 #include "Luma/Asset/AssetImportManager.h"
 #include "Luma/Asset/AssetFileWatcher.h"
 #include "Luma/Asset/LumaMesh.h"
+#include "Luma/Core/Registration.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
+#include "Luma/Editor/PanelRegistry.h"
 #include "Luma/Editor/Panels/BackgroundTasks.h"
 #include "Luma/Editor/Panels/Console.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
@@ -78,11 +80,9 @@ public:
         TextureHandle save = 0, error = 0, warning = 0;
         Editor::Panels::ViewportIcons viewport;
     };
-    void SetEditorIcons(const IconSet& icons) {
-        m_icons = icons;
-        m_viewportPanel.SetIcons(icons.viewport);
-        m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
-    }
+    // Also registers the tab textures as named editor images ("TabOutliner",
+    // "TabDetails", "TabViewport", "TabContent", "TabOutputLog").
+    void SetEditorIcons(const IconSet& icons);
 
     // Renders `materialPath` (virtual path) in the preview scene to a PNG
     // (the --preview-capture flag). False without a preview renderer.
@@ -207,9 +207,15 @@ private:
     void CreateSceneAsset(const std::filesystem::path& folder);
     void DeleteAssetPath(const std::filesystem::path& path);
     void RevealInExplorer(const std::filesystem::path& path);
-    // Main menu bar menus (File / Edit / Assets / Window).
-    std::vector<Slate::MenuEntry> BuildMainMenu(int index);
-    void BuildDock();
+    // Registers the editor's built-in menus, menu entries and dock panels
+    // (through the same registries plugins use).
+    void RegisterEditorUi();
+    // Docks a Material Editor tab for an already-created editor.
+    void DockMaterialEditor(Editor::Panels::MaterialEditorPanel* editor);
+    // Open/closed panels persisted per project (Saved/Config/EditorLayout.json).
+    std::filesystem::path LayoutStatePath() const;
+    void LoadPanelLayout();
+    void SavePanelLayout();
 
     // ---- Shared state the panels read/write via PanelContext ----------------
     std::optional<Project> m_project;
@@ -238,7 +244,12 @@ private:
     f32 m_gizmoScale = 1.0f;
 
     Slate::DockSpace m_dock;
-    bool m_dockBuilt = false;
+    // Hosts the registered panels (Editor::EditorPanels()) in m_dock.
+    std::unique_ptr<Editor::EditorPanelHost> m_panelHost;
+    bool m_layoutBuilt = false;
+    // Everything the editor registered (menus, panels, images); released when
+    // the editor goes away.
+    RegistrationSet m_uiRegistrations;
 
     // Content Browser — wires to the project's Content/ folder so the
     // registry is populated before the panel is drawn each frame.

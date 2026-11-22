@@ -4,7 +4,10 @@
 
 add_library(LumaEditorFramework STATIC
     src/EditorIcons.cpp
-    src/InspectorDrawers.cpp)
+    src/InspectorDrawers.cpp
+    src/MenuRegistry.cpp
+    src/PanelRegistry.cpp
+    src/SettingsPageRegistry.cpp)
 
 add_library(Luma::EditorFramework ALIAS LumaEditorFramework)
 

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 
 #ifdef _WIN32
@@ -18,6 +19,10 @@
 #include "Luma/Asset/TextureImporter.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Editor/EditorIcons.h"
+#include "Luma/Editor/MenuRegistry.h"
+#include "Luma/Editor/PanelRegistry.h"
+#include "Luma/Serialization/Json.h"
 #include "Luma/Scene/Components.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
 #include "Luma/Material/MaterialFromTextures.h"
@@ -77,6 +82,10 @@ bool IsWatchedAssetFile(const std::filesystem::path& p) {
 }  // namespace
 
 EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
+    m_panelHost = std::make_unique<Editor::EditorPanelHost>(
+        Editor::EditorPanels(), m_dock, [this] { return BuildPanelContext(); });
+    m_panelHost->onStateChanged = [this] { SavePanelLayout(); };
+    RegisterEditorUi();
     std::string err;
     m_project = Project::Load(projectFile, &err);
     if (m_project) {
@@ -90,6 +99,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
     m_assetPaths.SetEngineRoot(EngineContentRoot());
     m_materials = std::make_unique<Material::MaterialLibrary>(m_assetPaths);
 
+    LoadPanelLayout();
     if (!LoadScene()) {
         EnsureAutoCreatedEntities(m_scene);
         // New projects already declare a startup scene path. Materialize the
@@ -283,12 +293,20 @@ void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
     panel->Bind(*m_materials);
     Editor::Panels::MaterialEditorPanel* raw = panel.get();
     m_materialEditors.push_back(std::move(panel));
+    DockMaterialEditor(raw);
+    LUMA_USER_INFO("Materials", "Opened '{}' in the Material Editor", assetPath);
+}
+
+void EditorScreen::DockMaterialEditor(Editor::Panels::MaterialEditorPanel* raw) {
+    const std::string assetPath = raw->AssetPath();
+    const std::string id = "mated:" + assetPath;
     m_dock.AddPanel(id, raw->Title(),
                     [this, raw](Slate::Context& c, const Rect& r) {
                         auto ctx = BuildPanelContext();
                         raw->Draw(c, r, ctx);
                     },
                     m_icons.tabDetails);
+    // Asset editors open as tabs beside the viewport (the dock root panel).
     m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
     m_dock.SetCloseHandler(id, [this, assetPath, raw] {
         if (raw->IsDirty()) {
@@ -299,7 +317,6 @@ void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
         m_editorsToDelete.push_back(assetPath);
         return true;
     });
-    LUMA_USER_INFO("Materials", "Opened '{}' in the Material Editor", assetPath);
 }
 
 void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
@@ -928,43 +945,216 @@ SceneView EditorScreen::BuildSceneView() {
     return scene;
 }
 
-void EditorScreen::BuildDock() {
-    m_dock.AddPanel("outliner", "World Outliner",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_outlinerPanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabOutliner);
-    m_dock.AddPanel("viewport", "Viewport",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_viewportPanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabViewport);
-    m_dock.AddPanel("inspector", "Inspector",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_inspectorPanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabDetails);
-    m_dock.AddPanel("console", "Console",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_consolePanel.Draw(c, r, ctx);
-                    },
-                    m_icons.tabOutputLog);
-    m_dock.AddPanel("content", "Content Browser",
-                    [this](Slate::Context& c, const Rect& r) {
-                        auto ctx = BuildPanelContext();
-                        m_contentBrowser.Draw(c, r, ctx);
-                    },
-                    m_icons.tabContent);
-    m_dock.DockRoot("viewport");
-    m_dock.DockWith("console", "viewport", Slate::DockDir::Down, 0.28f);
-    m_dock.DockWith("outliner", "viewport", Slate::DockDir::Left, 0.2f);
-    m_dock.DockWith("inspector", "viewport", Slate::DockDir::Right, 0.24f);
-    m_dock.DockWith("content", "outliner", Slate::DockDir::Down, 0.45f);
-    m_dockBuilt = true;
+void EditorScreen::SetEditorIcons(const IconSet& icons) {
+    m_icons = icons;
+    m_viewportPanel.SetIcons(icons.viewport);
+    m_consolePanel.SetBadgeIcons(icons.error, icons.warning);
+    const std::pair<const char*, TextureHandle> tabs[] = {
+        {"TabOutliner", icons.tabOutliner}, {"TabDetails", icons.tabDetails},
+        {"TabViewport", icons.tabViewport}, {"TabContent", icons.tabContent},
+        {"TabOutputLog", icons.tabOutputLog},
+    };
+    for (const auto& [name, texture] : tabs) {
+        if (Editor::EditorImages().Contains(name)) continue;  // set once per editor
+        m_uiRegistrations.Add(
+            Editor::EditorImages().Register(name, texture, Slate::Icon::None, "Engine"));
+    }
+}
+
+void EditorScreen::RegisterEditorUi() {
+    using Editor::MenuEntryDesc;
+    using Editor::PanelDesc;
+    Editor::MenuRegistry& menus = Editor::Menus();
+    Editor::PanelRegistry& panels = Editor::EditorPanels();
+    RegistrationSet& reg = m_uiRegistrations;
+
+    // --- Menu bar ---------------------------------------------------------------
+    reg.Add(menus.RegisterMenu({"File", "File", 0, "Engine"}));
+    reg.Add(menus.RegisterMenu({"Edit", "Edit", 100, "Engine"}));
+    reg.Add(menus.RegisterMenu({"Assets", "Assets", 200, "Engine"}));
+    reg.Add(menus.RegisterMenu({"Tools", "Tools", 800, "Engine"}));  // plugin tools
+    reg.Add(menus.RegisterMenu({"Window", "Window", 900, "Engine"}));
+
+    auto entry = [](std::string id, std::string menu, std::string section, std::string label,
+                    std::string icon, i32 order, std::function<void()> run) {
+        MenuEntryDesc e;
+        e.id = std::move(id);
+        e.menu = std::move(menu);
+        e.section = std::move(section);
+        e.label = std::move(label);
+        e.icon = std::move(icon);
+        e.order = order;
+        e.owner = "Engine";
+        e.execute = std::move(run);
+        return e;
+    };
+    auto hasProject = [this] { return m_project.has_value(); };
+    auto hasSelection = [this] { return m_scene.IsValid(m_selected); };
+
+    {
+        MenuEntryDesc e = entry("File.SaveScene", "File", "Scene", "Save Scene", "Save", 0,
+                                [this] { SaveScene(); });
+        e.tooltip = "Write the open scene to disk.";
+        e.shortcut = "Ctrl+S";
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("File.ShowProject", "File", "Project", "Show Project in Explorer",
+                                "FolderOpen", 100, [this] {
+                                    if (m_project) {
+                                        RevealInExplorer(m_project->AssetsDir().parent_path());
+                                    }
+                                });
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Duplicate", "Edit", "Selection", "Duplicate", "Plus", 0,
+                                [this] { DuplicateEntity(m_selected); });
+        e.shortcut = "Ctrl+D";
+        e.isEnabled = [this] {
+            return m_scene.IsValid(m_selected) && !OnePerSceneComponentOf(m_scene, m_selected);
+        };
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Delete", "Edit", "Selection", "Delete", "Trash", 10,
+                                [this] { DeleteEntity(m_selected); });
+        e.shortcut = "Delete";
+        e.isEnabled = hasSelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Edit.Focus", "Edit", "Selection", "Focus in Viewport", "Eye", 20,
+                                [this] { FocusEntity(m_selected); });
+        e.shortcut = "F";
+        e.isEnabled = hasSelection;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Assets.Import", "Assets", "Content", "Import...", "Plus", 0,
+                                [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); });
+        e.tooltip = "Import files into the open Content Browser folder.";
+        e.isEnabled = hasProject;
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        MenuEntryDesc e = entry("Assets.Refresh", "Assets", "Content", "Refresh Content",
+                                "Refresh", 10, [this] { m_assetRegistry.Scan(); });
+        e.tooltip = "Rescan the project's content from disk.";
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+    {
+        Editor::MenuSectionDesc s;
+        s.id = "Window.Panels";
+        s.menu = "Window";
+        s.section = "Panels";
+        s.owner = "Engine";
+        s.order = 0;
+        s.fill = [this](Slate::MenuBuilder& b) { m_panelHost->FillWindowMenu(b); };
+        reg.Add(menus.RegisterSection(std::move(s)));
+    }
+    {
+        MenuEntryDesc e = entry("Window.ResetLayout", "Window", "Layout", "Reset Layout", "Grip",
+                                100, [this] {
+                                    m_panelHost->ResetLayout();
+                                    // Asset editor tabs survive a layout reset.
+                                    for (const auto& editor : m_materialEditors) {
+                                        DockMaterialEditor(editor.get());
+                                    }
+                                });
+        e.tooltip = "Restore the default panel arrangement.";
+        reg.Add(menus.RegisterEntry(std::move(e)));
+    }
+
+    // --- Dock panels (registration order = default layout build order) ----------
+    auto panel = [](std::string id, std::string title, std::string icon, std::string tooltip,
+                    std::string nextTo, Slate::DockDir dir, f32 ratio,
+                    std::function<void(Slate::Context&, const Rect&,
+                                       Editor::Panels::PanelContext&)> draw) {
+        PanelDesc p;
+        p.id = std::move(id);
+        p.title = std::move(title);
+        p.icon = std::move(icon);
+        p.tooltip = std::move(tooltip);
+        p.owner = "Engine";
+        p.dockNextTo = std::move(nextTo);
+        p.dockDir = dir;
+        p.dockRatio = ratio;
+        p.draw = std::move(draw);
+        return p;
+    };
+    {
+        PanelDesc viewport = panel("viewport", "Viewport", "TabViewport", "The 3D scene view.", "",
+                                   Slate::DockDir::Center, 1.0f,
+                                   [this](Slate::Context& c, const Rect& r,
+                                          Editor::Panels::PanelContext& ctx) {
+                                       m_viewportPanel.Draw(c, r, ctx);
+                                   });
+        viewport.closable = false;  // the dock root; asset editors tab beside it
+        reg.Add(panels.Register(std::move(viewport)));
+    }
+    reg.Add(panels.Register(panel(
+        "console", "Console", "TabOutputLog", "Project messages and engine logs.", "viewport",
+        Slate::DockDir::Down, 0.28f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_consolePanel.Draw(c, r, ctx);
+        })));
+    reg.Add(panels.Register(panel(
+        "outliner", "World Outliner", "TabOutliner", "Every object in the scene.", "viewport",
+        Slate::DockDir::Left, 0.2f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_outlinerPanel.Draw(c, r, ctx);
+        })));
+    reg.Add(panels.Register(panel(
+        "inspector", "Inspector", "TabDetails", "Components of the selected object.", "viewport",
+        Slate::DockDir::Right, 0.24f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_inspectorPanel.Draw(c, r, ctx);
+        })));
+    reg.Add(panels.Register(panel(
+        "content", "Content Browser", "TabContent", "The project's assets.", "outliner",
+        Slate::DockDir::Down, 0.45f,
+        [this](Slate::Context& c, const Rect& r, Editor::Panels::PanelContext& ctx) {
+            m_contentBrowser.Draw(c, r, ctx);
+        })));
+}
+
+std::filesystem::path EditorScreen::LayoutStatePath() const {
+    if (!m_project) return {};
+    return m_project->RootDir() / "Saved" / "Config" / "EditorLayout.json";
+}
+
+void EditorScreen::LoadPanelLayout() {
+    const std::filesystem::path path = LayoutStatePath();
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::exists(path, ec)) return;
+    std::ifstream in(path, std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string error;
+    const auto doc = ParseJson(text, &error);
+    if (!doc) {
+        LUMA_USER_WARN("Editor", "Ignoring the saved panel layout '{}': {}",
+                       ProjectRelative(path), error);
+        return;
+    }
+    if (const SerialValue* panels = doc->Find("panels")) m_panelHost->LoadState(*panels);
+}
+
+void EditorScreen::SavePanelLayout() {
+    const std::filesystem::path path = LayoutStatePath();
+    if (path.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    SerialValue doc = SerialValue::MakeObject();
+    doc["version"] = 1;
+    doc["panels"] = m_panelHost->SaveState();
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out || !(out << WriteJson(doc, true))) {
+        LUMA_USER_WARN("Editor", "Could not save the panel layout to '{}'",
+                       ProjectRelative(path));
+    }
 }
 
 Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
@@ -1139,7 +1329,10 @@ void EditorScreen::ImportAssetsInto(const std::filesystem::path& folder) {
 
 void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     Slate::Theme& t = ui.theme();
-    if (!m_dockBuilt) BuildDock();
+    if (!m_layoutBuilt) {
+        m_panelHost->BuildLayout();
+        m_layoutBuilt = true;
+    }
     ui.Panel({0, 0, width, height}, t.windowBg);
 
     Rect menu{0, 0, width, 32};
@@ -1153,15 +1346,19 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     }
     f32 mx = 42.0f;
 
-    // Main menu bar (Unreal-style): each title drops a Slate menu.
-    const char* items[] = {"File", "Edit", "Assets", "Window"};
-    constexpr int kMenuCount = static_cast<int>(std::size(items));
-    u64 ids[kMenuCount];
-    Rect rects[kMenuCount];
+    // Main menu bar (Unreal-style): every registered menu with entries, in
+    // order; each title drops a Slate menu built from the menu registry.
+    std::vector<const Editor::MenuDesc*> barMenus;
+    for (const Editor::MenuDesc* m : Editor::Menus().Menus()) {
+        if (Editor::Menus().HasEntries(m->id)) barMenus.push_back(m);
+    }
+    const int menuCount = static_cast<int>(barMenus.size());
+    std::vector<u64> ids(barMenus.size());
+    std::vector<Rect> rects(barMenus.size());
     int openIndex = -1;
-    for (int i = 0; i < kMenuCount; ++i) {
-        f32 w = ui.uiFont().Measure(items[i]).x + 22.0f;
-        ids[i] = Slate::Context::ID(items[i]) ^ 0x4D454E55ull;
+    for (int i = 0; i < menuCount; ++i) {
+        f32 w = ui.uiFont().Measure(barMenus[i]->label).x + 22.0f;
+        ids[i] = Slate::Context::ID("menubar." + barMenus[i]->id) ^ 0x4D454E55ull;
         rects[i] = {mx, 4, w, 24};
         if (ui.IsMenuOpen(ids[i])) openIndex = i;
         mx += w + 2.0f;
@@ -1169,23 +1366,25 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     // While one bar menu is open, hovering another title switches to it
     // (the bar reads the raw pointer: widgets are input-blocked by the menu).
     if (openIndex >= 0) {
-        for (int i = 0; i < kMenuCount; ++i) {
+        for (int i = 0; i < menuCount; ++i) {
             if (i != openIndex && rects[i].Contains(ui.rawMouse())) {
                 const Rect& r = rects[i];
-                ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f}, BuildMainMenu(i));
+                ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f},
+                                 Editor::Menus().Build(barMenus[i]->id));
                 openIndex = i;
                 break;
             }
         }
     }
-    for (int i = 0; i < kMenuCount; ++i) {
+    for (int i = 0; i < menuCount; ++i) {
         const Rect& r = rects[i];
-        if (ui.MenuButton(ids[i], r, items[i])) {
-            ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f}, BuildMainMenu(i));
+        if (ui.MenuButton(ids[i], r, barMenus[i]->label)) {
+            ui.OpenMenuBelow(ids[i], {r.x, r.y, r.w, r.h + 2.0f},
+                             Editor::Menus().Build(barMenus[i]->id));
         }
         if (i == openIndex) {
             ui.drawList().AddRectFilledRounded(r, t.menu.hoverFill, t.radius.sm);
-            ui.LabelIn(r, items[i], t.text, Slate::Align::Center);
+            ui.LabelIn(r, barMenus[i]->label, t.text, Slate::Align::Center);
         }
     }
 
@@ -1233,6 +1432,7 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     for (const auto& editor : m_materialEditors) editor->BeginFrame();
     constexpr f32 kStatusBarH = 24.0f;
     m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f - kStatusBarH});
+    m_panelHost->Sync();  // follow panel (un)registrations; after the dock applied closes
     // Status bar: background-task indicator on the right (Unreal-style).
     const Rect statusBar{0, height - kStatusBarH, width, kStatusBarH};
     ui.Panel(statusBar, t.surface1);
@@ -1484,72 +1684,6 @@ void EditorScreen::RevealInExplorer(const std::filesystem::path& path) {
 #else
     (void)path;
 #endif
-}
-
-std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
-    using Slate::Icon;
-    Slate::MenuBuilder b;
-    const bool hasSel = m_scene.IsValid(m_selected);
-    auto when = [](bool enabled, const char* tip = "") {
-        Slate::MenuEntryOptions o;
-        o.enabled = enabled;
-        o.tooltip = tip;
-        return o;
-    };
-    switch (index) {
-        case 0:  // File
-            b.BeginSection("Scene");
-            {
-                auto o = when(m_project.has_value(), "Write the open scene to disk.");
-                o.shortcut = "Ctrl+S";
-                b.AddEntry("Save Scene", Icon::Save, [this] { SaveScene(); }, o);
-            }
-            b.BeginSection("Project");
-            b.AddEntry("Show Project in Explorer", Icon::FolderOpen,
-                       [this] {
-                           if (m_project) RevealInExplorer(m_project->AssetsDir().parent_path());
-                       },
-                       when(m_project.has_value()));
-            break;
-        case 1:  // Edit
-            b.BeginSection("Selection");
-            {
-                auto o = when(hasSel && !OnePerSceneComponentOf(m_scene, m_selected));
-                o.shortcut = "Ctrl+D";
-                b.AddEntry("Duplicate", Icon::Plus, [this] { DuplicateEntity(m_selected); }, o);
-            }
-            {
-                auto o = when(hasSel);
-                o.shortcut = "Delete";
-                b.AddEntry("Delete", Icon::Trash, [this] { DeleteEntity(m_selected); }, o);
-            }
-            {
-                auto o = when(hasSel);
-                o.shortcut = "F";
-                b.AddEntry("Focus in Viewport", Icon::Eye, [this] { FocusEntity(m_selected); }, o);
-            }
-            break;
-        case 2:  // Assets
-            b.BeginSection("Content");
-            b.AddEntry("Import...", Icon::Plus,
-                       [this] { ImportAssetsInto(m_contentBrowser.CurrentFolder()); },
-                       when(m_project.has_value(), "Import files into the open Content Browser folder."));
-            b.AddEntry("Refresh Content", Icon::Refresh, [this] { m_assetRegistry.Scan(); },
-                       when(true, "Rescan the project's content from disk."));
-            break;
-        case 3:  // Window
-            b.BeginSection("Layout");
-            b.AddEntry("Reset Layout", Icon::Grip,
-                       [this] {
-                           m_dock = Slate::DockSpace{};
-                           m_dockBuilt = false;
-                       },
-                       when(true, "Restore the default panel arrangement."));
-            break;
-        default:
-            break;
-    }
-    return b.Build();
 }
 
 }  // namespace Luma
