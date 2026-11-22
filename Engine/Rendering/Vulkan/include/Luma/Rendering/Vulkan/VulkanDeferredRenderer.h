@@ -23,6 +23,8 @@ class VulkanEyeAdaptation;
 class VulkanTextureCache;
 class VulkanMeshCache;
 class VulkanMaterialSystem;
+class VulkanMaterialLayout;
+class VulkanMaterialPipelines;
 class VulkanSelectionOutlinePass;
 struct GpuMesh;
 namespace Rendering {
@@ -31,11 +33,14 @@ namespace Rendering {
  * Vulkan deferred renderer for the editor viewport (and asset thumbnails).
  *
  * Pipeline (all offscreen, into the light-accumulation buffer):
- *   1. G-Buffer pass  - renders every mesh section with its material
- *      (material_common.glsl) into MRT attachments: base color +
- *      shading model R8G8B8A8_SRGB, world-normal+roughness
- *      R16G16B16A16_SFLOAT, metallic/specular/AO R8G8B8A8_UNORM,
- *      emissive R16G16B16A16_SFLOAT, plus a D32 depth attachment.
+ *   1. G-Buffer pass  - renders every mesh section with its compiled
+ *      material's G-buffer pipeline (VulkanMaterialPipelines, shared
+ *      VulkanMaterialLayout) into MRT attachments: base color + shading
+ *      model R8G8B8A8_SRGB, world-normal+roughness R16G16B16A16_SFLOAT,
+ *      metallic/specular/AO R8G8B8A8_UNORM, emissive R16G16B16A16_SFLOAT,
+ *      shading-model data R8G8B8A8_UNORM, plus a D32 depth attachment.
+ *      Sun shadows and the selection mask draw with the same materials'
+ *      depth-only / selection pipelines.
  *   2. Lighting pass  - fullscreen triangle (deferred_lighting shaders)
  *      reads the G-Buffer + lights UBO and writes the lit, tone-mapped,
  *      gamma-encoded color into the light-accumulation buffer.
@@ -66,6 +71,7 @@ public:
         Attachment normal;     // R16G16B16A16_SFLOAT (+ roughness in alpha)
         Attachment material;   // R8G8B8A8_UNORM (metallic/specular/AO)
         Attachment emissive;   // R16G16B16A16_SFLOAT (emissive radiance)
+        Attachment custom;     // R8G8B8A8_UNORM (shading-model data, RT4)
         Attachment depth;      // D32_SFLOAT
         Attachment lightAccum; // final lit result shown in the viewport
         VkSampler sampler = VK_NULL_HANDLE;
@@ -103,7 +109,11 @@ public:
     void ReleaseMesh(MeshHandle mesh) override;
     GpuTextureHandle UploadTexture(u64 key, const TextureUploadDesc& texture) override;
     void ReleaseTexture(GpuTextureHandle texture) override;
-    MaterialHandle UpdateMaterial(u64 key, const MaterialGpuDesc& material) override;
+    MaterialHandle UpdateMaterial(u64 key, const CompiledMaterialGpu& material,
+                                  const MaterialParameterBlock& parameters) override;
+    void UpdateMaterialParameters(MaterialHandle material, const MaterialParameterBlock& parameters) override;
+    // Pipelines currently alive (tests: parameter-only edits create none).
+    usize MaterialPipelineCount() const;
     void ReleaseMaterial(MaterialHandle material) override;
     MeshHandle PrimitiveMesh(MeshPrimitive primitive) const override;
 
@@ -120,21 +130,6 @@ public:
     bool IsInitialized() const { return m_initialized; }
 
 private:
-    // Per-draw push constants (matches `Push` in gbuffer.vert/.frag).
-    struct MeshPush {
-        Math::Mat4 model;
-        f32 normalMatrix[3][4];  // inverse-transpose 3x3, column vec4s
-        u32 materialIndex;
-    };
-    static_assert(sizeof(MeshPush) <= 128, "push constants must fit 128 bytes");
-
-    // Camera UBO (matches CameraUBO in gbuffer.vert).
-    struct GbufferUBO {
-        Math::Mat4 viewProj;
-        f32 camPos[4];
-    };
-
-    // One GPU light (matches `Light` in deferred_lighting.frag).
     struct GpuLight {
         f32 posType[4];   // xyz position, w type (0 dir, 1 point, 2 spot)
         f32 dirRange[4];  // xyz direction, w range
@@ -200,7 +195,11 @@ private:
     // Cascaded shadow maps (sun / directional light)
     bool CreateShadowResources();
     void DestroyShadowResources();
-    bool CreateShadowPipeline(const std::string& shaderDir);
+    // Shared material pipeline layout: targets per pass, per-frame sets.
+    void RegisterMaterialTargets();
+    void BindMaterialSets(u32 viewOffset);
+    Math::Mat4 NormalMatrix(const Math::Mat4& model) const;
+    void DrawMaterialSections(const SceneInstance& inst, u32 objectId, GpuPass pass);
     // Records the depth-only cascade passes (clears every layer; draws only
     // when `enabled`) and leaves the array in SHADER_READ_ONLY for lighting.
     void RecordSunShadows(const SceneView& source,
@@ -209,10 +208,16 @@ private:
     // Scene content residency (lives as long as the renderer).
     std::unique_ptr<VulkanTextureCache> m_textures;
     std::unique_ptr<VulkanMeshCache> m_meshes;
-    std::unique_ptr<VulkanMaterialSystem> m_materials;
+    std::unique_ptr<VulkanMaterialLayout> m_materialLayout;
+    std::unique_ptr<VulkanMaterialPipelines> m_materialPipelines;
+    std::unique_ptr<VulkanMaterialSystem> m_materials;  // references the two above
     static constexpr u32 kPrimitiveCount = 4;
     std::array<MeshHandle, kPrimitiveCount> m_primitiveMeshes{};
-    u32 m_frameSlot = 0;  // material table copy used by the current frame
+    u32 m_frameSlot = 0;  // per-frame material data slot used by the current frame
+    std::vector<u32> m_instanceObjects;              // object id per scene instance this frame
+    u32 m_mainViewOffset = 0;
+    u32 m_frameIndex = 0;                        // frame-UBO dynamic offsets this frame
+    std::array<u32, 4> m_cascadeViewOffsets{};
 
     // Equirectangular HDR environment used by the deferred background pass.
     VkImage m_environmentImage = VK_NULL_HANDLE;
@@ -235,32 +240,16 @@ private:
     GBuffer m_gBuffer;
 
     // Pipelines
-    VkPipelineLayout m_gbufferLayout = VK_NULL_HANDLE;
     // G-buffer permutations: [masked][twoSided].
-    VkPipeline m_gbufferPipelines[2][2] = {};
     VkPipelineLayout m_lightingLayout = VK_NULL_HANDLE;
     VkPipeline m_lightingPipeline = VK_NULL_HANDLE;
-    VkPipelineLayout m_shadowLayout = VK_NULL_HANDLE;
-    // Shadow caster permutations: [masked]. Casters never cull (open and
-    // one-sided meshes still cast; culling leaks light at contact edges).
-    VkPipeline m_shadowPipelines[2] = {};
-    // Per-draw shadow push constants (matches `Push` in shadow.vert/.frag).
-    struct ShadowPush {
-        Math::Mat4 mvp;
-        u32 materialIndex;
-        u32 pad[3];
-    };
 
     // Descriptor resources
-    VkDescriptorSetLayout m_gbufferSetLayout = VK_NULL_HANDLE;
-    VkDescriptorPool m_gbufferPool = VK_NULL_HANDLE;
-    VkDescriptorSet m_gbufferSet = VK_NULL_HANDLE;
     VkDescriptorSetLayout m_lightingSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool m_lightingPool = VK_NULL_HANDLE;
     VkDescriptorSet m_lightingSet = VK_NULL_HANDLE;
 
     // Uniform buffers
-    GpuBuffer m_gbufferUBO;
     GpuBuffer m_lightingUBO;
 
     // Command resources

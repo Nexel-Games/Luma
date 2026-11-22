@@ -1,5 +1,7 @@
 #pragma once
 
+#include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,12 +15,17 @@
 #include "Luma/Scene/Scene.h"
 
 // Connects scene content to the renderer: resolves every material slot the
-// scene uses through the MaterialLibrary, converts it to a MaterialGpuDesc,
+// scene uses through the MaterialLibrary, compiles its graph (Translator ->
+// shader compiler) into a CompiledMaterialGpu plus parameter block,
 // uploads its textures and the scene's mesh assets through the SceneRenderer,
 // and builds the per-frame SceneInstance list.
 //
 // Uploads are cached: a material re-uploads only when its resolved version
 // changes, a texture or mesh only when its file is reported changed.
+
+namespace Luma::ShaderCompiler {
+class Compiler;
+}
 
 namespace Luma::Editor {
 
@@ -35,6 +42,16 @@ struct MeshSectionInfo {
 
 class MaterialSceneBridge {
 public:
+    MaterialSceneBridge();
+    ~MaterialSceneBridge();
+    MaterialSceneBridge(const MaterialSceneBridge&) = delete;
+    MaterialSceneBridge& operator=(const MaterialSceneBridge&) = delete;
+
+    // Where generated shaders find their #includes and where compiled SPIR-V
+    // is cached. Defaults: the engine shader directory, and
+    // <project>/Saved/ShaderCache (beside the project's Assets folder).
+    void SetShaderPaths(std::filesystem::path includeDir, std::filesystem::path cacheDir);
+
     // Makes everything `scene` references resident in `renderer`. Call once
     // per frame before BuildInstances.
     void Sync(const Scene& scene, SceneRenderer& renderer, Material::MaterialLibrary& library);
@@ -83,6 +100,7 @@ private:
         u64 version = 0;
         bool uploaded = false;
         std::vector<std::string> textures;  // virtual paths it samples
+        std::string reportedErrors;         // last error set logged (once per distinct set)
     };
     struct TextureEntry {
         GpuTextureHandle handle = kInvalidHandle;
@@ -103,6 +121,7 @@ private:
                                     const AssetPathResolver& paths);
     void SyncMesh(const std::string& path, SceneRenderer& renderer, const AssetPathResolver& paths);
     static std::string SlotKey(std::string_view path);
+    ShaderCompiler::Compiler& Shaders(const Material::MaterialLibrary& library);
 
     std::unordered_map<std::string, MaterialEntry> m_materials;  // by slot key
     std::unordered_map<std::string, TextureEntry> m_textures;    // by virtual path
@@ -110,6 +129,9 @@ private:
     std::vector<std::string> m_staleTextures;
     std::vector<std::string> m_staleMeshes;
     std::optional<std::pair<std::string, Math::Mat4>> m_preview;  // mesh path, model
+    std::unique_ptr<ShaderCompiler::Compiler> m_shaders;
+    std::filesystem::path m_shaderInclude;
+    std::filesystem::path m_shaderCache;
 };
 
 }  // namespace Luma::Editor

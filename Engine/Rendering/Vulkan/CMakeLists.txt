@@ -12,6 +12,8 @@ add_library(LumaRenderVulkan STATIC
     src/Vulkan/VulkanTexture.cpp
     src/Vulkan/Textures/VulkanTextureCache.cpp
     src/Vulkan/Meshes/VulkanMeshCache.cpp
+    src/Vulkan/Materials/VulkanMaterialLayout.cpp
+    src/Vulkan/Materials/VulkanMaterialPipelines.cpp
     src/Vulkan/Materials/VulkanMaterialSystem.cpp
     src/Vulkan/Selection/VulkanSelectionOutlinePass.cpp
     src/Vulkan/UI/VulkanUIPass.cpp
@@ -40,8 +42,7 @@ endif()
 
 set(_luma_spv_outputs)
 foreach(shader ui.vert ui.frag
-               grid.vert grid.frag shadow.vert shadow.frag
-               gbuffer.vert gbuffer.frag
+               grid.vert grid.frag
                deferred_lighting.vert deferred_lighting.frag
                fxaa.frag
                bloom_downsample.frag bloom_upsample.frag bloom_composite.frag
@@ -49,7 +50,6 @@ foreach(shader ui.vert ui.frag
                skylight_filter.comp skylight_sh.comp
                eye_histogram.comp eye_adapt.comp
                overlay_line.vert overlay_line.frag
-               selection_mask.vert selection_mask.frag
                selection_outline.vert selection_outline.frag)
     add_custom_command(
         OUTPUT ${_luma_shader_out}/${shader}.spv
@@ -60,7 +60,6 @@ foreach(shader ui.vert ui.frag
         DEPENDS ${_luma_shader_src}/${shader}
                 ${_luma_shader_src}/sky_atmosphere.glsl
                 ${_luma_shader_src}/skylight_common.glsl
-                ${_luma_shader_src}/material_common.glsl
                 ${_luma_shader_src}/lighting_common.glsl
         COMMENT "glslc ${shader}"
         VERBATIM)

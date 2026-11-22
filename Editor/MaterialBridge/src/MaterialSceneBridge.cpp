@@ -18,12 +18,13 @@
 #include "Luma/Asset/LumaMesh.h"
 #include "Luma/Asset/TextureColorSpace.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Editor/MaterialGpuCompile.h"
 #include "Luma/Mesh/MeshConversion.h"
+#include "Luma/ShaderCompiler/ShaderCompiler.h"
 
 namespace Luma::Editor {
 namespace {
 
-using Material::MaterialParameter;
 
 constexpr std::array<std::string_view, 7> kImageExtensions = {"png", "jpg", "jpeg", "tga",
                                                              "bmp", "psd", "gif"};
@@ -153,48 +154,113 @@ void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
     for (const std::string& path : used) SyncMaterial(path, renderer, library);
 }
 
+MaterialSceneBridge::MaterialSceneBridge() : m_shaderInclude(LUMA_SHADER_SOURCE_DIR) {}
+MaterialSceneBridge::~MaterialSceneBridge() = default;
+
+void MaterialSceneBridge::SetShaderPaths(std::filesystem::path includeDir, std::filesystem::path cacheDir) {
+    m_shaderInclude = std::move(includeDir);
+    m_shaderCache = std::move(cacheDir);
+    m_shaders.reset();
+}
+
+ShaderCompiler::Compiler& MaterialSceneBridge::Shaders(const Material::MaterialLibrary& library) {
+    if (!m_shaders) {
+        std::filesystem::path cache = m_shaderCache;
+        if (cache.empty()) {
+            const std::filesystem::path game = library.Paths().GameRoot();
+            cache = game.empty() ? std::filesystem::temp_directory_path() / "LumaShaderCache"
+                                 : game.parent_path() / "Saved" / "ShaderCache";
+        }
+        m_shaders = std::make_unique<ShaderCompiler::Compiler>(m_shaderInclude, cache, 2);
+    }
+    return *m_shaders;
+}
+
+namespace {
+
+// The graph material behind a slot path plus the overrides of every instance
+// on the way (child over parent). False when nothing loadable is there.
+bool ResolveGraph(const std::string& path, Material::MaterialLibrary& library, Material::GraphMaterial& material,
+                  std::vector<Material::ParameterOverride>& overrides, std::optional<f32>& clip,
+                  std::optional<bool>& twoSided, u64& version) {
+    version = 0;
+    if (path.empty()) {
+        material = Material::GraphMaterial::MakeDefault();
+        return true;
+    }
+    std::string current = path;
+    for (u32 depth = 0; depth < 16; ++depth) {
+        if (const Material::GraphMaterialInstance* inst = library.GetGraphInstance(current)) {
+            version = version * 1099511628211ull + library.GraphVersion(current) + 1;
+            for (const Material::ParameterOverride& o : inst->overrides) {
+                const bool known = std::any_of(overrides.begin(), overrides.end(),
+                                               [&](const Material::ParameterOverride& e) { return e.name == o.name; });
+                if (!known) overrides.push_back(o);
+            }
+            if (!clip && inst->opacityMaskClip) clip = inst->opacityMaskClip;
+            if (!twoSided && inst->twoSided) twoSided = inst->twoSided;
+            current = inst->parent;
+            continue;
+        }
+        // The Default Material is the engine's graph (its BaseColor / Roughness
+        // are parameters instances override); the v3 file is Phase-1 legacy.
+        if (current.empty() || current == Material::kDefaultMaterialPath) {
+            material = Material::GraphMaterial::MakeDefault();
+            return true;
+        }
+        if (const Material::GraphMaterial* m = library.GetGraphMaterial(current)) {
+            version = version * 1099511628211ull + library.GraphVersion(current) + 1;
+            material = *m;
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+}  // namespace
+
 void MaterialSceneBridge::SyncMaterial(const std::string& path, SceneRenderer& renderer,
                                        Material::MaterialLibrary& library) {
-    const Material::ResolvedMaterial& resolved = library.Resolve(path);
     MaterialEntry& entry = m_materials[path];
-    if (entry.uploaded && entry.version == resolved.version) return;
-
-    MaterialGpuDesc desc;
-    // The fixed-recipe renderer path knows Opaque/Masked and DefaultLit/Unlit
-    // only; Phase-1 (v3) assets can't express the others (they arrive with the
-    // compiled-material renderer), so map anything newer to its base mode.
-    desc.blend = resolved.settings.blendMode == Material::BlendMode::Masked ? GpuBlendMode::Masked
-                                                                            : GpuBlendMode::Opaque;
-    desc.shading = resolved.settings.shadingModel == Material::ShadingModel::Unlit
-                       ? GpuShadingModel::Unlit
-                       : GpuShadingModel::DefaultLit;
-    desc.twoSided = resolved.settings.twoSided;
-    desc.opacityMaskClip = resolved.settings.opacityMaskClip;
-    entry.textures.clear();
-    for (usize i = 0; i < Material::kMaterialParameterCount; ++i) {
-        const auto param = static_cast<MaterialParameter>(i);
-        const Material::MaterialInput& in = resolved.inputs[i];
-        MaterialGpuDesc::Input& out = desc.inputs[i];
-        out.constant = in.constant;
-        out.channel = static_cast<GpuTextureChannel>(in.channel);
-        out.tint = in.tint;
-        out.tiling = in.uvTiling;
-        out.offset = in.uvOffset;
-        out.normalStrength = in.normalStrength;
-        out.flipGreen = in.flipGreen;
-        out.invert = in.invert;
-        out.emissiveIntensity = in.emissiveIntensity;
-        if (in.texture.empty()) continue;
-        entry.textures.push_back(in.texture);
-        const TextureEntry& tex = SyncTexture(in.texture, renderer, library.Paths());
-        if (tex.handle == kInvalidHandle) continue;
-        out.texture = tex.handle;
-        out.view = static_cast<GpuTextureView>(Material::SelectTextureView(param, tex.srgb));
+    Material::GraphMaterial material;
+    std::vector<Material::ParameterOverride> overrides;
+    std::optional<f32> clip;
+    std::optional<bool> twoSided;
+    u64 version = 0;
+    if (!ResolveGraph(path, library, material, overrides, clip, twoSided, version)) {
+        if (!entry.uploaded || entry.version != ~0ull) {
+            LUMA_USER_WARN("Materials", "'{}' is not a loadable material; using the Default Material", path);
+        }
+        entry.handle = kDefaultMaterialHandle;
+        entry.version = ~0ull;
+        entry.uploaded = true;
+        return;
     }
-
-    entry.handle = renderer.UpdateMaterial(MaterialKey(path), desc);
-    entry.version = resolved.version;
+    if (entry.uploaded && entry.version == version) return;
+    entry.version = version;
     entry.uploaded = true;
+
+    const std::string label = path.empty() ? std::string(Material::kDefaultMaterialPath) : path;
+    GpuMaterialBuild build = BuildGpuMaterial(material, &library, overrides, clip, twoSided, Shaders(library), label);
+    if (!build.ok) {
+        // Reported once per distinct error set; the previous shaders (or the
+        // Default Material) stay on screen.
+        if (build.errors != entry.reportedErrors) {
+            entry.reportedErrors = build.errors;
+            LUMA_USER_ERROR("Materials", "{}: {}", label, build.errors);
+        }
+        return;
+    }
+    entry.reportedErrors.clear();
+    entry.textures.clear();
+    for (usize i = 0; i < build.gpu.textures.size(); ++i) {
+        const std::string& texture = build.texturePaths[i];
+        if (texture.empty()) continue;
+        entry.textures.push_back(texture);
+        build.gpu.textures[i].texture = SyncTexture(texture, renderer, library.Paths()).handle;
+    }
+    entry.handle = renderer.UpdateMaterial(MaterialKey(path), build.gpu, build.block);
 }
 
 const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(
@@ -208,8 +274,7 @@ const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(
     if (file) image = LoadImage(*file);
     if (!image) {
         entry.failed = true;
-        LUMA_USER_WARN("Materials", "Texture '{}' could not be loaded; using the constant value",
-                       path);
+        LUMA_USER_WARN("Materials", "Texture '{}' could not be loaded; sampling white instead", path);
         return entry;
     }
     entry.srgb = IsTextureSRGB(*file, nullptr);
@@ -220,7 +285,7 @@ const MaterialSceneBridge::TextureEntry& MaterialSceneBridge::SyncTexture(
     if (entry.failed) {
         LUMA_USER_WARN("Materials",
                        "Texture '{}' ({}x{}) could not be uploaded to the GPU (out of memory or "
-                       "texture slots); using the constant value",
+                       "texture slots); sampling white instead",
                        path, image->desc.width, image->desc.height);
     }
     return entry;

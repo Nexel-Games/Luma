@@ -23,6 +23,8 @@ add_executable(LumaTests
     Material/FunctionCompileTests.cpp
     Material/CompileCoverageTests.cpp
     Rendering/ShaderCompilerTests.cpp
+    Rendering/VulkanMaterialLayoutTests.cpp
+    Rendering/MaterialRenderTests.cpp
     Material/MaterialMigrationV4Tests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
@@ -105,7 +107,10 @@ add_test(NAME LumaPreferencesTests COMMAND LumaPreferencesTests)
 add_test(NAME LumaTests COMMAND LumaTests)
 
 target_compile_definitions(LumaTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(LumaTests PRIVATE
+    LUMA_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"
+    LUMA_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/shaders")
 
 # Backend tests drive the Vulkan module's internal classes on a real device.
 target_include_directories(LumaTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/src ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
-target_link_libraries(LumaTests PRIVATE Vulkan::Vulkan)
+target_link_libraries(LumaTests PRIVATE Vulkan::Vulkan Luma::Renderer)
