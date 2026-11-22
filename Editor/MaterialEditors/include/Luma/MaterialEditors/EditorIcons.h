@@ -20,6 +20,10 @@ enum class EditorIcon : u8 {
     Count
 };
 
+// Full-colour icons (Apply, the preview primitives) are drawn as authored; the
+// rest load as white and are tinted by the UI.
+bool EditorIconKeepsColor(EditorIcon icon);
+
 // File name of an icon inside the icon directory ("Apply.png").
 const char* EditorIconFile(EditorIcon icon);
 

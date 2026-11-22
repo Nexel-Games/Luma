@@ -5,7 +5,7 @@ at commit 67421f36e5069e62573c44beb8dd2f8f91e065b0. MIT License - see LICENSE.tx
 
 Rendered to 40 px PNGs in Content/Editor/MaterialEditor/Icons (Luma name <- Godot icon):
 
-- Apply.png <- ImportCheck.svg
+- Apply.png <- (UE4 icon_MatEd_Apply_40x, see below)
 - Save.png <- Save.svg
 - Browse.png <- Filesystem.svg
 - Home.png <- CenterView.svg
@@ -18,3 +18,6 @@ Rendered to 40 px PNGs in Content/Editor/MaterialEditor/Icons (Luma name <- Godo
 - Mesh.png <- MeshInstance3D.svg
 - Reset.png <- Reload.svg
 - Search.png <- Search.svg
+
+Exception: Apply/Sphere/Cube/Plane/Cylinder/Mesh.png (the preview primitives) are the full-colour
+icon_MatEd_*_40x icons from ThirdParty/icons (UE4 editor pack), not Godot icons.

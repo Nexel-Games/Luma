@@ -28,6 +28,18 @@ const char* EditorIconFile(EditorIcon icon) {
     return "";
 }
 
+bool EditorIconKeepsColor(EditorIcon icon) {
+    switch (icon) {
+        case EditorIcon::Apply:
+        case EditorIcon::Sphere:
+        case EditorIcon::Cube:
+        case EditorIcon::Plane:
+        case EditorIcon::Cylinder:
+        case EditorIcon::Mesh: return true;
+        default: return false;
+    }
+}
+
 u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directory) {
     u32 loaded = 0;
     for (usize i = 0; i < m_textures.size(); ++i) {
@@ -41,7 +53,8 @@ u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directo
         if (!Slate::LoadImagePixels(file.string(), w, h, pixels) || w == 0 || h == 0) continue;
         // Luminance carves the detail: bright strokes stay white, dark
         // outlines / shading become transparent.
-        for (usize p = 0; p + 3 < pixels.size(); p += 4) {
+        const bool white = !EditorIconKeepsColor(static_cast<EditorIcon>(i));
+        for (usize p = 0; white && p + 3 < pixels.size(); p += 4) {
             const f32 lum = (0.2126f * pixels[p] + 0.7152f * pixels[p + 1] + 0.0722f * pixels[p + 2]) / 255.0f;
             const f32 keep = std::clamp((lum - 0.12f) / 0.45f, 0.0f, 1.0f);
             pixels[p + 3] = static_cast<u8>(static_cast<f32>(pixels[p + 3]) * keep + 0.5f);

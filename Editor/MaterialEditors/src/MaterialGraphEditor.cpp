@@ -195,8 +195,11 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
     auto button = [&](const char* key, f32 w, EditorIcon png, Slate::Icon icon, const char* label, const char* tip,
                       bool active) {
         const Rect r{x, y, w, h};
-        const bool clicked = ToolButton(ui, Context::ID(std::string("mge.") + key + m_path), r,
-                                        IconTexture(m_services, png), icon, label, active ? t.accent : t.text, active);
+        const TextureHandle tex = IconTexture(m_services, png);
+        const Slate::Color tint = tex && EditorIconKeepsColor(png) ? Slate::Color::RGB(255, 255, 255)
+                                                                   : (active ? t.accent : t.text);
+        const bool clicked = ToolButton(ui, Context::ID(std::string("mge.") + key + m_path), r, tex, icon, label, tint,
+                                        active);
         ui.Tooltip(Context::ID(std::string("mge.tip.") + key), r, tip);
         x += w + 4.0f;
         return clicked;
@@ -250,8 +253,10 @@ void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& area) {
     for (int i = 0; i < 4; ++i) {
         const Rect b{bx, area.Bottom() - 32.0f, 28.0f, 26.0f};
         const bool active = static_cast<int>(m_preview.shape) == i;
-        if (ToolButton(ui, Context::ID("mge.shape." + std::to_string(i) + m_path), b, IconTexture(m_services, pngs[i]),
-                       icons[i], "", active ? t.accent : t.text, active))
+        const TextureHandle png = IconTexture(m_services, pngs[i]);
+        // Full-colour primitive icons draw untinted; the pressed state shows the selection.
+        if (ToolButton(ui, Context::ID("mge.shape." + std::to_string(i) + m_path), b, png, icons[i], "",
+                       png ? Slate::Color::RGB(255, 255, 255) : (active ? t.accent : t.text), active))
             m_preview.shape = static_cast<PreviewShape>(i);
         ui.Tooltip(Context::ID(std::string("mge.shape.tip.") + names[i]), b, std::string("Preview on a ") + names[i]);
         bx += 30.0f;
