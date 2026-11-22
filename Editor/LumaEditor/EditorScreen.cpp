@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -22,6 +23,8 @@
 #include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
+#include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/EntityTemplates.h"
 #include "Luma/VFS/VFS.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
@@ -71,22 +74,6 @@ bool IsWatchedAssetFile(const std::filesystem::path& p) {
     return false;
 }
 
-// Returns `base` unchanged when no entity in the scene shares that name;
-// otherwise appends the lowest free number (base 1, base 2, ...) so the first
-// of a kind stays unnumbered and duplicates get distinguished.
-std::string UniqueEntityName(Luma::Scene& scene, const std::string& base) {
-    auto view = scene.Registry().view<const NameComponent>();
-    auto taken = [&view](const std::string& name) {
-        for (Entity e : view) {
-            if (view.get<const NameComponent>(e).name == name) return true;
-        }
-        return false;
-    };
-    if (!taken(base)) return base;
-    int n = 1;
-    while (taken(base + " " + std::to_string(n))) ++n;
-    return base + " " + std::to_string(n);
-}
 }  // namespace
 
 EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
@@ -104,7 +91,7 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile) {
     m_materials = std::make_unique<Material::MaterialLibrary>(m_assetPaths);
 
     if (!LoadScene()) {
-        CreateEnvironment();
+        EnsureAutoCreatedEntities(m_scene);
         // New projects already declare a startup scene path. Materialize the
         // default environment scene on first open so the editor and runtime
         // operate on the same persisted scene instead of an in-memory fallback.
@@ -169,11 +156,6 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
         });
 }
 
-void EditorScreen::CreateEnvironment() {
-    m_environment = m_scene.CreateEntity("Environment");
-    m_scene.Registry().emplace<EnvironmentComponent>(m_environment);
-}
-
 bool EditorScreen::LoadScene() {
     if (!m_project) return false;
     std::filesystem::path path = m_project->StartupScenePath();
@@ -189,9 +171,10 @@ bool EditorScreen::LoadScene() {
     m_selected = kNullEntity;
     m_outlinerPanel.ClearSelection();
     m_inspectorPanel.ClosePopups();
-    auto envView = m_scene.Registry().view<EnvironmentComponent>();
-    if (envView.begin() == envView.end()) CreateEnvironment();
+    // Scene setup: every auto-created template (e.g. the sky) the scene lacks.
+    EnsureAutoCreatedEntities(m_scene);
     LUMA_USER_INFO("Scene", "Loaded scene '{}'", ProjectRelative(path));
+    ReportMissingComponentPlugins();
     // Version-1 scenes carried a color per mesh; move those onto material
     // assets (in memory until the scene is saved).
     if (!legacy.empty()) MigrateLegacyMaterials(m_scene, legacy, *m_materials);
@@ -640,82 +623,29 @@ void EditorScreen::FinalizeProjectPreview() {
     std::filesystem::remove(fullPath, ec);
 }
 
-void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
-    int index = m_nextNumber++;
-
-    // --- Primitives / Empty -------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::Empty) {
-        Entity e =
-            m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
-        m_selected = e;
+void EditorScreen::CreateActor(const std::string& templateId) {
+    const EntityTemplate* t = EntityTemplates().Find(templateId);
+    if (!t) {
+        LUMA_USER_ERROR("Scene", "Cannot create '{}': no such entity template", templateId);
         return;
     }
-    if (kind == Editor::Panels::CreateActorKind::Cube ||
-        kind == Editor::Panels::CreateActorKind::Plane ||
-        kind == Editor::Panels::CreateActorKind::Sphere ||
-        kind == Editor::Panels::CreateActorKind::Cylinder) {
-        const char* names[] = {"Cube", "Plane", "Sphere", "Cylinder"};
-        const MeshPrimitive prims[] = {MeshPrimitive::Cube, MeshPrimitive::Plane,
-                                       MeshPrimitive::Sphere,
-                                       MeshPrimitive::Cylinder};
-        int i = static_cast<int>(kind) - static_cast<int>(Editor::Panels::CreateActorKind::Cube);
-        Entity e =
-            m_scene.CreateEntity(UniqueEntityName(m_scene, names[i]));
-        auto& mesh = m_scene.Registry().emplace<MeshRendererComponent>(e);
-        mesh.primitive = prims[i];  // empty material slots: Default Material
-        auto& tf = m_scene.Registry().get<TransformComponent>(e);
-        tf.position = Math::Vec3(static_cast<f32>(index - 1) * 2.0f, 1.0f, 0.0f);
-        m_selected = e;
-        return;
-    }
+    m_selected = Instantiate(m_scene, *t, {m_nextNumber++});
+}
 
-    // --- Lights -------------------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::DirectionalLight ||
-        kind == Editor::Panels::CreateActorKind::PointLight ||
-        kind == Editor::Panels::CreateActorKind::SpotLight ||
-        kind == Editor::Panels::CreateActorKind::TubeLight) {
-        const char* names[] = {"Directional Light", "Point Light",
-                               "Spot Light", "Tube Light"};
-        const LightType types[] = {LightType::Directional, LightType::Point,
-                                   LightType::Spot, LightType::Tube};
-        int i = static_cast<int>(kind) - static_cast<int>(Editor::Panels::CreateActorKind::DirectionalLight);
-        Entity e =
-            m_scene.CreateEntity(UniqueEntityName(m_scene, names[i]));
-        auto& light = m_scene.Registry().emplace<LightComponent>(e);
-        light.type = types[i];
-        auto& tf = m_scene.Registry().get<TransformComponent>(e);
-        // Lights sit above the origin. Directional defaults to a three-quarter
-        // sun angle (pitch down, yawed) so the ground and meshes both catch
-        // light instead of a horizon-grazing identity rotation.
-        tf.position = Math::Vec3(static_cast<f32>(index - 1) * 3.0f, 4.0f, 2.0f);
-        if (types[i] == LightType::Directional) {
-            tf.rotationEuler = Math::Vec3(-50.0f, 35.0f, 0.0f);
+void EditorScreen::ReportMissingComponentPlugins() {
+    // Components kept for plugins that are not loaded: tell the user once per
+    // load which plugins the scene needs (their data stays in the scene).
+    std::map<std::string, usize> byOwner;
+    for (auto [e, kept] : m_scene.Registry().view<UnresolvedComponents>().each()) {
+        for (const UnresolvedComponent& c : kept.payloads) {
+            ++byOwner[c.owner.empty() ? std::string("an unknown plugin") : c.owner];
         }
-        m_selected = e;
-        return;
     }
-
-    // --- Environment --------------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::Environment) {
-        auto envView = m_scene.Registry().view<EnvironmentComponent>();
-        if (envView.begin() == envView.end()) {
-            Entity e = m_scene.CreateEntity("Environment");
-            m_scene.Registry().emplace<EnvironmentComponent>(e);
-            m_selected = e;
-        } else {
-            // Only one environment per scene — select the existing one.
-            m_selected = *envView.begin();
-        }
-        return;
-    }
-
-    // --- Post Process Volume -------------------------------------------------
-    if (kind == Editor::Panels::CreateActorKind::PostProcessVolume) {
-        Entity e = m_scene.CreateEntity(
-            UniqueEntityName(m_scene, "Post Process Volume"));
-        m_scene.Registry().emplace<PostProcessComponent>(e);
-        m_selected = e;
-        return;
+    for (const auto& [owner, count] : byOwner) {
+        LUMA_USER_WARN("Scene",
+                       "{} component(s) need {}, which is not loaded; their data is kept and "
+                       "saved unchanged",
+                       count, owner);
     }
 }
 
@@ -735,9 +665,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.view = &m_view;
     ctx.gizmoScale = &m_gizmoScale;
     ctx.gizmo = &m_gizmo;
-    ctx.onCreateActor = [this](Editor::Panels::CreateActorKind kind) {
-        CreateActor(kind);
-    };
+    ctx.onCreateEntity = [this](const std::string& templateId) { CreateActor(templateId); };
     ctx.onSaveScene = [this] { SaveScene(); };
     ctx.onImportAssets = [this](const std::filesystem::path& folder) {
         ImportAssetsInto(folder);
@@ -1462,7 +1390,11 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
 
 void EditorScreen::DuplicateEntity(Entity e) {
     if (!m_scene.IsValid(e)) return;
-    if (m_scene.Registry().all_of<EnvironmentComponent>(e)) return;  // one per scene
+    if (const ComponentDesc* single = OnePerSceneComponentOf(m_scene, e)) {
+        LUMA_USER_WARN("Scene", "A scene has a single {}; it can't be duplicated",
+                       single->displayName);
+        return;
+    }
     const std::string base = m_scene.Registry().get<NameComponent>(e).name;
     Entity copy = m_scene.DuplicateEntity(e);
     if (copy == kNullEntity) return;
@@ -1582,7 +1514,7 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
         case 1:  // Edit
             b.BeginSection("Selection");
             {
-                auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
+                auto o = when(hasSel && !OnePerSceneComponentOf(m_scene, m_selected));
                 o.shortcut = "Ctrl+D";
                 b.AddEntry("Duplicate", Icon::Plus, [this] { DuplicateEntity(m_selected); }, o);
             }

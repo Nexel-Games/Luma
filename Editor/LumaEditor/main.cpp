@@ -8,6 +8,8 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Core/LogBuffer.h"
 #include "Luma/Core/Types.h"
+#include "Luma/Core/Registration.h"
+#include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/ProjectBrowser.h"
 #include "Luma/Platform/Process.h"
 #include "Luma/Platform/Window.h"
@@ -267,6 +269,8 @@ int main(int argc, char** argv) {
     // Engine services: declared before the editor so they outlive it.
     Jobs::JobSystem jobs;
     Tasks::TaskManager tasks;
+    // Named editor images (released after the editor that draws them).
+    RegistrationSet editorImages;
     std::unique_ptr<EditorScreen> editor;
     window->SetEventCallback(
         [&](Event& e) { FeedEvent(ui, e, running, editor.get()); });
@@ -386,11 +390,30 @@ int main(int argc, char** argv) {
         // names. Zero handles fall back to procedural glyphs.
         editor->SetCreateButtonIcon(olCreateButton);
         editor->SetSearchGlassIcon(olSearchGlass);
-        editor->SetCategoryIcons(olCatGeometry, olCatLight, olCatEnvironment);
-        editor->SetPrimitiveIcons(olActorCube, olActorPlane, olActorSphere,
-                                  olActorCylinder);
-        editor->SetOutlinerActorIcons(olActorDirLight, olActorPointLight,
-                                      olActorSpotLight, olActorMesh);
+        // Actor / category images by name (registries refer to icons by name;
+        // a missing texture falls back to the glyph).
+        struct NamedImage {
+            const char* name;
+            TextureHandle texture;
+            Slate::Icon fallback;
+        };
+        const NamedImage images[] = {
+            {"CategoryGeometry", olCatGeometry, Slate::Icon::Cube},
+            {"CategoryLight", olCatLight, Slate::Icon::Light},
+            {"CategoryEnvironment", olCatEnvironment, Slate::Icon::Sphere},
+            {"ActorCube", olActorCube, Slate::Icon::Cube},
+            {"ActorPlane", olActorPlane, Slate::Icon::Plane},
+            {"ActorSphere", olActorSphere, Slate::Icon::Sphere},
+            {"ActorCylinder", olActorCylinder, Slate::Icon::Cylinder},
+            {"ActorDirLight", olActorDirLight, Slate::Icon::Light},
+            {"ActorPointLight", olActorPointLight, Slate::Icon::Light},
+            {"ActorSpotLight", olActorSpotLight, Slate::Icon::Light},
+            {"ActorMesh", olActorMesh, Slate::Icon::Cube},
+        };
+        for (const NamedImage& image : images) {
+            editorImages.Add(Editor::EditorImages().Register(image.name, image.texture,
+                                                             image.fallback, "Engine"));
+        }
     }
 
     // Splash phase (editor mode only).

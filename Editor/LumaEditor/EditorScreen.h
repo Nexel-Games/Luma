@@ -140,31 +140,6 @@ public:
         m_outlinerPanel.SetSearchGlassIcon(icon);
     }
 
-    // Forwards the Create-menu category icons (Geometry / Lights /
-    // Environment — Unreal-style silhouettes, drawn gray in the menu).
-    // Zero handles fall back to the procedural glyphs.
-    void SetCategoryIcons(TextureHandle geometry, TextureHandle light,
-                          TextureHandle environment) {
-        m_outlinerPanel.SetCategoryIcons(geometry, light, environment);
-    }
-
-    // Forwards the primitive-actor icons for the Geometry submenu rows
-    // (Unreal primitive thumbnails, drawn gray). Zero handles fall back to
-    // the procedural glyphs.
-    void SetPrimitiveIcons(TextureHandle cube, TextureHandle plane,
-                           TextureHandle sphere, TextureHandle cylinder) {
-        m_outlinerPanel.SetPrimitiveIcons(cube, plane, sphere, cylinder);
-    }
-
-    // Forwards the outliner actor icons (light types + generic mesh) shown
-    // beside entity names in the World Outliner list. Zero handles fall back
-    // to no icon.
-    void SetOutlinerActorIcons(TextureHandle dirLight, TextureHandle pointLight,
-                               TextureHandle spotLight, TextureHandle mesh) {
-        m_outlinerPanel.SetOutlinerActorIcons(dirLight, pointLight, spotLight,
-                                              mesh);
-    }
-
     // Forwards Content Browser chrome icons to the panel. Missing textures
     // (any zero handle) fall back to procedural glyphs.
     void SetContentBrowserIcons(TextureHandle sortUp, TextureHandle sortDown,
@@ -180,10 +155,11 @@ public:
     }
 
 private:
-    // Spawns a new game object from the World Outliner's Create menu
-    // (Empty / primitives / Light > directional, point, spot, tube / Environment).
-    void CreateActor(Editor::Panels::CreateActorKind kind);
-    void CreateEnvironment();
+    // Spawns a game object from the EntityTemplates() entry `templateId` (the
+    // World Outliner's Place Actors menu) and selects it.
+    void CreateActor(const std::string& templateId);
+    // Warns once per scene load about components kept for missing plugins.
+    void ReportMissingComponentPlugins();
     bool LoadScene();
     void SaveScene();
     // Writes every unsaved material asset; false if any failed.
@@ -241,7 +217,6 @@ private:
 
     Scene m_scene;
     Entity m_selected = kNullEntity;
-    Entity m_environment = kNullEntity;
     int m_nextNumber = 1;
 
     TransformGizmo m_gizmo;

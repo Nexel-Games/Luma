@@ -117,6 +117,31 @@ std::vector<const ComponentDesc*> ComponentsOf(const Scene& scene, Entity entity
     return out;
 }
 
+std::string OutlinerIconFor(const Scene& scene, Entity entity, const ComponentRegistry& registry) {
+    std::string icon;
+    i32 best = 0;
+    bool found = false;
+    for (const ComponentDesc* d : ComponentsOf(scene, entity, registry)) {
+        if (!d->outlinerIcon) continue;
+        std::string candidate = d->outlinerIcon(scene, entity);
+        if (candidate.empty()) continue;
+        if (!found || d->outlinerPriority > best) {
+            icon = std::move(candidate);
+            best = d->outlinerPriority;
+            found = true;
+        }
+    }
+    return icon;
+}
+
+const ComponentDesc* OnePerSceneComponentOf(const Scene& scene, Entity entity,
+                                            const ComponentRegistry& registry) {
+    for (const ComponentDesc* d : ComponentsOf(scene, entity, registry)) {
+        if (d->onePerScene) return d;
+    }
+    return nullptr;
+}
+
 usize ResolveUnresolvedComponents(Scene& scene, const ComponentRegistry& registry) {
     usize resolved = 0;
     entt::registry& reg = scene.Registry();
@@ -200,9 +225,20 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry) {
     transform.userAddable = false;
     set.Add(registry.Register<TransformComponent>(std::move(transform)));
 
-    set.Add(registry.Register<MeshRendererComponent>(
-        EngineComponent("MeshRenderer", "Mesh Renderer", "Rendering", "Cube",
-                        "Draws a primitive or mesh asset with a PBR material.")));
+    ComponentDesc mesh = EngineComponent("MeshRenderer", "Mesh Renderer", "Rendering", "Cube",
+                                         "Draws a primitive or mesh asset with a PBR material.");
+    mesh.outlinerPriority = 30;
+    mesh.outlinerIcon = [](const Scene& scene, Entity e) -> std::string {
+        const auto& mr = scene.Registry().get<MeshRendererComponent>(e);
+        if (mr.UsesMeshAsset()) return "ActorMesh";
+        switch (mr.primitive) {
+            case MeshPrimitive::Plane: return "ActorPlane";
+            case MeshPrimitive::Sphere: return "ActorSphere";
+            case MeshPrimitive::Cylinder: return "ActorCylinder";
+            default: return "ActorCube";
+        }
+    };
+    set.Add(registry.Register<MeshRendererComponent>(std::move(mesh)));
 
     set.Add(registry.Register<CameraComponent>(
         EngineComponent("Camera", "Camera", "Rendering", "Camera",
@@ -220,6 +256,15 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry) {
                      "A cone of light with inner and outer angles."),
         LightVariant("Tube Light", LightType::Tube, "A linear emitter of a given length."),
     };
+    light.outlinerPriority = 20;
+    light.outlinerIcon = [](const Scene& scene, Entity e) -> std::string {
+        switch (scene.Registry().get<LightComponent>(e).type) {
+            case LightType::Point: return "ActorPointLight";
+            case LightType::Spot: return "ActorSpotLight";
+            case LightType::Tube: return "ActorPointLight";  // no tube glyph in the pack
+            default: return "ActorDirLight";
+        }
+    };
     // Reset keeps the light's type (the type is its identity).
     light.reset = [](Scene& scene, Entity e) {
         if (!scene.Registry().all_of<LightComponent>(e)) return;
@@ -233,6 +278,8 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry) {
         "Environment", "Sky & Environment", "Environment", "Sphere",
         "Physically based sky atmosphere and ambient (sky) lighting.");
     env.onePerScene = true;
+    env.outlinerPriority = 10;
+    env.outlinerIcon = [](const Scene&, Entity) -> std::string { return "CategoryEnvironment"; };
     set.Add(registry.Register<EnvironmentComponent>(std::move(env)));
 
     set.Add(registry.Register<PostProcessComponent>(

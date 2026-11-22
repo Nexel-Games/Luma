@@ -6,7 +6,12 @@
 #include <string>
 #include <vector>
 
+#include <map>
+
+#include "Luma/Editor/EditorIcons.h"
+#include "Luma/Scene/ComponentRegistry.h"
 #include "Luma/Scene/Components.h"
+#include "Luma/Scene/EntityTemplates.h"
 #include "Luma/Slate/Icons.h"
 
 namespace Luma::Editor::Panels {
@@ -79,36 +84,10 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     ui.SearchBox(Slate::Context::ID("outliner.entitysearch"), searchR,
                  m_entityFilter, m_texSearchGlass, "Search...");
 
-    // Actor icon shown beside each entity name (Unreal-pack glyphs): the
-    // mesh primitive / light type / environment texture, tinted like the
-    // row's label. Returns 0 when the entity has no recognizable actor type.
-    auto iconFor = [&](Entity e) -> TextureHandle {
-        if (ctx.scene->Registry().all_of<MeshRendererComponent>(e)) {
-            const auto& mr =
-                ctx.scene->Registry().get<MeshRendererComponent>(e);
-            if (mr.UsesMeshAsset()) return m_texActorMesh;
-            switch (mr.primitive) {
-                case MeshPrimitive::Plane: return m_texActorPlane;
-                case MeshPrimitive::Sphere: return m_texActorSphere;
-                case MeshPrimitive::Cylinder: return m_texActorCylinder;
-                default: return m_texActorCube;
-            }
-        }
-        if (ctx.scene->Registry().all_of<LightComponent>(e)) {
-            const auto& lc = ctx.scene->Registry().get<LightComponent>(e);
-            switch (lc.type) {
-                case LightType::Point: return m_texActorPointLight;
-                case LightType::Spot: return m_texActorSpotLight;
-                case LightType::Tube:
-                    return m_texActorPointLight;  // no tube glyph in the pack
-                default: return m_texActorDirLight;
-            }
-        }
-        if (ctx.scene->Registry().all_of<EnvironmentComponent>(e)) {
-            return m_texCatEnvironment;
-        }
-        return 0;
-    };
+    // Actor icon shown beside each entity name: the outliner icon of its
+    // highest-priority registered component (ComponentDesc::outlinerIcon),
+    // tinted like the row's label. Empty when no component provides one.
+    auto iconFor = [&](Entity e) { return OutlinerIconFor(*ctx.scene, e); };
 
     auto view = ctx.scene->Registry().view<const NameComponent>();
     if (view.begin() == view.end()) {
@@ -183,17 +162,15 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                     ui.drawList().AddRectFilledRounded(row, t.surface2,
                                                        t.radius.sm);
                 }
-                TextureHandle icon = iconFor(e);
-                const f32 textX =
-                    icon ? row.x + t.space.xs + kIconS + t.space.sm
-                         : row.x + t.space.md + t.space.xs;
-                if (icon) {
-                    ui.Image(icon,
-                             {row.x + t.space.xs,
-                              row.y + (row.h - kIconS) * 0.5f, kIconS,
-                              kIconS},
-                             selected ? t.selectionText : t.text);
-                }
+                const std::string iconName = iconFor(e);
+                const bool hasIcon =
+                    !iconName.empty() &&
+                    DrawNamedIcon(ui,
+                                  {row.x + t.space.xs, row.y + (row.h - kIconS) * 0.5f,
+                                   kIconS, kIconS},
+                                  iconName, selected ? t.selectionText : t.text);
+                const f32 textX = hasIcon ? row.x + t.space.xs + kIconS + t.space.sm
+                                          : row.x + t.space.md + t.space.xs;
                 if (m_renaming == e) {
                     // Inline rename: Enter / focus loss commits, Escape cancels.
                     const u64 fieldId = Slate::Context::ID("outliner.rename");
@@ -261,77 +238,51 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
 }
 
 void WorldOutlinerPanel::FillPlaceActors(
-    Slate::MenuBuilder& b, const std::function<void(CreateActorKind)>& create) {
-    using Slate::MenuIcon;
-    auto entry = [&](Slate::MenuBuilder& m, const char* label, MenuIcon icon,
-                     CreateActorKind kind, const char* tip) {
-        Slate::MenuEntryOptions o;
-        o.enabled = static_cast<bool>(create);
-        o.tooltip = tip;
-        m.AddEntry(label, icon,
-                   [create, kind] {
-                       if (create) create(kind);
-                   },
-                   o);
-    };
-    b.AddSubMenu("Basic", Icon::Cube, [&](Slate::MenuBuilder& m) {
-        entry(m, "Empty Actor", Icon::Dot, CreateActorKind::Empty,
-              "An entity with only a name and a transform.");
-    });
-    b.AddSubMenu("Geometry", MenuIcon::Texture(m_texCatGeometry, Icon::Cube),
-                 [&](Slate::MenuBuilder& m) {
-                     entry(m, "Cube", MenuIcon::Texture(m_texActorCube, Icon::Cube),
-                           CreateActorKind::Cube, "A unit cube mesh.");
-                     entry(m, "Plane", MenuIcon::Texture(m_texActorPlane, Icon::Plane),
-                           CreateActorKind::Plane, "A flat 1x1 plane mesh.");
-                     entry(m, "Sphere", MenuIcon::Texture(m_texActorSphere, Icon::Sphere),
-                           CreateActorKind::Sphere, "A UV sphere mesh.");
-                     entry(m, "Cylinder",
-                           MenuIcon::Texture(m_texActorCylinder, Icon::Cylinder),
-                           CreateActorKind::Cylinder, "A capped cylinder mesh.");
-                 });
-    b.AddSubMenu("Lights", MenuIcon::Texture(m_texCatLight, Icon::Light),
-                 [&](Slate::MenuBuilder& m) {
-                     entry(m, "Directional Light",
-                           MenuIcon::Texture(m_texActorDirLight, Icon::Light),
-                           CreateActorKind::DirectionalLight,
-                           "The sun: drives the sky and casts cascaded shadows.");
-                     entry(m, "Point Light",
-                           MenuIcon::Texture(m_texActorPointLight, Icon::Light),
-                           CreateActorKind::PointLight,
-                           "Omnidirectional light with physical falloff.");
-                     entry(m, "Spot Light",
-                           MenuIcon::Texture(m_texActorSpotLight, Icon::Light),
-                           CreateActorKind::SpotLight, "A cone of light.");
-                     entry(m, "Tube Light",
-                           MenuIcon::Texture(m_texActorPointLight, Icon::Light),
-                           CreateActorKind::TubeLight, "A linear light emitter.");
-                 });
-    b.AddSubMenu("Environment", MenuIcon::Texture(m_texCatEnvironment, Icon::Sphere),
-                 [&](Slate::MenuBuilder& m) {
-                     entry(m, "Sky & Environment",
-                           MenuIcon::Texture(m_texCatEnvironment, Icon::Sphere),
-                           CreateActorKind::Environment,
-                           "Sky atmosphere and ambient lighting (one per scene; "
-                           "selects the existing one if present).");
-                 });
-    b.AddSubMenu("Volumes", Icon::Eye, [&](Slate::MenuBuilder& m) {
-        entry(m, "Post Process Volume", Icon::Eye, CreateActorKind::PostProcessVolume,
-              "Bloom, exposure, tone mapping and other camera effects.");
-    });
+    Slate::MenuBuilder& b, const std::function<void(const std::string&)>& create) {
+    // One submenu per template category, in first-registration order.
+    std::vector<std::string> categories;
+    std::map<std::string, std::vector<const EntityTemplate*>> byCategory;
+    for (const EntityTemplate* t : EntityTemplates().All()) {
+        const std::string cat = t->category.empty() ? std::string("Other") : t->category;
+        if (!byCategory.contains(cat)) categories.push_back(cat);
+        byCategory[cat].push_back(t);
+    }
+    for (const std::string& cat : categories) {
+        const std::vector<const EntityTemplate*>& entries = byCategory[cat];
+        std::string catIcon;
+        for (const EntityTemplate* t : entries) {
+            if (!t->categoryIcon.empty()) {
+                catIcon = t->categoryIcon;
+                break;
+            }
+        }
+        b.AddSubMenu(cat, MenuIconByName(catIcon), [&](Slate::MenuBuilder& m) {
+            for (const EntityTemplate* t : entries) {
+                Slate::MenuEntryOptions o;
+                o.enabled = static_cast<bool>(create);
+                o.tooltip = t->tooltip;
+                const std::string id = t->id;
+                m.AddEntry(t->displayName, MenuIconByName(t->icon),
+                           [create, id] {
+                               if (create) create(id);
+                           },
+                           o);
+            }
+        });
+    }
 }
 
 std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildPlaceActorsMenu(PanelContext& ctx) {
     Slate::MenuBuilder b;
     b.BeginSection("Place Actors");
-    FillPlaceActors(b, ctx.onCreateActor);
+    FillPlaceActors(b, ctx.onCreateEntity);
     return b.Build();
 }
 
 std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
                                                                   PanelContext& ctx) {
     Scene* scene = ctx.scene;
-    const bool isEnvironment = scene->Registry().all_of<EnvironmentComponent>(e);
+    const ComponentDesc* single = OnePerSceneComponentOf(*scene, e);
     Slate::MenuBuilder b;
 
     b.BeginSection("Actor");
@@ -349,9 +300,9 @@ std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
     }
     {
         Slate::MenuEntryOptions o;
-        o.enabled = static_cast<bool>(ctx.onDuplicateEntity) && !isEnvironment;
-        o.tooltip = isEnvironment ? "A scene has a single Environment."
-                                  : "Create a copy of this actor and all its components.";
+        o.enabled = static_cast<bool>(ctx.onDuplicateEntity) && !single;
+        o.tooltip = single ? "A scene has a single " + single->displayName + "."
+                           : "Create a copy of this actor and all its components.";
         o.shortcut = "Ctrl+D";
         auto dup = ctx.onDuplicateEntity;
         b.AddEntry("Duplicate", Icon::Plus,
@@ -387,7 +338,7 @@ std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
     }
 
     b.BeginSection("Create");
-    auto create = ctx.onCreateActor;
+    auto create = ctx.onCreateEntity;
     b.AddSubMenu("Place Actor", Icon::Plus,
                  [this, create](Slate::MenuBuilder& m) { FillPlaceActors(m, create); });
     return b.Build();

@@ -31,21 +31,6 @@ namespace Luma::Editor::Panels {
 
 using GizmoPtr = Luma::TransformGizmo*;
 
-// What the outliner's "Create GameObject" menu can spawn.
-enum class CreateActorKind {
-    Empty,
-    Cube,
-    Plane,
-    Sphere,
-    Cylinder,
-    DirectionalLight,
-    PointLight,
-    SpotLight,
-    TubeLight,
-    Environment,
-    PostProcessVolume,
-};
-
 struct PanelContext {
     // Renderer for uploading dynamic textures (e.g. asset thumbnails).
     Renderer* renderer = nullptr;
@@ -74,7 +59,8 @@ struct PanelContext {
 
     // EditorScreen hooks (lightweight callbacks so panels don't have to
     // know about the EditorScreen type).
-    std::function<void(CreateActorKind)> onCreateActor;  // Outliner's create menu
+    // Outliner's Place Actors menu: instantiate the EntityTemplates() entry `id`.
+    std::function<void(const std::string& templateId)> onCreateEntity;
     std::function<void()> onSaveScene;     // File menu "Save Scene"
 
     // Content Browser right-click menu "GET > Import to Current Folder":

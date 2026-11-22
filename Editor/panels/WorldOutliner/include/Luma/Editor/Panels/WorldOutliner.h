@@ -30,48 +30,19 @@ public:
     // pack). A zero handle falls back to the procedural search glyph.
     void SetSearchGlassIcon(TextureHandle icon) { m_texSearchGlass = icon; }
 
-    // Sets the category-row textures (Geometry / Lights / Environment —
-    // Unreal-style silhouettes, drawn gray). Zero handles fall back to the
-    // procedural glyphs.
-    void SetCategoryIcons(TextureHandle geometry, TextureHandle light,
-                          TextureHandle environment) {
-        m_texCatGeometry = geometry;
-        m_texCatLight = light;
-        m_texCatEnvironment = environment;
-    }
-
-    // Sets the primitive-actor textures for the Geometry submenu rows
-    // (Unreal primitive thumbnails, drawn gray). Zero handles fall back to
-    // the procedural glyphs.
-    void SetPrimitiveIcons(TextureHandle cube, TextureHandle plane,
-                           TextureHandle sphere, TextureHandle cylinder) {
-        m_texActorCube = cube;
-        m_texActorPlane = plane;
-        m_texActorSphere = sphere;
-        m_texActorCylinder = cylinder;
-    }
-
-    // Sets the outliner actor icons (light types + a generic mesh) shown
-    // beside entity names in the list. Zero handles fall back to no icon.
-    void SetOutlinerActorIcons(TextureHandle dirLight, TextureHandle pointLight,
-                               TextureHandle spotLight, TextureHandle mesh) {
-        m_texActorDirLight = dirLight;
-        m_texActorPointLight = pointLight;
-        m_texActorSpotLight = spotLight;
-        m_texActorMesh = mesh;
-    }
-
     // Clears the cached selection hint (called after the scene is reloaded
     // so the panel doesn't reference an entity that no longer exists).
     void ClearSelection() {}
 
-private:
-    // Unreal "Place Actors" menu (categories as submenus; searchable).
+    // Unreal "Place Actors" menu: one submenu per EntityTemplates() category;
+    // picking an entry calls PanelContext::onCreateEntity with the template id.
     std::vector<Slate::MenuEntry> BuildPlaceActorsMenu(PanelContext& ctx);
-    void FillPlaceActors(Slate::MenuBuilder& b,
-                         const std::function<void(CreateActorKind)>& create);
     // Right-click menu for one entity row.
     std::vector<Slate::MenuEntry> BuildEntityMenu(Entity e, PanelContext& ctx);
+
+private:
+    void FillPlaceActors(Slate::MenuBuilder& b,
+                         const std::function<void(const std::string&)>& create);
 
     std::string m_entityFilter; // filters the outliner entity list by name
     u64 m_pressedRow = 0;       // row/button id currently mouse-held
@@ -82,17 +53,6 @@ private:
     f32 m_listScroll = 0.0f;             // entity-list vertical scroll offset
     TextureHandle m_createButtonIcon = 0;   // header create-button texture
     TextureHandle m_texSearchGlass = 0;     // search-box leading icon texture
-    TextureHandle m_texCatGeometry = 0;     // Geometry category-row icon
-    TextureHandle m_texCatLight = 0;        // Lights category-row icon
-    TextureHandle m_texCatEnvironment = 0;  // Environment category-row icon
-    TextureHandle m_texActorCube = 0;       // Cube primitive row icon
-    TextureHandle m_texActorPlane = 0;      // Plane primitive row icon
-    TextureHandle m_texActorSphere = 0;     // Sphere primitive row icon
-    TextureHandle m_texActorCylinder = 0;   // Cylinder primitive row icon
-    TextureHandle m_texActorDirLight = 0;   // Directional-light row icon
-    TextureHandle m_texActorPointLight = 0; // Point-light row icon
-    TextureHandle m_texActorSpotLight = 0;  // Spot-light row icon
-    TextureHandle m_texActorMesh = 0;       // Generic mesh-asset row icon
 };
 
 }  // namespace Luma::Editor::Panels

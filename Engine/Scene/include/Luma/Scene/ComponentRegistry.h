@@ -58,6 +58,12 @@ struct ComponentDesc {
     const TypeInfoBase* reflection = nullptr;
 
     std::vector<ComponentVariant> variants;
+
+    // World Outliner icon (an icon name) for an entity holding this component;
+    // may depend on the component's state (a light's type). Empty / unset = no
+    // icon. Among an entity's components the highest outlinerPriority wins.
+    std::function<std::string(const Scene&, Entity)> outlinerIcon;
+    i32 outlinerPriority = 0;
 };
 
 class ComponentRegistry {
@@ -108,6 +114,16 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry);
 // Registered components present on `entity`, in registration order.
 std::vector<const ComponentDesc*> ComponentsOf(const Scene& scene, Entity entity,
                                                const ComponentRegistry& registry = Components());
+
+// The outliner icon name of `entity`: the outlinerIcon of its highest-priority
+// component that provides one (empty when none does).
+std::string OutlinerIconFor(const Scene& scene, Entity entity,
+                            const ComponentRegistry& registry = Components());
+
+// A one-per-scene component the entity holds (the first in registration order),
+// or null. Such entities can't be duplicated.
+const ComponentDesc* OnePerSceneComponentOf(const Scene& scene, Entity entity,
+                                            const ComponentRegistry& registry = Components());
 
 // --- Components whose type is not registered ------------------------------------
 
