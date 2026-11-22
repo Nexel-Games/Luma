@@ -136,7 +136,8 @@ int main(int argc, char** argv) {
     }
 
     MaterialEditors::EditorIconSet icons;
-    icons.Load(*renderer, fs::path(LUMA_SOURCE_DIR) / "Content" / "Editor" / "MaterialEditor" / "Icons");
+    icons.Load(*renderer, fs::path(LUMA_SOURCE_DIR) / "Content" / "Editor" / "MaterialEditor" / "Icons",
+               ui.theme().accent);  // orange icon theme
     MaterialEditors::MaterialEditorServices services;
     services.icons = &icons;
     // Reference adapter for the editor hookup: PreviewRequest -> MaterialPreview::Render.

@@ -5,6 +5,7 @@
 
 #include "Luma/Core/Types.h"
 #include "Luma/RHI/Renderer.h"
+#include "Luma/Slate/Types.h"
 
 // The material editors' toolbar / preview / details icons: PNGs from the
 // Godot editor icons (ThirdParty/godot-icons, MIT) (staged at Content/Editor/MaterialEditor/Icons),
@@ -30,11 +31,15 @@ const char* EditorIconFile(EditorIcon icon);
 class EditorIconSet {
 public:
     // Loads every icon found in `directory`; returns how many loaded.
-    u32 Load(Renderer& renderer, const std::filesystem::path& directory);
+    // Monochrome icons are baked in `theme` (e.g. the editor accent).
+    u32 Load(Renderer& renderer, const std::filesystem::path& directory,
+             Slate::Color theme = Slate::Color::RGB(255, 255, 255));
+    Slate::Color Theme() const { return m_theme; }
     TextureHandle Get(EditorIcon icon) const { return m_textures[static_cast<usize>(icon)]; }
 
 private:
     std::array<TextureHandle, static_cast<usize>(EditorIcon::Count)> m_textures{};
+    Slate::Color m_theme = Slate::Color::RGB(255, 255, 255);
 };
 
 }  // namespace Luma::MaterialEditors

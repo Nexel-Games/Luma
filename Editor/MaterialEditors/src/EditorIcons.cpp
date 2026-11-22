@@ -40,7 +40,8 @@ bool EditorIconKeepsColor(EditorIcon icon) {
     }
 }
 
-u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directory) {
+u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directory, Slate::Color theme) {
+    m_theme = theme;
     u32 loaded = 0;
     for (usize i = 0; i < m_textures.size(); ++i) {
         const std::filesystem::path file = directory / EditorIconFile(static_cast<EditorIcon>(i));
@@ -58,7 +59,9 @@ u32 EditorIconSet::Load(Renderer& renderer, const std::filesystem::path& directo
             const f32 lum = (0.2126f * pixels[p] + 0.7152f * pixels[p + 1] + 0.0722f * pixels[p + 2]) / 255.0f;
             const f32 keep = std::clamp((lum - 0.12f) / 0.45f, 0.0f, 1.0f);
             pixels[p + 3] = static_cast<u8>(static_cast<f32>(pixels[p + 3]) * keep + 0.5f);
-            pixels[p] = pixels[p + 1] = pixels[p + 2] = 255;
+            pixels[p] = theme.r;
+            pixels[p + 1] = theme.g;
+            pixels[p + 2] = theme.b;
         }
         m_textures[i] = renderer.CreateTexture(w, h, pixels.data());
         if (m_textures[i] != 0) ++loaded;

@@ -196,8 +196,7 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
                       bool active) {
         const Rect r{x, y, w, h};
         const TextureHandle tex = IconTexture(m_services, png);
-        const Slate::Color tint = tex && EditorIconKeepsColor(png) ? Slate::Color::RGB(255, 255, 255)
-                                                                   : (active ? t.accent : t.text);
+        const Slate::Color tint = tex ? Slate::Color::RGB(255, 255, 255) : (active ? t.accent : t.text);
         const bool clicked = ToolButton(ui, Context::ID(std::string("mge.") + key + m_path), r, tex, icon, label, tint,
                                         active);
         ui.Tooltip(Context::ID(std::string("mge.tip.") + key), r, tip);
