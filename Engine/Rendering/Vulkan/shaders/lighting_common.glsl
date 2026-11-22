@@ -124,14 +124,18 @@ vec3 ReconstructWorldPos(vec2 uv, float depth) {
     return world.xyz / world.w;
 }
 
-vec3 SampleEnvironment(vec3 direction) {
+vec3 SampleEnvironmentLod(vec3 direction, float lod);
+vec3 SampleEnvironment(vec3 direction) { return SampleEnvironmentLod(direction, 0.0); }
+
+// `lod` > 0 reads a blurred mip (the preview background).
+vec3 SampleEnvironmentLod(vec3 direction, float lod) {
     const float PI = 3.14159265359;
     const float ENVIRONMENT_EXPOSURE = 1.6;
     direction = normalize(direction);
     float uCoord = 0.5 + atan(direction.z, direction.x) / (2.0 * PI);
     float vCoord = 0.5 - asin(clamp(direction.y, -1.0, 1.0)) / PI;
-    vec3 radiance = texture(
-        environmentMap, vec2(fract(uCoord), clamp(vCoord, 0.0, 1.0))).rgb;
+    vec3 radiance = textureLod(
+        environmentMap, vec2(fract(uCoord), clamp(vCoord, 0.0, 1.0)), lod).rgb;
     return max(radiance * ENVIRONMENT_EXPOSURE,
                vec3(0.018, 0.022, 0.028));
 }
@@ -381,11 +385,16 @@ vec3 LumaSurfaceLighting(vec3 worldPos, vec3 N, vec3 V, vec3 albedo, float metal
     vec3 Fenv = FresnelSchlickRough(NdotV, F0, roughness);
     vec3 kdIBL = (1.0 - Fenv) * (1.0 - metallic);
     if (lighting.params.w > 0.5) {
-        vec3 diffuseEnv = SampleEnvironment(N) * albedo * kdIBL;
-        vec3 reflectedEnv = SampleEnvironment(reflect(-V, N));
+        // Mip chain as a cheap prefilter: diffuse from a tiny mip, specular
+        // from a mip chosen by roughness (mip 0 only for mirrors).
+        float envTopMip = float(textureQueryLevels(environmentMap) - 1);
+        vec3 irradiance = SampleEnvironmentLod(N, max(envTopMip - 3.0, 0.0));
+        vec3 diffuseEnv = irradiance * albedo * kdIBL;
         float environmentRoughness = max(roughness, 0.08);
-        vec3 specularEnv = mix(reflectedEnv, SampleEnvironment(N),
-                                environmentRoughness) * Fenv;
+        vec3 reflectedEnv = SampleEnvironmentLod(reflect(-V, N),
+                                                 sqrt(environmentRoughness) * max(envTopMip - 2.0, 0.0));
+        vec3 specularEnv = mix(reflectedEnv, irradiance,
+                                environmentRoughness * environmentRoughness) * Fenv;
         ambient = (diffuseEnv + specularEnv) * iblScale * ao;
     } else {
         // Split-sum environment BRDF (Karis' analytic fit).

@@ -26,6 +26,8 @@ constexpr f32 kFovY = 0.5f;  // narrow lens: little perspective distortion
 // Thumbnails view the actor slightly from above and to the side.
 constexpr f32 kThumbnailYaw = 0.6f;
 constexpr f32 kThumbnailPitch = 0.3f;
+// The preview floor (engine content; Content/Engine/Materials/M_GridBox.lmat).
+constexpr std::string_view kFloorMaterial = "/Engine/Materials/M_GridBox";
 
 MeshPrimitive ToPrimitive(PreviewShape shape) {
     switch (shape) {
@@ -44,6 +46,7 @@ MaterialPreview::MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
     : m_renderer(renderer), m_library(library) {
     m_actor = m_scene.CreateEntity("PreviewActor");
     m_scene.Registry().emplace<MeshRendererComponent>(m_actor);
+    m_floor = m_scene.CreateEntity("PreviewFloor");
 
     m_view.sky.enabled = true;
     // A lone actor has nothing to shadow; cascades fitted to such a small
@@ -61,9 +64,7 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
                                   f32 deltaSeconds) {
     width = std::max(width, 1u);
     height = std::max(height, 1u);
-    m_bridge.Sync(m_scene, m_renderer, m_library);
-    m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
-    m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
+    m_bridge.Sync(m_scene, m_renderer, m_library);  // loads the actor's mesh (bounds)
 
     // Frame the actor's bounding sphere.
     const auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
@@ -76,6 +77,29 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
             radius = std::max(std::sqrt(Math::Dot(extent, extent)), 1e-3f);
         }
     }
+    // Floor: a flat M_GridBox cube whose top touches the bottom of the actor.
+    {
+        auto& reg = m_scene.Registry();
+        if (m_showFloor) {
+            f32 bottom = center.y - 0.5f;  // unit primitives span [-0.5, 0.5]
+            if (mr.UsesMeshAsset()) {
+                if (const Editor::MeshBounds* b = m_bridge.Bounds(mr.mesh)) bottom = b->min.y;
+            }
+            const f32 size = radius * 8.0f, thickness = radius * 0.1f;
+            auto& floorMesh = reg.emplace_or_replace<MeshRendererComponent>(m_floor);
+            floorMesh.primitive = MeshPrimitive::Cube;
+            floorMesh.materials = {std::string(kFloorMaterial)};
+            auto& xf = reg.get_or_emplace<TransformComponent>(m_floor);
+            xf.position = {center.x, bottom - thickness * 0.5f - 0.001f, center.z};
+            xf.scale = {size, thickness, size};
+        } else {
+            reg.remove<MeshRendererComponent>(m_floor);
+        }
+    }
+    // Again with the floor placed: its material becomes resident too.
+    m_bridge.Sync(m_scene, m_renderer, m_library);
+    m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
+    m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
     const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
     const f32 halfFov = std::min(kFovY, 2.0f * std::atan(std::tan(kFovY * 0.5f) * aspect)) * 0.5f;
     const f32 distance = radius / std::sin(halfFov) * 1.08f;
@@ -122,15 +146,18 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
 }
 
 TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShape shape,
-                                      f32 yaw, f32 pitch, u32 width, u32 height, bool sky) {
+                                      f32 yaw, f32 pitch, u32 width, u32 height, bool sky,
+                                      bool floor) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.mesh.clear();
     mr.primitive = ToPrimitive(shape);
     mr.materials = {std::string(materialPath)};
     m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
+    m_showFloor = floor;
     // Interactive: exposure adapts over frames like the viewport.
     RenderFrame(yaw, pitch, width, height, 1.0f / 60.0f);
     m_view.sky.enabled = true;  // thumbnails always use the sky
+    m_showFloor = false;        // ... and no floor
     return m_renderer.GetViewportTextureHandle();
 }
 

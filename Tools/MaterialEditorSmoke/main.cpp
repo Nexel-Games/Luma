@@ -18,6 +18,7 @@
 #include "Luma/Platform/Window.h"
 #include "Luma/RHI/VulkanRenderer.h"
 #include "Luma/Slate/Context.h"
+#include "MaterialPreview.h"
 
 using namespace Luma;
 namespace fs = std::filesystem;
@@ -61,6 +62,7 @@ Material::GraphMaterial MakeMaterial() {
     g.Find(out)->position = {400, 0};
     const NodeId uv = node("TextureCoordinate", -700, 40);
     const NodeId tex = node("TextureSample", -420, 0);
+    g.Find(tex)->properties["texture"] = PropertyValue("/Engine/Textures/GridBox/GridBox_BaseColor");
     const NodeId tint = node("VectorParameter", -420, 260);
     g.Find(tint)->properties["name"] = PropertyValue("Tint");
     g.Find(tint)->properties["group"] = PropertyValue("Surface");
@@ -126,10 +128,21 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "font init failed\n");
         return 1;
     }
-    const TextureHandle preview = MakeStandInPreview(*renderer);
+    const TextureHandle standIn = MakeStandInPreview(*renderer);
+    // The real preview scene when the Vulkan material renderer exists.
+    std::unique_ptr<MaterialPreview> gpuPreview;
+    if (void* r = renderer->GetVulkanMaterialDeferredRenderer()) {
+        gpuPreview = std::make_unique<MaterialPreview>(*static_cast<Rendering::VulkanDeferredRenderer*>(r), library);
+    }
 
     MaterialEditors::MaterialEditorServices services;
-    services.renderPreview = [preview](const MaterialEditors::PreviewRequest&) { return preview; };
+    // Reference adapter for the editor hookup: PreviewRequest -> MaterialPreview::Render.
+    services.renderPreview = [&](const MaterialEditors::PreviewRequest& q) -> TextureHandle {
+        if (!gpuPreview) return standIn;
+        const int shape = std::min(static_cast<int>(q.shape), 3);
+        return gpuPreview->Render(q.materialPath, static_cast<Luma::PreviewShape>(shape), q.yaw, q.pitch, q.width,
+                                  q.height, q.sky, q.floor);
+    };
     services.listMaterials = [] {
         return std::vector<std::string>{"/Game/Materials/M_Brick", "/Game/Materials/MI_Brick_Red"};
     };

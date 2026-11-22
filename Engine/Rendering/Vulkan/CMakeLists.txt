@@ -77,7 +77,7 @@ target_include_directories(LumaRenderVulkan
 
 target_link_libraries(LumaRenderVulkan
     PUBLIC Luma::Core Luma::RHI Luma::Platform
-    PRIVATE Vulkan::Vulkan Luma::Math Luma::Mesh)
+    PRIVATE Vulkan::Vulkan Luma::Math Luma::Mesh Luma::Asset)
 
 # Let the engine locate the SDK's validation layer even when it isn't registered
 # with the loader (common on machines without VULKAN_SDK set globally).
