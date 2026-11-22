@@ -114,12 +114,13 @@ void FileSystemTreePanel::DrawFolderRow(Slate::Context& ui,
                                         f32& y, int depth, bool selected,
                                         bool hasChildren, bool expanded) {
     (void)selected;  // Used by Selectable
-    constexpr f32 kIconSize = 16.0f;
-    constexpr f32 kArrowW = 12.0f;
+    constexpr f32 kIconSize = 22.0f;
+    constexpr f32 kArrowW = 18.0f;
+    constexpr f32 kArrowIcon = 14.0f;
     const Slate::Color kFolderOrange{255, 178, 92, 255};
     const Slate::Theme& t = ui.theme();
     
-    f32 indent = 4.0f + depth * 14.0f;
+    f32 indent = 4.0f + depth * 16.0f;
     f32 arrowX = panel.x + indent;
     f32 iconX = panel.x + indent + kArrowW;
     f32 labelX = iconX + kIconSize + t.space.sm;
@@ -150,12 +151,13 @@ void FileSystemTreePanel::DrawFolderRow(Slate::Context& ui,
             arrowPressedPath.clear();
         }
 
+        // Square chevrons (Luma icon pack), centred in the arrow column.
+        const Rect ar{arrowX + (kArrowW - kArrowIcon) * 0.5f, y + (kRowH - kArrowIcon) * 0.5f, kArrowIcon,
+                      kArrowIcon};
         if (expanded && m_retractTex) {
-            Rect ar{arrowX, y + (kRowH - 5.0f) * 0.5f, 10.0f, 5.0f};
-            ui.Image(m_retractTex, ar, t.textDim);
+            ui.Image(m_retractTex, ar, arrowHover ? t.text : t.textDim);
         } else if (!expanded && m_expandTex) {
-            Rect ar{arrowX, y + (kRowH - 8.0f) * 0.5f, 8.0f, 8.0f};
-            ui.Image(m_expandTex, ar, t.textDim);
+            ui.Image(m_expandTex, ar, arrowHover ? t.text : t.textDim);
         }
     } else {
         // No children - still show the folder row but without arrow

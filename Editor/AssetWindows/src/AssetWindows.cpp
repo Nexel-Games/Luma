@@ -189,7 +189,7 @@ void AssetWindowManager::DrawRow(Context& ui, const Rect& row) {
         const Window* w = Find(id);
         if (!w) continue;
         const std::string title = Title(id);
-        const f32 tw = std::min(ui.uiFont().Measure(title).x + 54.0f, 260.0f);
+        const f32 tw = std::min(ui.uiFont().Measure(title).x + 58.0f, 280.0f);
         const Rect tab{x, y, tw, h};
         const bool active = m_active == id;
         const bool minimized = w->state == AssetWindowState::Minimized;
@@ -198,8 +198,8 @@ void AssetWindowManager::DrawRow(Context& ui, const Rect& row) {
         if (active) ui.drawList().AddRectOutlineRounded(tab, t.accent, 1.5f, 4.0f);
         f32 tx = tab.x + 8.0f;
         if (w->desc.icon) {
-            ui.Image(w->desc.icon, {tx, tab.y + (tab.h - 14.0f) * 0.5f, 14.0f, 14.0f});
-            tx += 18.0f;
+            ui.Image(w->desc.icon, {tx, tab.y + (tab.h - 18.0f) * 0.5f, 18.0f, 18.0f});
+            tx += 23.0f;
         }
         ui.LabelIn({tx, tab.y, tab.Right() - tx - 22.0f, tab.h}, title, minimized ? t.textDim : t.text);
         const Rect close{tab.Right() - 20.0f, tab.y + (tab.h - 16.0f) * 0.5f, 16.0f, 16.0f};

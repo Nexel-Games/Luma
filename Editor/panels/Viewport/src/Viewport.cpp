@@ -72,14 +72,14 @@ bool DropPill(Slate::Context& ui, u64 id, const Slate::Rect& r, TextureHandle te
     }
     const Slate::Font& f = ui.uiFont();
     ui.drawList().AddText(f, {x, r.y + (r.h - f.LineHeight()) * 0.5f}, label, t.text);
-    Slate::DrawIcon(ui, {r.Right() - 17.0f, r.y + (r.h - 10.0f) * 0.5f, 10.0f, 10.0f},
+    Slate::DrawIcon(ui, {r.Right() - 20.0f, r.y + (r.h - 14.0f) * 0.5f, 14.0f, 14.0f},
                     Icon::ChevronDown, t.textDim);
     return clicked;
 }
 
 f32 DropPillWidth(Slate::Context& ui, std::string_view label, f32 iconW) {
     return 7.0f + (iconW > 0.0f ? iconW + 6.0f : 0.0f) + ui.uiFont().Measure(label).x + 8.0f +
-           17.0f;
+           20.0f;
 }
 
 // Square icon button; `active` = selected tool / enabled toggle (accent fill).
@@ -411,7 +411,7 @@ Slate::Rect ViewportPanel::DrawTransformToolbar(Slate::Context& ui, const Slate:
         const Slate::Font& f = ui.uiFont();
         ui.drawList().AddText(f, {valueR.x + 6.0f, y + (kPillH - f.LineHeight()) * 0.5f},
                               snapLabels[i], *enabled ? t.text : t.textDim);
-        Slate::DrawIcon(ui, {valueR.Right() - 17.0f, y + (kPillH - 10.0f) * 0.5f, 10.0f, 10.0f},
+        Slate::DrawIcon(ui, {valueR.Right() - 19.0f, y + (kPillH - 14.0f) * 0.5f, 14.0f, 14.0f},
                         Icon::ChevronDown, hot ? t.text : t.textDim);
         x = group.Right() + kGroupGap;
     }

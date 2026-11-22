@@ -57,7 +57,7 @@ private:
     // Vertical scroll offset of the folder list (px).
     f32 m_scroll = 0.0f;
     
-    static constexpr f32 kRowH = 24.0f;
+    static constexpr f32 kRowH = 28.0f;
     
     void EnsureRevealed(const std::filesystem::path& folder);
     bool HasChildFolders(const std::filesystem::path& path) const;

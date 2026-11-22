@@ -53,9 +53,10 @@ Theme DarkTheme() {
     t.listRowAlt = Color::RGB(20, 20, 20);    // Unreal Outliner striping
     t.outline = Color::RGB(61, 61, 61);
     t.focusRing = t.accent;
-    t.text = Color::RGB(204, 204, 204);    // Starship Foreground (+ legibility)
-    t.textDim = Color::RGB(140, 140, 140);
-    t.textDisabled = Color::RGB(92, 92, 92);
+    // Bright, slightly warm foreground: crisp on the dark chrome.
+    t.text = Color::RGB(236, 233, 228);
+    t.textDim = Color::RGB(176, 172, 166);
+    t.textDisabled = Color::RGB(108, 106, 102);
     // Selection = the accent, deep enough for white text on top.
     t.selectionBg = Color::RGB(186, 98, 8);
     t.selectionText = Color::RGB(255, 255, 255);

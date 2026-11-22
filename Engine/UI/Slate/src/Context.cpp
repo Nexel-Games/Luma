@@ -277,7 +277,7 @@ int Context::Combo(u64 id, const Rect& rect,
                                 m_theme.radius.sm);
     m_draw.AddRectFilledRounded(rect.Inset(1.0f, 1.0f), fill,
                                 std::max(0.0f, m_theme.radius.sm - 1.0f));
-    const f32 chevron = 12.0f;
+    const f32 chevron = 15.0f;
     const std::string_view label =
         (result >= 0 && result < static_cast<int>(items.size()))
             ? std::string_view(items[static_cast<usize>(result)])
@@ -1300,7 +1300,7 @@ bool Context::CollapsingHeader(u64 id, const Rect& rect, std::string_view label,
         m_draw.AddRectFilledRounded(rect, m_theme.surface3,
                                     m_theme.radius.md);
     }
-    DrawIcon(*this, {rect.x + m_theme.space.lg - 4, rect.y + (rect.h - 12) * 0.5f, 12, 12},
+    DrawIcon(*this, {rect.x + m_theme.space.lg - 5, rect.y + (rect.h - 15) * 0.5f, 15, 15},
              open ? Icon::ChevronDown : Icon::ChevronRight, open ? m_theme.text : m_theme.textDim);
     m_draw.AddText(
         m_uiFont,

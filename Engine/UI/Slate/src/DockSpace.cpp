@@ -242,9 +242,13 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
         std::string title = it != m_panels.end() ? it->second.title : id;
         const TextureHandle tabIcon = it != m_panels.end() ? it->second.icon : 0;
         const bool closable = it != m_panels.end() && it->second.onClose;
-        constexpr f32 kTabIcon = 14.0f;
-        const f32 iconSpace = tabIcon ? kTabIcon + 6.0f : 0.0f;
-        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f + iconSpace;
+        constexpr f32 kTabIcon = 18.0f;
+        constexpr f32 kTabPadL = 10.0f;   // tab edge -> icon
+        constexpr f32 kIconGap = 6.0f;    // icon -> title
+        constexpr f32 kTabPadR = 14.0f;   // title -> tab edge
+        const f32 iconSpace = tabIcon ? kTabIcon + kIconGap : 0.0f;
+        const f32 titleW = ctx.uiFont().Measure(title).x;
+        f32 tabW = kTabPadL + iconSpace + titleW + kTabPadR;
         Rect tab{tx, rect.y + 3.0f, tabW, kTabBarH - 3.0f};
         bool active = (i == n->active);
         bool hovered = tab.Contains(ctx.mouse());
@@ -261,14 +265,21 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
         }
         // Center the title across the full tab width so long panel names like
         // "World Outliner" don't visually drift to the right edge.
+        // Icon then title, left to right with a small gap.
         if (tabIcon) {
             ctx.Image(tabIcon,
-                      {tab.x + 12.0f, tab.y + (tab.h - kTabIcon) * 0.5f + 1.0f, kTabIcon,
+                      {tab.x + kTabPadL, tab.y + (tab.h - kTabIcon) * 0.5f + 1.0f, kTabIcon,
                        kTabIcon},
                       active ? t.text : t.textDim);
         }
-        ctx.Heading({tab.x + iconSpace, tab.y + 1.0f, tabW - iconSpace, tab.h},
-                    title, active ? t.text : t.textDim);
+        {
+            const Slate::Font& font = ctx.uiFont();
+            const f32 textX = tab.x + kTabPadL + iconSpace;
+            ctx.drawList().PushClip(tab);
+            ctx.drawList().AddText(font, {textX, tab.y + 1.0f + (tab.h - font.LineHeight()) * 0.5f}, title,
+                                   active ? t.text : t.textDim);
+            ctx.drawList().PopClip();
+        }
         // Tabs carry no close button: a middle click closes a closable tab
         // (panels reopen from the Window menu).
         bool closeClicked = false;

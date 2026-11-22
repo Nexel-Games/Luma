@@ -23,7 +23,7 @@ struct Spacing {
 };
 struct Sizing {
     f32 controlSm = 20.0f, controlMd = 24.0f, controlLg = 28.0f;
-    f32 iconSm = 14.0f, iconMd = 16.0f, iconLg = 20.0f;
+    f32 iconSm = 16.0f, iconMd = 18.0f, iconLg = 22.0f;
 };
 struct Radii {
     f32 none = 0.0f, sm = 3.0f, md = 6.0f, lg = 10.0f, pill = 999.0f;
