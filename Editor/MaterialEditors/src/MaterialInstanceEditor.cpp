@@ -166,7 +166,7 @@ f32 MaterialInstanceEditor::DrawParameter(Context& ui, const InstanceParameter& 
                 labels.push_back(AssetName(v.texture));
                 current = static_cast<int>(items.size() - 1);
             }
-            const int picked = ui.Combo(Context::ID(key + ".v"), field, labels, current);
+            const int picked = GraphEditor::DarkCombo(ui, Context::ID(key + ".v"), field, labels, current);
             if (picked != current && picked >= 0) {
                 v.texture = items[static_cast<usize>(picked)];
                 changed = true;

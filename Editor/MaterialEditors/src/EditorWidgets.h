@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "Luma/GraphEditor/DarkCombo.h"
 #include "Luma/MaterialEditors/EditorServices.h"
 #include "Luma/Slate/Context.h"
 
@@ -35,6 +36,7 @@ inline bool Section(Slate::Context& ui, std::string_view id, std::string_view la
     const bool clicked = ui.CollapsingHeader(Slate::Context::ID(id), {x, y, w, kHeaderH - 2.0f}, label, open);
     ui.Panel({x, y + kHeaderH - 1.0f, w, 1.0f}, kDividerColor);  // line under the header
     y += kHeaderH;
+    if (open) y += 4.0f;  // breathing room before the first property
     return clicked;
 }
 
@@ -62,7 +64,7 @@ inline std::string PickString(Slate::Context& ui, u64 id, const Slate::Rect& rec
         shown.insert(shown.begin(), current.empty() ? std::string("None") : current);
         index = 0;
     }
-    const int picked = ui.Combo(id, rect, shown, index);
+    const int picked = GraphEditor::DarkCombo(ui, id, rect, shown, index);
     if (picked != index && picked >= 0 && picked < static_cast<int>(shown.size())) return shown[picked];
     return {};
 }

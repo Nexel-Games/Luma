@@ -4,6 +4,7 @@
 #include <cctype>
 #include <sstream>
 
+#include "Luma/GraphEditor/DarkCombo.h"
 #include "Luma/GraphEditor/GraphEditorWidget.h"
 
 namespace Luma::GraphEditor {
@@ -60,7 +61,7 @@ void GraphPalette::Draw(Slate::Context& ui, const Slate::Rect& rect, const std::
         for (usize i = 1; i < cats.size(); ++i)
             if (cats[i] == m_category) current = static_cast<int>(i);
         ui.LabelIn({rect.x + 6.0f, rect.y + 4.0f, 64.0f, 22.0f}, "Category:", t.textDim);
-        const int picked = ui.Combo(Context::ID(m_id + ".category"), {rect.x + 72.0f, rect.y + 4.0f, rect.w - 78.0f, 22.0f},
+        const int picked = DarkCombo(ui, Context::ID(m_id + ".category"), {rect.x + 72.0f, rect.y + 4.0f, rect.w - 78.0f, 22.0f},
                                     cats, current);
         if (picked != current && picked >= 0) m_category = picked == 0 ? std::string() : cats[static_cast<usize>(picked)];
         if (!m_category.empty())

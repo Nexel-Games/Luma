@@ -26,7 +26,7 @@ usize CountLines(const std::string& s) { return static_cast<usize>(std::count(s.
 template <typename E>
 bool EnumCombo(Context& ui, u64 id, const Rect& r, const std::vector<std::string>& names, E& value) {
     const int cur = static_cast<int>(value);
-    const int picked = ui.Combo(id, r, names, cur);
+    const int picked = GraphEditor::DarkCombo(ui, id, r, names, cur);
     if (picked == cur || picked < 0) return false;
     value = static_cast<E>(picked);
     return true;
@@ -370,7 +370,7 @@ void MaterialGraphEditor::DrawNodeProperties(Context& ui, MaterialGraph::NodeId 
             }
             case PropertyDesc::Kind::Enum: {
                 const int cur = static_cast<int>(v.AsInt());
-                const int picked = ui.Combo(wid, r, p.enumValues, cur);
+                const int picked = GraphEditor::DarkCombo(ui, wid, r, p.enumValues, cur);
                 if (picked != cur && picked >= 0) commit(p.key, PropertyValue(static_cast<i64>(picked)));
                 break;
             }
