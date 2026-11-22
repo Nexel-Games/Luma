@@ -27,7 +27,7 @@ target_link_libraries(LumaEditor
             Luma::PanelFileSystemTree Luma::PanelBackgroundTasks Luma::Jobs Luma::Tasks
             Luma::PanelProjectSettings Luma::PanelPreferences
             Luma::Material Luma::AssetImport Luma::MaterialBridge Luma::PanelMaterialEditor
-            Luma::MaterialEditors Luma::GraphEditor
+            Luma::MaterialEditors Luma::GraphEditor Luma::AssetWindows
             Vulkan::Vulkan)  # main.cpp drives VulkanDeferredRenderer directly
 
 set_target_properties(LumaEditor PROPERTIES

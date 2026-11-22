@@ -1089,6 +1089,16 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
             if (auto current = AssetTypes().Find(id); current && current->open) current->open(path, openContext);
         }, options);
     }
+    if (isMaterial && !virtualPath.empty() && ctx.onOpenAssetWith) {
+        auto openWith = ctx.onOpenAssetWith;
+        const std::string materialIcon = desc->icon;
+        b.AddSubMenu("Open With", Icon::Browse, [openWith, virtualPath, materialIcon](Slate::MenuBuilder& sub) {
+            sub.AddEntry("Instance Editor", Icon::MaterialInstance,
+                         [openWith, virtualPath] { openWith(virtualPath, "instance"); });
+            sub.AddEntry("Material Editor", MenuIconByName(materialIcon),
+                         [openWith, virtualPath] { openWith(virtualPath, "material"); });
+        });
+    }
     if (isMaterial && !virtualPath.empty()) {
         auto create = ctx.onCreateMaterialInstance;
         Slate::MenuEntryOptions oi;

@@ -349,7 +349,7 @@ void EditorScreen::DockMaterialEditor(Editor::Panels::MaterialEditorPanel* raw) 
             return false;
         }
         raw->ClosePopups();
-        m_editorsToDelete.push_back(assetPath);
+        m_editorsToDelete.push_back("mated:" + assetPath);
         return true;
     });
 }
@@ -426,44 +426,69 @@ bool EditorScreen::SaveGraphEditor(const std::string& assetPath, std::string* er
     return false;
 }
 
-bool EditorScreen::OpenGraphMaterialEditor(const std::string& assetPath) {
-    const std::string id = "graphmated:" + assetPath;
-    if (m_dock.HasPanel(id)) {
-        m_dock.FocusPanel(id);
+bool EditorScreen::OpenGraphMaterialEditor(const std::string& assetPath, const std::string& which) {
+    const bool isInstance = m_materials->GetGraphInstance(assetPath) != nullptr;
+    const bool isMaterial = !isInstance && m_materials->GetGraphMaterial(assetPath) != nullptr;
+    if (!isInstance && !isMaterial) return false;  // legacy asset: the Phase-1 panel
+    // Default (double-click) = the Instance Editor; "material" = the node graph.
+    // The node graph of an instance is its root material's.
+    std::string target = assetPath;
+    const bool graph = which == "material";
+    if (graph && isInstance) {
+        MaterialEditors::InstanceParameterModel model(assetPath, *m_materials);
+        target = model.RootMaterial();
+        if (target.empty() || !m_materials->GetGraphMaterial(target)) {
+            LUMA_USER_ERROR("Materials", "'{}' has no graph material at the root of its parent chain", assetPath);
+            return true;
+        }
+    }
+    const std::string id = (graph ? "material:" : "instance:") + target;
+    const Rect work = m_windowWorkArea;
+    if (m_windows.Has(id)) {
+        m_windows.Focus(id);
         return true;
     }
-    const bool instance = m_materials->GetGraphInstance(assetPath) != nullptr;
-    const bool material = !instance && m_materials->GetGraphMaterial(assetPath) != nullptr;
-    if (!instance && !material) return false;  // legacy asset: the Phase-1 panel
     MaterialEditors::MaterialEditorServices services = MakeMaterialEditorServices();
-    std::function<std::string()> title;
+    Editor::AssetWindowDesc desc;
+    desc.id = id;
     std::function<bool()> dirty;
-    if (instance) {
-        auto editor = std::make_unique<MaterialEditors::MaterialInstanceEditor>(assetPath, *m_materials, services);
+    if (!graph) {
+        auto editor = std::make_unique<MaterialEditors::MaterialInstanceEditor>(target, *m_materials, services);
         MaterialEditors::MaterialInstanceEditor* raw = editor.get();
         m_instanceEditors.push_back(std::move(editor));
-        m_dock.AddPanel(id, raw->Title(), [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); },
-                        m_icons.tabDetails);
+        desc.draw = [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); };
+        desc.drawFloating = [raw](Slate::Context& c) { raw->DrawFloating(c); };
+        desc.liveTitle = [raw] { return raw->Title(); };
+        desc.title = raw->Title();
+        desc.icon = m_icons.tabDetails;
         dirty = [raw] { return raw->IsDirty(); };
+        desc.onClosed = [this, raw] {
+            m_editorsToDelete.push_back("instance:" + raw->AssetPath());
+        };
     } else {
-        auto editor = std::make_unique<MaterialEditors::MaterialGraphEditor>(assetPath, *m_materials, services);
+        auto editor = std::make_unique<MaterialEditors::MaterialGraphEditor>(target, *m_materials, services);
         MaterialEditors::MaterialGraphEditor* raw = editor.get();
         m_graphEditors.push_back(std::move(editor));
-        m_dock.AddPanel(id, raw->Title(), [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); },
-                        m_icons.tabDetails);
+        desc.draw = [raw](Slate::Context& c, const Rect& r) { raw->Draw(c, r); };
+        desc.drawFloating = [raw](Slate::Context& c) { raw->DrawFloating(c); };
+        desc.liveTitle = [raw] { return raw->Title(); };
+        desc.title = raw->Title();
+        desc.icon = m_icons.tabDetails;
         dirty = [raw] { return raw->IsDirty() || raw->HasUnappliedChanges(); };
+        desc.onClosed = [this, raw] {
+            m_editorsToDelete.push_back("material:" + raw->AssetPath());
+        };
     }
-    m_dock.DockWith(id, "viewport", Slate::DockDir::Center, 0.5f);
-    m_dock.SetCloseHandler(id, [this, assetPath, dirty] {
+    desc.requestClose = [this, target, id, dirty] {
         if (dirty()) {
-            m_closingEditor = assetPath;  // ask Save / Don't Save / Cancel
+            m_closingEditor = target;  // ask Save / Don't Save / Cancel
+            m_closingWindow = id;
             return false;
         }
-        m_editorsToDelete.push_back(assetPath);
         return true;
-    });
-    LUMA_USER_INFO("Materials", "Opened '{}' in the {}", assetPath,
-                   instance ? "Material Instance Editor" : "Material Editor");
+    };
+    m_windows.Open(std::move(desc), work);
+    LUMA_USER_INFO("Materials", "Opened '{}' in the {}", target, graph ? "Material Editor" : "Material Instance Editor");
     return true;
 }
 
@@ -484,9 +509,14 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
         for (const auto& e : m_materialEditors) {
             if (e->AssetPath() == path) e->ClosePopups();
         }
-        m_dock.ClosePanel((IsGraphEditor(path) ? "graphmated:" : "mated:") + path);
-        m_editorsToDelete.push_back(path);
+        if (!m_closingWindow.empty()) {
+            m_windows.Close(m_closingWindow);  // onClosed queues the editor
+        } else {
+            m_dock.ClosePanel("mated:" + path);
+            m_editorsToDelete.push_back("mated:" + path);
+        }
         m_closingEditor.clear();
+        m_closingWindow.clear();
     };
     if (ui.Button(id ^ 0x5A5Eull, save, "Save")) {
         std::string err;
@@ -498,6 +528,7 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
         } else {
             LUMA_USER_ERROR("Materials", "Failed to save '{}': {}", m_closingEditor, err);
             m_closingEditor.clear();
+            m_closingWindow.clear();
         }
         ui.EndModal();
     } else if (ui.Button(id ^ 0xD15Cull, discard, "Don't Save")) {
@@ -507,6 +538,7 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
         ui.EndModal();
     } else if (ui.Button(id ^ 0xCA9Cull, cancel, "Cancel")) {
         m_closingEditor.clear();
+        m_closingWindow.clear();
         ui.EndModal();
     }
 }
@@ -1009,6 +1041,9 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
         return out;
     };
     ctx.onOpenAsset = [this](const std::string& path) { OpenMaterialEditor(path); };
+    ctx.onOpenAssetWith = [this](const std::string& path, const std::string& editor) {
+        if (!OpenGraphMaterialEditor(path, editor)) OpenMaterialEditor(path);
+    };
     ctx.virtualPathOf = [this](const std::filesystem::path& file) {
         return m_assetPaths.ToVirtual(file).value_or(std::string{});
     };
@@ -2001,21 +2036,34 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     ui.Heading({pill.x + 24.0f - t.space.lg, pill.y, nameW + t.space.lg * 2.0f, pill.h},
                projName, t.text);
 
-    Rect toolbar{0, 32, width, 36};
+    // Window row (asset editor windows dock here; Home = the level editor).
+    constexpr f32 kRowH = Editor::AssetWindowManager::kRowH;
+    constexpr f32 kStatusBarH = 24.0f;
+    const Rect windowRow{0, 32, width, kRowH};
+    const f32 top = windowRow.Bottom();  // toolbar starts under the row
+    m_windowWorkArea = {0, top, width, height - top - kStatusBarH};
+    m_windows.DrawRow(ui, windowRow);
+    // A floating window over the editor below it owns the pointer.
+    const Slate::Vec2 realMouse = ui.mouse();
+    const bool covered = m_windows.CapturesPointer(realMouse);
+    if (covered) ui.WarpMouse(-100000.0f, -100000.0f);
+    const bool home = !m_windows.DrawDocked(ui, m_windowWorkArea);
+    if (home) {
+    Rect toolbar{0, top, width, 36};
     ui.GradientRect(toolbar, t.surface1, t.surface0);
-    ui.Panel({0, 67, width, 1}, t.separator);
+    ui.Panel({0, top + 35.0f, width, 1}, t.separator);
     // Left side of the main toolbar: Save (Ctrl+S), like Unreal's toolbar.
     if (m_icons.save) {
-        const Rect saveR{10, 35, 30, 28};
+        const Rect saveR{10, top + 3.0f, 30, 28};
         if (ui.IconButton(Slate::Context::ID("toolbar.save"), saveR, m_icons.save)) {
             SaveScene();
         }
         ui.Tooltip(Slate::Context::ID("tip.save"), saveR,
                    "Save Scene (Ctrl+S)\nWrite the open scene to disk.");
     }
-    const Rect playR{width / 2 - 46, 35, 30, 28};
-    const Rect pauseR{width / 2 - 14, 35, 30, 28};
-    const Rect stopR{width / 2 + 18, 35, 30, 28};
+    const Rect playR{width / 2 - 46, top + 3.0f, 30, 28};
+    const Rect pauseR{width / 2 - 14, top + 3.0f, 30, 28};
+    const Rect stopR{width / 2 + 18, top + 3.0f, 30, 28};
     if (ui.IconButton(Slate::Context::ID("play"), playR, m_iconPlay)) BeginPlay();
     if (ui.IconButton(Slate::Context::ID("pause"), pauseR, m_iconPause)) m_runner.SetPaused(!m_runner.Paused());
     if (ui.IconButton(Slate::Context::ID("stop"), stopR, m_iconStop)) StopPlay();
@@ -2034,23 +2082,26 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     for (const auto& editor : m_materialEditors) {
         m_dock.SetTitle("mated:" + editor->AssetPath(), editor->Title());
     }
-    for (const auto& editor : m_graphEditors) m_dock.SetTitle("graphmated:" + editor->AssetPath(), editor->Title());
-    for (const auto& editor : m_instanceEditors) m_dock.SetTitle("graphmated:" + editor->AssetPath(), editor->Title());
     for (const auto& editor : m_materialEditors) editor->BeginFrame();
-    constexpr f32 kStatusBarH = 24.0f;
-    m_dock.Draw(ui, {0, 68.0f, width, height - 68.0f - kStatusBarH});
+    m_dock.Draw(ui, {0, top + 36.0f, width, height - top - 36.0f - kStatusBarH});
+    }  // home
+    if (covered) ui.WarpMouse(realMouse.x, realMouse.y);
     m_panelHost->Sync();  // follow panel (un)registrations; after the dock applied closes
     // Status bar: background-task indicator on the right (Unreal-style).
     const Rect statusBar{0, height - kStatusBarH, width, kStatusBarH};
     ui.Panel(statusBar, t.surface1);
     ui.Panel({0, statusBar.y, width, 1.0f}, t.separator);
     if (m_tasks) m_backgroundTasks.DrawStatusIndicator(ui, statusBar, *m_tasks);
-    // Tabs closed during the dock draw are freed now (the dock dropped them).
-    for (const std::string& path : m_editorsToDelete) {
-        std::erase_if(m_materialEditors,
-                      [&](const auto& e) { return e->AssetPath() == path; });
-        std::erase_if(m_graphEditors, [&](const auto& e) { return e->AssetPath() == path; });
-        std::erase_if(m_instanceEditors, [&](const auto& e) { return e->AssetPath() == path; });
+    // Floating asset editor windows sit above the level editor.
+    m_windows.DrawFloating(ui, m_windowWorkArea);
+    // Editors closed this frame are freed now (ids: "mated:" / "instance:" / "material:" + path).
+    for (const std::string& key : m_editorsToDelete) {
+        const auto colon = key.find(':');
+        const std::string kind = key.substr(0, colon), path = key.substr(colon + 1);
+        auto same = [&](const auto& e) { return e->AssetPath() == path; };
+        if (kind == "mated") std::erase_if(m_materialEditors, same);
+        if (kind == "material") std::erase_if(m_graphEditors, same);
+        if (kind == "instance") std::erase_if(m_instanceEditors, same);
     }
     m_editorsToDelete.clear();
     HandleShortcuts(ui);
@@ -2079,8 +2130,6 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         auto ctx = BuildPanelContext();
         m_inspectorPanel.DrawFloatingPickers(ui, ctx);
         for (const auto& editor : m_materialEditors) editor->DrawFloatingPickers(ui);
-        for (const auto& editor : m_graphEditors) editor->DrawFloating(ui);
-        for (const auto& editor : m_instanceEditors) editor->DrawFloating(ui);
     }
     if (m_tasks) m_backgroundTasks.DrawPanel(ui, *m_tasks);
     m_projectSettings.Draw(ui, width, height);

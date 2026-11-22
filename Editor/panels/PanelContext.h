@@ -149,6 +149,9 @@ struct PanelContext {
     std::function<std::vector<std::string>()> listMaterials;
     // Opens an asset's editor (e.g. a Material Editor tab).
     std::function<void(const std::string& assetPath)> onOpenAsset;
+    // Opens an asset in a named editor ("instance" = Material Instance
+    // Editor, "material" = node-graph Material Editor): Open With.
+    std::function<void(const std::string& assetPath, const std::string& editor)> onOpenAssetWith;
     // Shows an asset in the Content Browser.
     std::function<void(const std::string& assetPath)> onBrowseToAsset;
     // Virtual path of the Content Browser's selected asset ("" when none).

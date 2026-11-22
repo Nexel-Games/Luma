@@ -34,7 +34,10 @@ const GraphMaterialInstance* InstanceParameterModel::Instance() const {
     return m_library.GetGraphInstance(m_path);
 }
 
-bool InstanceParameterModel::Valid() const { return Instance() != nullptr; }
+bool InstanceParameterModel::IsMaterial() const {
+    return !Instance() && m_library.GetGraphMaterial(m_path) != nullptr;
+}
+bool InstanceParameterModel::Valid() const { return Instance() != nullptr || IsMaterial(); }
 bool InstanceParameterModel::IsDirty() const { return m_library.IsGraphAssetDirty(m_path); }
 bool InstanceParameterModel::Save(std::string* error) { return m_library.SaveGraphAsset(m_path, error); }
 
@@ -48,6 +51,10 @@ void InstanceParameterModel::Store(GraphMaterialInstance instance) {
 }
 
 bool InstanceParameterModel::SetParent(const std::string& parent, std::string* error) {
+    if (IsMaterial()) {
+        if (error) *error = "a material has no parent; create a Material Instance to set one";
+        return false;
+    }
     const GraphMaterialInstance* inst = Instance();
     if (!inst) {
         if (error) *error = "the instance could not be loaded";
@@ -120,11 +127,18 @@ ParameterOverride InstanceParameterModel::Lookup(const ParameterInfo& info, cons
 std::vector<ParameterGroup> InstanceParameterModel::Groups() const {
     std::vector<ParameterGroup> groups;
     const GraphMaterialInstance* inst = Instance();
-    if (!inst) return groups;
+    const bool material = !inst && IsMaterial();
+    if (!inst && !material) return groups;
     std::map<std::string, std::vector<InstanceParameter>> byGroup;
     for (const ParameterInfo& info : Parameters()) {
         InstanceParameter p;
         p.info = info;
+        if (material) {  // the material's own defaults (always "set")
+            p.value = p.parentValue = DefaultValue(info);
+            p.overridden = true;
+            byGroup[info.group.empty() ? "None" : info.group].push_back(std::move(p));
+            continue;
+        }
         p.parentValue = Lookup(info, inst->parent);
         const ParameterOverride* own = inst->Find(info.name);
         p.overridden = own != nullptr;
@@ -165,6 +179,33 @@ void InstanceParameterModel::SetOverride(std::string_view name, bool overridden)
 }
 
 void InstanceParameterModel::SetValue(const ParameterOverride& value) {
+    if (IsMaterial()) {
+        // Every parameter node with this name takes the new default.
+        Material::GraphMaterial material = *m_library.GetGraphMaterial(m_path);
+        bool changed = false;
+        for (const MaterialGraph::Node& n : material.graph.Nodes()) {
+            auto it = n.properties.find("name");
+            if (it == n.properties.end() || it->second.AsString() != value.name) continue;
+            MaterialGraph::Node* node = material.graph.Find(n.id);
+            switch (value.kind) {
+                case ParameterOverride::Kind::Scalar:
+                    node->properties["default"] = MaterialGraph::PropertyValue(static_cast<f64>(value.scalar));
+                    break;
+                case ParameterOverride::Kind::Vector:
+                    node->properties["default"] = MaterialGraph::PropertyValue(value.vector);
+                    break;
+                case ParameterOverride::Kind::Texture:
+                    node->properties["texture"] = MaterialGraph::PropertyValue(value.texture);
+                    break;
+                case ParameterOverride::Kind::StaticSwitch:
+                    node->properties["default"] = MaterialGraph::PropertyValue(value.staticSwitch);
+                    break;
+            }
+            changed = true;
+        }
+        if (changed) m_library.SetGraphMaterial(m_path, std::move(material));
+        return;
+    }
     const GraphMaterialInstance* inst = Instance();
     if (!inst) return;
     GraphMaterialInstance copy = *inst;
