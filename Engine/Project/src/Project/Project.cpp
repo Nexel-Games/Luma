@@ -58,9 +58,7 @@ bool IsValidProjectName(std::string_view name) {
 namespace {
 
 std::string CurrentEngineVersionString() {
-    Version v = EngineVersion();
-    return std::to_string(v.major) + "." + std::to_string(v.minor) + "." +
-           std::to_string(v.patch);
+    return EngineVersion().ToString();
 }
 
 void SetError(std::string* out, std::string message) {

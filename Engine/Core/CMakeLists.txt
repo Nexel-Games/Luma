@@ -17,14 +17,16 @@ add_library(LumaCore STATIC
 
 add_library(Luma::Core ALIAS LumaCore)
 
+# Luma/Core/VersionConfig.h is generated from project(VERSION ...) so the engine
+# version has a single source of truth.
+set(LUMA_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
+configure_file(cmake/VersionConfig.h.in
+    ${LUMA_GENERATED_INCLUDE_DIR}/Luma/Core/VersionConfig.h @ONLY)
+
 target_include_directories(LumaCore
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
+           ${LUMA_GENERATED_INCLUDE_DIR})
 
 target_link_libraries(LumaCore PUBLIC Luma::Flags)
-
-target_compile_definitions(LumaCore PRIVATE
-    LUMA_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-    LUMA_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-    LUMA_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
 set_target_properties(LumaCore PROPERTIES FOLDER "Engine")

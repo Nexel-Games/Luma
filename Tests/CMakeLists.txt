@@ -13,6 +13,8 @@ add_executable(LumaTests
     Core/LayerStackTests.cpp
     Core/ApplicationTests.cpp
     Core/MemoryTests.cpp
+    Core/VersionTests.cpp
+    Core/RegistrationTests.cpp
     Jobs/JobSystemTests.cpp
     Tasks/TaskManagerTests.cpp
     Project/ProjectTests.cpp
