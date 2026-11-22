@@ -96,9 +96,9 @@ void MaterialInstanceEditor::DrawToolbar(Context& ui, const Rect& bar) {
 
 void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& panel) {
     const Slate::Theme& t = ui.theme();
-    // A margin around the image, framed with rounded corners.
+    // A left margin eases the image off the panel edge (no frame).
     ui.Panel(panel, t.panelBg);
-    const Rect area = panel.Inset(8.0f, 8.0f);
+    const Rect area{panel.x + 8.0f, panel.y, panel.w - 8.0f, panel.h};
     ui.Panel(area, t.recessed);
     // Orbit: left-drag inside the viewport.
     if (area.Contains(ui.mouse()) && ui.mousePressed(0)) m_orbiting = true;
@@ -116,7 +116,6 @@ void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& panel) {
     } else {
         ui.LabelIn(area, "Preview unavailable", t.textDisabled, Align::Center);
     }
-    ui.drawList().AddRectOutlineRounded(area, Slate::Color::RGB(64, 64, 68), 1.0f, 4.0f);
     ui.LabelIn({area.x + 8.0f, area.y + 6.0f, area.w - 16.0f, 18.0f}, "Perspective  |  Lit", t.textDim);
 }
 

@@ -262,9 +262,9 @@ void MaterialGraphEditor::DrawToolbar(Context& ui, const Rect& bar) {
 
 void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& panel) {
     const Slate::Theme& t = ui.theme();
-    // A margin around the image, framed with rounded corners.
+    // A left margin eases the image off the panel edge (no frame).
     ui.Panel(panel, t.panelBg);
-    const Rect area = panel.Inset(8.0f, 8.0f);
+    const Rect area{panel.x + 8.0f, panel.y, panel.w - 8.0f, panel.h};
     ui.Panel(area, t.recessed);
     if (area.Contains(ui.mouse()) && ui.mousePressed(0)) m_orbiting = true;
     if (!ui.isMouseDown(0)) m_orbiting = false;
@@ -277,7 +277,6 @@ void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& panel) {
     const TextureHandle image = m_services.renderPreview ? m_services.renderPreview(m_preview) : 0;
     if (image) ui.Image(image, area);
     else ui.LabelIn(area, "Preview unavailable", t.textDisabled, Align::Center);
-    ui.drawList().AddRectOutlineRounded(area, Slate::Color::RGB(64, 64, 68), 1.0f, 4.0f);
     // Preview shape buttons along the bottom (UE's viewport toolbar).
     const Slate::Icon icons[] = {Slate::Icon::Sphere, Slate::Icon::Cube, Slate::Icon::Plane, Slate::Icon::Cylinder};
     const EditorIcon pngs[] = {EditorIcon::Sphere, EditorIcon::Cube, EditorIcon::Plane, EditorIcon::Cylinder};
