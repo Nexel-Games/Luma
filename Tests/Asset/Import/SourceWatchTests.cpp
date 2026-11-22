@@ -169,3 +169,36 @@ TEST_CASE("Renaming an asset moves its .meta with it", "[import][rename]") {
     CHECK_FALSE(err.empty());
     CHECK(std::filesystem::exists(dir.root / "T_C.png"));
 }
+
+TEST_CASE("Moving an asset into another folder keeps its name and sidecar", "[import][rename]") {
+    Dir dir("luma-move-asset");
+    std::filesystem::create_directories(dir.root / "Props" / "Nested");
+    std::filesystem::create_directories(dir.root / "Archive");
+    WriteBytes(dir.root / "Props" / "SM_Rock.lmesh", "mesh");
+    WriteBytes(dir.root / "Props" / "SM_Rock.lmesh.meta", "{}");
+    WriteBytes(dir.root / "Props" / "Nested" / "SM_Child.lmesh", "mesh");
+    WriteBytes(dir.root / "SM_Child.lmesh", "already");
+
+    std::filesystem::path moved;
+    std::string err;
+    REQUIRE(MoveAssetToFolder(dir.root / "Props" / "SM_Rock.lmesh", dir.root / "Archive", &moved, &err));
+    CHECK(err.empty());
+    CHECK(std::filesystem::exists(dir.root / "Archive" / "SM_Rock.lmesh"));
+    CHECK(std::filesystem::exists(dir.root / "Archive" / "SM_Rock.lmesh.meta"));
+    CHECK_FALSE(std::filesystem::exists(dir.root / "Props" / "SM_Rock.lmesh"));
+
+    err.clear();
+    CHECK_FALSE(MoveAssetToFolder(dir.root / "Archive" / "SM_Rock.lmesh", dir.root / "Archive", &moved, &err));
+    CHECK(err.empty());
+    CHECK(std::filesystem::exists(dir.root / "Archive" / "SM_Rock.lmesh"));
+
+    err.clear();
+    CHECK_FALSE(MoveAssetToFolder(dir.root / "Props" / "Nested" / "SM_Child.lmesh", dir.root, &moved, &err));
+    CHECK_FALSE(err.empty());
+    CHECK(std::filesystem::exists(dir.root / "Props" / "Nested" / "SM_Child.lmesh"));
+
+    err.clear();
+    CHECK_FALSE(MoveAssetToFolder(dir.root / "Props", dir.root / "Props" / "Nested", &moved, &err));
+    CHECK_FALSE(err.empty());
+    CHECK(std::filesystem::exists(dir.root / "Props" / "Nested" / "SM_Child.lmesh"));
+}

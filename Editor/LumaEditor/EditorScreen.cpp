@@ -24,6 +24,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Scene/AssetReferences.h"
 #include "Luma/Scene/Components.h"
+#include "Luma/Scene/Hierarchy.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
 #include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialFromTextures.h"
@@ -82,17 +83,7 @@ bool IsWatchedAssetFile(const std::filesystem::path& p) {
 // otherwise appends the lowest free number (base 1, base 2, ...) so the first
 // of a kind stays unnumbered and duplicates get distinguished.
 std::string UniqueEntityName(Luma::Scene& scene, const std::string& base) {
-    auto view = scene.Registry().view<const NameComponent>();
-    auto taken = [&view](const std::string& name) {
-        for (Entity e : view) {
-            if (view.get<const NameComponent>(e).name == name) return true;
-        }
-        return false;
-    };
-    if (!taken(base)) return base;
-    int n = 1;
-    while (taken(base + " " + std::to_string(n))) ++n;
-    return base + " " + std::to_string(n);
+    return scene.UniqueEntityName(base);
 }
 }  // namespace
 
@@ -196,6 +187,8 @@ bool EditorScreen::LoadScene() {
         return false;
     }
     m_selected = kNullEntity;
+    m_selection.clear();
+    ShowAllActors();
     m_outlinerPanel.ClearSelection();
     m_inspectorPanel.ClosePopups();
     auto envView = m_scene.Registry().view<EnvironmentComponent>();
@@ -230,7 +223,7 @@ bool EditorScreen::SelectEntityByName(const std::string& name) {
     auto view = m_scene.Registry().view<const NameComponent>();
     for (Entity e : view) {
         if (view.get<const NameComponent>(e).name == name) {
-            m_selected = e;
+            SelectOnly(e);
             return true;
         }
     }
@@ -486,6 +479,7 @@ std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math
     f32 bestDistance = 1e30f;
     auto view = reg.view<const TransformComponent, const MeshRendererComponent>();
     for (Entity e : view) {
+        if (reg.all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = view.get<const TransformComponent>(e);
         const auto& mr = view.get<const MeshRendererComponent>(e);
         Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
@@ -564,7 +558,7 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
     m_scene.Registry().get<TransformComponent>(e).position = position;
     auto& mr = m_scene.Registry().emplace<MeshRendererComponent>(e);
     Editor::Panels::AssignStaticMesh(mr, mesh);
-    m_selected = e;
+    SelectOnly(e);
     LUMA_USER_INFO("Level", "Placed '{}'", name);
 }
 
@@ -578,7 +572,7 @@ void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
         return;
     }
     Editor::Panels::AssignMaterialSlot(*mesh, 0, path);
-    m_selected = e;
+    SelectOnly(e);
     LUMA_USER_INFO("Materials", "Assigned '{}' to '{}'", path,
                    m_scene.Registry().get<NameComponent>(e).name);
 }
@@ -754,7 +748,7 @@ void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
     if (kind == Editor::Panels::CreateActorKind::Empty) {
         Entity e =
             m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
-        m_selected = e;
+        SelectOnly(e);
         return;
     }
     if (kind == Editor::Panels::CreateActorKind::Cube ||
@@ -772,7 +766,7 @@ void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
         mesh.primitive = prims[i];  // empty material slots: Default Material
         auto& tf = m_scene.Registry().get<TransformComponent>(e);
         tf.position = Math::Vec3(static_cast<f32>(index - 1) * 2.0f, 1.0f, 0.0f);
-        m_selected = e;
+        SelectOnly(e);
         return;
     }
 
@@ -798,7 +792,7 @@ void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
         if (types[i] == LightType::Directional) {
             tf.rotationEuler = Math::Vec3(-50.0f, 35.0f, 0.0f);
         }
-        m_selected = e;
+        SelectOnly(e);
         return;
     }
 
@@ -808,10 +802,10 @@ void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
         if (envView.begin() == envView.end()) {
             Entity e = m_scene.CreateEntity("Environment");
             m_scene.Registry().emplace<EnvironmentComponent>(e);
-            m_selected = e;
+            SelectOnly(e);
         } else {
             // Only one environment per scene — select the existing one.
-            m_selected = *envView.begin();
+            SelectOnly(*envView.begin());
         }
         return;
     }
@@ -821,7 +815,7 @@ void EditorScreen::CreateActor(Editor::Panels::CreateActorKind kind) {
         Entity e = m_scene.CreateEntity(
             UniqueEntityName(m_scene, "Post Process Volume"));
         m_scene.Registry().emplace<PostProcessComponent>(e);
-        m_selected = e;
+        SelectOnly(e);
         return;
     }
 }
@@ -866,8 +860,21 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onDuplicateEntity = [this](Entity e) { DuplicateEntity(e); };
     ctx.onDeleteEntity = [this](Entity e) { DeleteEntity(e); };
     ctx.onFocusEntity = [this](Entity e) { FocusEntity(e); };
+    ctx.onCutEntities = [this](Entity e) { CutEntities(e); };
+    ctx.onCopyEntities = [this](Entity e) { CopyEntities(e); };
+    ctx.onPasteEntities = [this](Entity e, bool asChild) { PasteEntities(e, asChild); };
+    ctx.canPasteEntities = [this] { return !m_clipboard.Empty(); };
+    ctx.onCreateChild = [this](Entity e) { CreateEmptyChild(e); };
+    ctx.onSelectChildren = [this](Entity e) { SelectChildren(e); };
+    ctx.onMoveToRoot = [this](Entity e) { MoveToRoot(e); };
+    ctx.onHideEntities = [this](Entity e) { HideEntities(e); };
+    ctx.onShowAllActors = [this] { ShowAllActors(); };
+    ctx.isEntityHidden = [this](Entity e) { return IsHidden(e); };
+    ctx.entityHasChildren = [this](Entity e) { return !ChildrenOf(m_scene, e).empty(); };
+    ctx.entityIsRoot = [this](Entity e) { return ParentOf(m_scene, e) == kNullEntity; };
+    ctx.selection = &m_selection;
     ctx.onPickRay = [this](const Math::Vec3& origin, const Math::Vec3& dir) {
-        m_selected = PickEntity(origin, dir);
+        SelectOnly(PickEntity(origin, dir));
     };
     ctx.materials = m_materials.get();
     ctx.jobs = m_jobs;
@@ -998,6 +1005,7 @@ SceneView EditorScreen::BuildSceneView() {
     auto lightView =
         m_scene.Registry().view<TransformComponent, LightComponent>();
     for (Entity e : lightView) {
+        if (m_scene.Registry().all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = lightView.get<TransformComponent>(e);
         const auto& lc = lightView.get<LightComponent>(e);
         Mat4 mtx = tf.Matrix();
@@ -1288,7 +1296,8 @@ void CollectImportFiles(const std::filesystem::path& path, const Import::Transla
 
 void EditorScreen::HandleDroppedFiles(const std::vector<std::filesystem::path>& files) {
     if (files.empty() || !m_project) return;
-    std::filesystem::path target = m_contentBrowser.CurrentFolder();
+    std::filesystem::path target = m_contentBrowser.ImportDropFolder();
+    if (target.empty()) target = m_contentBrowser.CurrentFolder();
     if (target.empty()) target = m_project->AssetsDir();
     Import::TranslatorRegistry registry = Import::TranslatorRegistry::CreateDefault();
     std::vector<std::filesystem::path> supported;
@@ -1690,6 +1699,7 @@ Entity EditorScreen::PickEntity(const Math::Vec3& origin, const Math::Vec3& dir)
 
     auto view = reg.view<const TransformComponent>();
     for (Entity e : view) {
+        if (reg.all_of<EditorHiddenComponent>(e)) continue;
         const auto& tf = view.get<const TransformComponent>(e);
         f32 t = 0.0f;
         bool hit = false;
@@ -1741,7 +1751,7 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
     // Editor-wide shortcuts. Text entry owns the keyboard while focused, and
     // an open menu hides key presses from this pass entirely.
     if (ui.textFieldFocused() || ui.AnyMenuOpen()) return;
-    constexpr int kKeyS = 83, kKeyD = 68, kKeyF = 70;
+    constexpr int kKeyS = 83, kKeyD = 68, kKeyF = 70, kKeyC = 67, kKeyX = 88, kKeyV = 86;
     const bool ctrl = ui.ctrlDown();
     if (ctrl && ui.keyPressed(kKeyS)) {
         const bool overMaterialEditor =
@@ -1758,49 +1768,178 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
         if (ui.keyPressed(kKeyE)) m_gizmo.SetMode(GizmoMode::Rotate);
         if (ui.keyPressed(kKeyR)) m_gizmo.SetMode(GizmoMode::Scale);
     }
+    const bool overContent = m_contentBrowser.Hovered();
+    if (ctrl && ui.keyPressed(kKeyC) && !overContent && m_scene.IsValid(m_selected)) {
+        CopyEntities(m_selected);
+        return;
+    }
+    if (ctrl && ui.keyPressed(kKeyX) && !overContent && m_scene.IsValid(m_selected)) {
+        CutEntities(m_selected);
+        return;
+    }
+    if (ctrl && ui.keyPressed(kKeyV) && !overContent && !m_clipboard.Empty()) {
+        PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+        return;
+    }
     if (!m_scene.IsValid(m_selected)) return;
     if (ctrl && ui.keyPressed(kKeyD)) {
         DuplicateEntity(m_selected);
     } else if (!ctrl && ui.keyPressed(kKeyF)) {
         FocusEntity(m_selected);
-    } else if (ui.keyDelete() && !m_contentBrowser.Hovered()) {
+    } else if (ui.keyDelete() && !overContent) {
         // Over the Content Browser, Delete belongs to assets, not actors.
         DeleteEntity(m_selected);
     }
 }
 
+void EditorScreen::SelectOnly(Entity entity) {
+    m_selection.clear();
+    m_selected = entity;
+    if (m_scene.IsValid(entity)) m_selection.push_back(entity);
+}
+
+std::vector<Entity> EditorScreen::ActionRoots(Entity clicked) const {
+    const bool inSelection = std::find(m_selection.begin(), m_selection.end(), clicked) != m_selection.end();
+    if (inSelection && m_selection.size() > 1) return SelectionRoots(m_scene, m_selection);
+    if (!m_scene.IsValid(clicked)) return {};
+    return {clicked};
+}
+
+bool EditorScreen::IsHidden(Entity entity) const {
+    return m_scene.IsValid(entity) && m_scene.Registry().all_of<EditorHiddenComponent>(entity);
+}
+
 void EditorScreen::DuplicateEntity(Entity e) {
-    if (!m_scene.IsValid(e)) return;
-    if (m_scene.Registry().all_of<EnvironmentComponent>(e)) return;  // one per scene
-    const std::string base = m_scene.Registry().get<NameComponent>(e).name;
-    Entity copy = m_scene.DuplicateEntity(e);
-    if (copy == kNullEntity) return;
-    const std::string name = UniqueEntityName(m_scene, base);
-    m_scene.Registry().get<NameComponent>(copy).name = name;
-    m_selected = copy;
-    LUMA_USER_INFO("Scene", "Duplicated '{}' as '{}'", base, name);
+    std::vector<Entity> created;
+    for (Entity root : ActionRoots(e)) {
+        if (m_scene.Registry().all_of<EnvironmentComponent>(root)) continue;
+        const std::string base = m_scene.Registry().get<NameComponent>(root).name;
+        Entity copy = DuplicateSubtree(m_scene, root);
+        if (copy == kNullEntity) continue;
+        auto renameTree = [&](auto&& self, Entity entity) -> void {
+            auto& name = m_scene.Registry().get<NameComponent>(entity).name;
+            name = UniqueEntityName(m_scene, name);
+            for (Entity child : ChildrenOf(m_scene, entity)) self(self, child);
+        };
+        renameTree(renameTree, copy);
+        created.push_back(copy);
+        LUMA_USER_INFO("Scene", "Duplicated '{}' as '{}'", base,
+                       m_scene.Registry().get<NameComponent>(copy).name);
+    }
+    if (created.empty()) return;
+    m_selection = created;
+    m_selected = created.back();
 }
 
 void EditorScreen::DeleteEntity(Entity e) {
-    if (!m_scene.IsValid(e)) return;
-    if (m_selected == e) {
-        m_inspectorPanel.ClosePopups();
-        m_selected = kNullEntity;
+    const std::vector<Entity> roots = ActionRoots(e);
+    if (roots.empty()) return;
+    m_inspectorPanel.ClosePopups();
+    for (Entity root : roots) {
+        if (!m_scene.IsValid(root)) continue;
+        const bool selectedInSubtree = m_selected == root || IsDescendantOf(m_scene, root, m_selected);
+        const std::string name = m_scene.Registry().get<NameComponent>(root).name;
+        DestroySubtree(m_scene, root);
+        if (selectedInSubtree) m_selected = kNullEntity;
+        LUMA_USER_INFO("Scene", "Deleted '{}'", name);
     }
-    const std::string name = m_scene.Registry().get<NameComponent>(e).name;
-    m_scene.DestroyEntity(e);
-    LUMA_USER_INFO("Scene", "Deleted '{}'", name);
+    std::vector<Entity> still;
+    for (Entity entity : m_selection) {
+        if (m_scene.IsValid(entity)) still.push_back(entity);
+    }
+    m_selection = std::move(still);
+    if (!m_scene.IsValid(m_selected)) m_selected = m_selection.empty() ? kNullEntity : m_selection.back();
 }
 
 void EditorScreen::FocusEntity(Entity e) {
-    if (!m_scene.IsValid(e)) return;
+    if (!m_scene.IsValid(e) || !m_scene.Registry().all_of<TransformComponent>(e)) return;
     const auto& tf = m_scene.Registry().get<TransformComponent>(e);
     m_camTarget = tf.position;
     // Frame by the entity's largest scale axis (unit primitives).
     const f32 extent = std::max({std::fabs(tf.scale.x), std::fabs(tf.scale.y),
                                  std::fabs(tf.scale.z), 1.0f});
     m_camDistance = std::clamp(extent * 4.0f, 3.0f, m_farZ * 0.5f);
-    m_selected = e;
+    SelectOnly(e);
+}
+
+void EditorScreen::CopyEntities(Entity clicked) {
+    if (!m_clipboard.Copy(m_scene, ActionRoots(clicked))) {
+        LUMA_USER_WARN("Scene", "Nothing to copy");
+    }
+}
+
+void EditorScreen::CutEntities(Entity clicked) {
+    if (!m_clipboard.Cut(m_scene, ActionRoots(clicked))) {
+        LUMA_USER_WARN("Scene", "Nothing to cut");
+        return;
+    }
+    LUMA_USER_INFO("Scene", "Cut {} actor(s)", m_clipboard.CutSources().size());
+}
+
+void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
+    if (m_clipboard.Empty()) return;
+    Entity parent = kNullEntity;
+    if (asChild) {
+        parent = clicked;
+    } else if (m_scene.IsValid(clicked)) {
+        parent = ParentOf(m_scene, clicked);
+    }
+    if (m_clipboard.IsCut()) {
+        for (Entity source : m_clipboard.CutSources()) {
+            if (!m_scene.IsValid(source)) continue;
+            if (parent == source || IsDescendantOf(m_scene, source, parent)) {
+                LUMA_USER_WARN("Scene", "Can't paste a cut actor into itself");
+                return;
+            }
+        }
+    }
+    const std::vector<Entity> ignore = m_clipboard.IsCut() ? m_clipboard.CutSources() : std::vector<Entity>{};
+    const std::vector<Entity> created = m_clipboard.Paste(m_scene, parent, ignore);
+    if (created.empty()) return;
+    if (m_clipboard.IsCut()) {
+        for (Entity source : m_clipboard.CutSources()) DestroySubtree(m_scene, source);
+        m_clipboard.Clear();
+    }
+    m_selection = created;
+    m_selected = created.back();
+    LUMA_USER_INFO("Scene", "Pasted {} actor(s)", created.size());
+}
+
+void EditorScreen::CreateEmptyChild(Entity parent) {
+    if (!m_scene.IsValid(parent)) return;
+    Entity child = m_scene.CreateEntity(UniqueEntityName(m_scene, "Empty Actor"));
+    SetParent(m_scene, child, parent);
+    SelectOnly(child);
+}
+
+void EditorScreen::SelectChildren(Entity parent) {
+    const std::vector<Entity> descendants = DescendantsOf(m_scene, parent);
+    if (descendants.empty()) return;
+    m_selection = descendants;
+    m_selected = descendants.front();
+}
+
+void EditorScreen::MoveToRoot(Entity entity) {
+    for (Entity root : ActionRoots(entity)) {
+        if (ParentOf(m_scene, root) == kNullEntity) continue;
+        SetParent(m_scene, root, kNullEntity);
+    }
+}
+
+void EditorScreen::HideEntities(Entity clicked) {
+    for (Entity root : ActionRoots(clicked)) {
+        m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(root);
+        for (Entity child : DescendantsOf(m_scene, root)) {
+            m_scene.Registry().emplace_or_replace<EditorHiddenComponent>(child);
+        }
+    }
+}
+
+void EditorScreen::ShowAllActors() {
+    std::vector<Entity> hidden;
+    auto view = m_scene.Registry().view<EditorHiddenComponent>();
+    for (Entity entity : view) hidden.push_back(entity);
+    for (Entity entity : hidden) m_scene.Registry().remove<EditorHiddenComponent>(entity);
 }
 
 void EditorScreen::CreateSceneAsset(const std::filesystem::path& folder) {
@@ -1890,6 +2029,25 @@ std::vector<Slate::MenuEntry> EditorScreen::BuildMainMenu(int index) {
             break;
         case 1:  // Edit
             b.BeginSection("Selection");
+            {
+                auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
+                o.shortcut = "Ctrl+X";
+                b.AddEntry("Cut", Icon::None, [this] { CutEntities(m_selected); }, o);
+            }
+            {
+                auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
+                o.shortcut = "Ctrl+C";
+                b.AddEntry("Copy", Icon::None, [this] { CopyEntities(m_selected); }, o);
+            }
+            {
+                auto o = when(!m_clipboard.Empty(),
+                              m_clipboard.Empty() ? "The clipboard is empty."
+                                                  : "Paste as a sibling of the selection, or at the scene root.");
+                o.shortcut = "Ctrl+V";
+                b.AddEntry("Paste", Icon::None, [this] {
+                    PasteEntities(m_scene.IsValid(m_selected) ? m_selected : kNullEntity, false);
+                }, o);
+            }
             {
                 auto o = when(hasSel && !m_scene.Registry().all_of<EnvironmentComponent>(m_selected));
                 o.shortcut = "Ctrl+D";

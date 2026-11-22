@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Luma/Scene/Components.h"
+#include "Luma/Scene/Hierarchy.h"
 #include "Luma/Slate/Icons.h"
 
 namespace Luma::Editor::Panels {
@@ -123,19 +124,27 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             needle += static_cast<char>(
                 std::tolower(static_cast<unsigned char>(c)));
         }
-        std::vector<Entity> visible;
-        for (Entity e : view) {
-            const std::string& name = view.get<const NameComponent>(e).name;
-            if (needle.empty()) {
-                visible.push_back(e);
-                continue;
+        struct RowItem { Entity entity; int depth; };
+        std::vector<RowItem> visible;
+        auto matches = [&](Entity entity) {
+            if (needle.empty()) return true;
+            std::string ln = view.get<const NameComponent>(entity).name;
+            for (char& c : ln) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return ln.find(needle) != std::string::npos;
+        };
+        if (!needle.empty()) {
+            for (Entity entity : view) {
+                if (matches(entity)) visible.push_back({entity, 0});
             }
-            std::string ln = name;
-            for (char& c : ln) {
-                c = static_cast<char>(
-                    std::tolower(static_cast<unsigned char>(c)));
+        } else {
+            std::function<void(Entity, int)> walk = [&](Entity entity, int depth) {
+                visible.push_back({entity, depth});
+                if (m_collapsed.count(entity) != 0) return;
+                for (Entity child : ChildrenOf(*ctx.scene, entity)) walk(child, depth + 1);
+            };
+            for (Entity entity : view) {
+                if (ParentOf(*ctx.scene, entity) == kNullEntity) walk(entity, 0);
             }
-            if (ln.find(needle) != std::string::npos) visible.push_back(e);
         }
 
         if (visible.empty()) {
@@ -155,7 +164,9 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             f32 y = listTop - m_listScroll;
             Entity rowMenuEntity = kNullEntity;
             usize rowIndex = 0;
-            for (Entity e : visible) {
+            for (const RowItem& item : visible) {
+                const Entity e = item.entity;
+                const f32 indent = static_cast<f32>(item.depth) * 14.0f;
                 const std::string& name =
                     view.get<const NameComponent>(e).name;
                 // Unreal-style striping: every other row on a darker band,
@@ -164,7 +175,10 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                     ui.drawList().AddRectFilled({body.x, y, body.w, kRowStep}, t.listRowAlt);
                 }
                 Rect row{body.x + 4, y, body.w - 8, kRowStep};
-                bool selected = (e == *ctx.selected);
+                bool selected = e == *ctx.selected;
+                if (ctx.selection != nullptr) {
+                    selected = std::find(ctx.selection->begin(), ctx.selection->end(), e) != ctx.selection->end();
+                }
                 const u64 rowId =
                     Slate::Context::ID(name.c_str()) ^ 0x0F0F0F0Full;
                 bool hovered = row.Contains(ui.mouse()) &&
@@ -183,6 +197,13 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                     if (hovered) clicked = true;
                     m_pressedRow = 0;
                 }
+                const bool hasChildren = !ChildrenOf(*ctx.scene, e).empty();
+                Rect chevron{row.x + indent, row.y, 14.0f, row.h};
+                if (hasChildren && clicked && chevron.Contains(ui.mouse())) {
+                    if (m_collapsed.count(e) != 0) m_collapsed.erase(e);
+                    else m_collapsed.insert(e);
+                    clicked = false;
+                }
                 if (selected) {
                     ui.drawList().AddRectFilledRounded(row, t.selectionBg,
                                                        t.radius.sm);
@@ -194,14 +215,19 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 // A static mesh actor without its icon texture still gets a glyph.
                 const auto* meshComp = ctx.scene->Registry().try_get<MeshRendererComponent>(e);
                 const bool meshGlyph = !icon && meshComp && meshComp->UsesMeshAsset();
-                const f32 textX =
-                    icon || meshGlyph ? row.x + t.space.xs + kIconS + t.space.sm
-                                      : row.x + t.space.md + t.space.xs;
-                const Rect iconR{row.x + t.space.xs, row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
+                const bool hidden = ctx.isEntityHidden && ctx.isEntityHidden(e);
+                const Color iconColor = hidden ? t.textDisabled : (selected ? t.selectionText : t.text);
+                const f32 textX = row.x + indent + 14.0f +
+                    (icon || meshGlyph ? t.space.xs + kIconS + t.space.sm : t.space.sm);
+                const Rect iconR{row.x + indent + 14.0f, row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
+                if (hasChildren) {
+                    Slate::DrawIcon(ui, {chevron.x + 1.0f, chevron.y + 2.0f, 12.0f, 12.0f},
+                                    m_collapsed.count(e) ? Icon::ChevronRight : Icon::ChevronDown, t.textDim);
+                }
                 if (icon) {
-                    ui.Image(icon, iconR, selected ? t.selectionText : t.text);
+                    ui.Image(icon, iconR, iconColor);
                 } else if (meshGlyph) {
-                    Slate::DrawIcon(ui, iconR, Icon::StaticMesh, selected ? t.selectionText : t.text);
+                    Slate::DrawIcon(ui, iconR, Icon::StaticMesh, iconColor);
                 }
                 if (m_renaming == e) {
                     // Inline rename: Enter / focus loss commits, Escape cancels.
@@ -225,9 +251,15 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 } else {
                     ui.Label({textX,
                               row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                             name, selected ? t.selectionText : t.text);
+                             name, hidden ? t.textDisabled : (selected ? t.selectionText : t.text));
                 }
-                if (clicked) *ctx.selected = e;
+                if (clicked) {
+                    *ctx.selected = e;
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->clear();
+                        ctx.selection->push_back(e);
+                    }
+                }
                 y += kRowStep;
             }
             ui.PopClip();
@@ -240,7 +272,15 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
 
             // Right-click a row: select it and open its entity menu.
             if (rowMenuEntity != kNullEntity) {
-                *ctx.selected = rowMenuEntity;
+                const bool keep = ctx.selection != nullptr && ctx.selection->size() > 1 &&
+                    std::find(ctx.selection->begin(), ctx.selection->end(), rowMenuEntity) != ctx.selection->end();
+                if (!keep) {
+                    *ctx.selected = rowMenuEntity;
+                    if (ctx.selection != nullptr) {
+                        ctx.selection->clear();
+                        ctx.selection->push_back(rowMenuEntity);
+                    }
+                }
                 ui.OpenMenu(Slate::Context::ID("outliner.entitymenu"), ui.mouse(),
                             BuildEntityMenu(rowMenuEntity, ctx));
             }
@@ -254,7 +294,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         mo.searchable = true;
         mo.searchHint = "Search actors";
         ui.OpenMenu(Slate::Context::ID("outliner.placemenu"), ui.mouse(),
-                    BuildPlaceActorsMenu(ctx), mo);
+                    BuildEmptyMenu(ctx), mo);
     }
 
     // Keyboard shortcuts while the pointer is over the outliner.
@@ -337,10 +377,37 @@ std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildPlaceActorsMenu(PanelCont
     return b.Build();
 }
 
+std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEmptyMenu(PanelContext& ctx) {
+    Slate::MenuBuilder b;
+    b.BeginSection("Actor");
+    {
+        Slate::MenuEntryOptions o;
+        o.enabled = static_cast<bool>(ctx.canPasteEntities) && ctx.canPasteEntities();
+        o.shortcut = "Ctrl+V";
+        o.tooltip = o.enabled ? "Paste copied actors at the scene root." : "The clipboard is empty.";
+        auto paste = ctx.onPasteEntities;
+        b.AddEntry("Paste", Icon::None, [paste] { if (paste) paste(kNullEntity, false); }, o);
+    }
+    b.BeginSection("View");
+    {
+        auto show = ctx.onShowAllActors;
+        b.AddEntry("Show All Actors", Icon::Eye, [show] { if (show) show(); });
+    }
+    b.BeginSection("Create");
+    auto create = ctx.onCreateActor;
+    b.AddSubMenu("Place Actor", Icon::Plus,
+                 [this, create](Slate::MenuBuilder& m) { FillPlaceActors(m, create); });
+    return b.Build();
+}
+
 std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
                                                                   PanelContext& ctx) {
     Scene* scene = ctx.scene;
     const bool isEnvironment = scene->Registry().all_of<EnvironmentComponent>(e);
+    const bool canPaste = static_cast<bool>(ctx.canPasteEntities) && ctx.canPasteEntities();
+    const bool hasChildren = static_cast<bool>(ctx.entityHasChildren) && ctx.entityHasChildren(e);
+    const bool isRoot = !ctx.entityIsRoot || ctx.entityIsRoot(e);
+    const bool hasTransform = scene->Registry().all_of<TransformComponent>(e);
     Slate::MenuBuilder b;
 
     b.BeginSection("Actor");
@@ -356,44 +423,55 @@ std::vector<Slate::MenuEntry> WorldOutlinerPanel::BuildEntityMenu(Entity e,
                    },
                    o);
     }
-    {
+    auto command = [&](const char* label, const char* shortcut, Icon icon, bool enabled, const char* tip,
+                       const std::function<void()>& run) {
         Slate::MenuEntryOptions o;
-        o.enabled = static_cast<bool>(ctx.onDuplicateEntity) && !isEnvironment;
-        o.tooltip = isEnvironment ? "A scene has a single Environment."
-                                  : "Create a copy of this actor and all its components.";
-        o.shortcut = "Ctrl+D";
-        auto dup = ctx.onDuplicateEntity;
-        b.AddEntry("Duplicate", Icon::Plus,
-                   [dup, e] {
-                       if (dup) dup(e);
-                   },
-                   o);
-    }
-    {
-        Slate::MenuEntryOptions o;
-        o.shortcut = "Delete";
-        o.enabled = static_cast<bool>(ctx.onDeleteEntity);
-        auto del = ctx.onDeleteEntity;
-        b.AddEntry("Delete", Icon::Trash,
-                   [del, e] {
-                       if (del) del(e);
-                   },
-                   o);
-    }
+        o.enabled = enabled;
+        o.shortcut = shortcut;
+        o.tooltip = tip;
+        b.AddEntry(label, icon, run, o);
+    };
+    command("Duplicate", "Ctrl+D", Icon::Plus, static_cast<bool>(ctx.onDuplicateEntity) && !isEnvironment,
+            isEnvironment ? "A scene has a single Environment." : "Copy this actor and its children.",
+            [dup = ctx.onDuplicateEntity, e] { if (dup) dup(e); });
+    command("Cut", "Ctrl+X", Icon::None, static_cast<bool>(ctx.onCutEntities) && !isEnvironment,
+            isEnvironment ? "The Environment stays in the scene." : "Cut this actor. It moves when you paste.",
+            [cut = ctx.onCutEntities, e] { if (cut) cut(e); });
+    command("Copy", "Ctrl+C", Icon::None, static_cast<bool>(ctx.onCopyEntities) && !isEnvironment,
+            isEnvironment ? "The Environment stays in the scene." : "Copy this actor and its children.",
+            [copy = ctx.onCopyEntities, e] { if (copy) copy(e); });
+    command("Paste", "Ctrl+V", Icon::None, canPaste && static_cast<bool>(ctx.onPasteEntities),
+            canPaste ? "Paste as a sibling of this actor." : "The clipboard is empty.",
+            [paste = ctx.onPasteEntities, e] { if (paste) paste(e, false); });
+    command("Paste as Child", "", Icon::None, canPaste && static_cast<bool>(ctx.onPasteEntities),
+            canPaste ? "Paste under this actor." : "The clipboard is empty.",
+            [paste = ctx.onPasteEntities, e] { if (paste) paste(e, true); });
+    command("Delete", "Delete", Icon::Trash, static_cast<bool>(ctx.onDeleteEntity),
+            "Delete this actor and its children. Assets on disk are kept.",
+            [del = ctx.onDeleteEntity, e] { if (del) del(e); });
+
+    b.BeginSection("Hierarchy");
+    command("Create Empty Child", "", Icon::Plus, static_cast<bool>(ctx.onCreateChild),
+            "Create an empty actor under this one.",
+            [create = ctx.onCreateChild, e] { if (create) create(e); });
+    command("Select Children", "", Icon::None, hasChildren && static_cast<bool>(ctx.onSelectChildren),
+            hasChildren ? "Select every descendant." : "This actor has no children.",
+            [select = ctx.onSelectChildren, e] { if (select) select(e); });
+    command("Move to Root", "", Icon::None, !isRoot && static_cast<bool>(ctx.onMoveToRoot),
+            isRoot ? "This actor is already at the root." : "Unparent this actor. Its world position stays.",
+            [move = ctx.onMoveToRoot, e] { if (move) move(e); });
 
     b.BeginSection("View");
-    {
-        Slate::MenuEntryOptions o;
-        o.enabled = static_cast<bool>(ctx.onFocusEntity);
-        o.tooltip = "Move the viewport camera to frame this actor.";
-        o.shortcut = "F";
-        auto focus = ctx.onFocusEntity;
-        b.AddEntry("Focus in Viewport", Icon::Eye,
-                   [focus, e] {
-                       if (focus) focus(e);
-                   },
-                   o);
-    }
+    command("Focus in Viewport", "F", Icon::Eye,
+            hasTransform && static_cast<bool>(ctx.onFocusEntity),
+            "Move the viewport camera to frame this actor.",
+            [focus = ctx.onFocusEntity, e] { if (focus) focus(e); });
+    command("Hide Actor", "", Icon::EyeOff, static_cast<bool>(ctx.onHideEntities),
+            "Hide this actor in the editor viewport. Saving the scene does not keep this.",
+            [hide = ctx.onHideEntities, e] { if (hide) hide(e); });
+    command("Show All Actors", "", Icon::Eye, static_cast<bool>(ctx.onShowAllActors),
+            "Show every actor hidden in this session.",
+            [show = ctx.onShowAllActors] { if (show) show(); });
 
     b.BeginSection("Create");
     auto create = ctx.onCreateActor;
