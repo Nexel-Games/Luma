@@ -7,6 +7,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/MaterialCompiler/Translator.h"
+#include "Luma/Slate/Icons.h"
 
 namespace Luma::MaterialEditors {
 
@@ -127,10 +128,12 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     const f32 top = rect.y + kToolbarH;
     const f32 h = rect.h - kToolbarH;
     const f32 leftW = std::min(m_leftW, rect.w * 0.3f);
-    const f32 rightW = std::min(m_rightW, rect.w * 0.22f);
+    // Unreal's palette drawer: a vertical "Palette" tab on the right edge
+    // slides the palette over the graph; the tab hides it again.
+    constexpr f32 kTabW = 22.0f;
+    const Rect tab{rect.Right() - kTabW, top, kTabW, h};
     const Rect left{rect.x, top, leftW, h};
-    const Rect right{rect.Right() - rightW, top, rightW, h};
-    const Rect centre{left.Right() + 2.0f, top, right.x - left.Right() - 4.0f, h};
+    const Rect centre{left.Right() + 2.0f, top, tab.x - left.Right() - 3.0f, h};
     const f32 statsH = std::min(m_statsH, centre.h * 0.4f);
     const Rect graph{centre.x, centre.y, centre.w, centre.h - statsH - 2.0f};
     const Rect stats{centre.x, graph.Bottom() + 2.0f, centre.w, statsH};
@@ -139,15 +142,37 @@ void MaterialGraphEditor::Draw(Context& ui, const Rect& rect) {
     ui.SplitterH(Context::ID("mge.lsplit." + m_path), left, m_previewSplit, preview, details, 2.0f);
     DrawPreview(ui, preview);
     DrawDetails(ui, details);
+    const f32 drawerW = std::min(m_rightW + 60.0f, graph.w * 0.6f);
+    const Rect drawer{tab.x - drawerW, graph.y, drawerW, graph.h};
+    if (m_paletteVisible) m_widget->SetInputExclusion(drawer);
     m_widget->Draw(ui, graph);
     DrawStats(ui, stats);
-    m_palette.Draw(ui, right, m_model->Actions(nullptr));
+    if (m_paletteVisible) {
+        ui.drawList().AddRectShadow(drawer, 2.0f, 0.7f);
+        m_palette.Draw(ui, drawer, m_model->Actions(nullptr));
+        VDivider(ui, drawer.x, drawer.y, drawer.h);
+    }
+    {
+        // The side tab: "Palette" written top to bottom, like UE's tab well.
+        const bool hover = tab.Contains(ui.mouse());
+        ui.Panel(tab, m_paletteVisible ? t.surface3 : (hover ? t.surface2 : t.surface1));
+        if (ui.Button(Context::ID("mge.palette.tab." + m_path), {tab.x, tab.y, tab.w, 96.0f}, {}))
+            m_paletteVisible = !m_paletteVisible;
+        const char* word = "PALETTE";
+        f32 ly = tab.y + 8.0f;
+        for (const char* c = word; *c; ++c, ly += 12.0f)
+            ui.LabelIn({tab.x, ly, tab.w, 12.0f}, std::string(1, *c), m_paletteVisible ? t.text : t.textDim, Align::Center);
+        ui.Tooltip(Context::ID("mge.palette.tab.tip"), {tab.x, tab.y, tab.w, 96.0f},
+                   m_paletteVisible ? "Hide the Palette" : "Show the Palette");
+    }
     // Black dividers between every panel.
     HDivider(ui, rect.x, top, rect.w);
     VDivider(ui, (left.Right() + centre.x) * 0.5f, top, h);
-    VDivider(ui, (centre.Right() + right.x) * 0.5f, top, h);
+    VDivider(ui, (centre.Right() + tab.x) * 0.5f, top, h);
     HDivider(ui, left.x, (preview.Bottom() + details.y) * 0.5f, left.w);
     HDivider(ui, centre.x, (graph.Bottom() + stats.y) * 0.5f, centre.w);
+
+    m_widget->DrawOverlays(ui);  // right-click palette above every panel
 
     // Close a property-edit gesture (one undo step per drag / edit).
     if (m_pendingEdit && !ui.isMouseDown(0) && !ui.textFieldFocused()) {

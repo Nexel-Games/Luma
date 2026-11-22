@@ -21,7 +21,10 @@ struct WidgetFixture {
         h.Frame([&] { Draw(); });
         widget.View() = ViewTransform{};
     }
-    void Draw() { widget.Draw(h.ctx, {0, 0, 800, 600}); }
+    void Draw() {
+        widget.Draw(h.ctx, {0, 0, 800, 600});
+        widget.DrawOverlays(h.ctx);
+    }
     auto Fn() {
         return [this] { Draw(); };
     }
@@ -50,14 +53,39 @@ TEST_CASE("Marquee selects the nodes it touches", "[grapheditor][widget]") {
     CHECK(f.controller.Sel().Nodes().size() == 2);
 }
 
-TEST_CASE("Right-click on empty canvas opens the searchable node menu", "[grapheditor][widget]") {
+TEST_CASE("Right-click on empty canvas pops the palette; Enter adds at the click", "[grapheditor][widget]") {
     WidgetFixture f;
-    f.h.ctx.OnMouseMove(500, 400);
+    f.h.ctx.OnMouseMove(500, 300);
     f.h.ctx.OnMouseButton(1, true);
     f.h.Frame(f.Fn());
     f.h.ctx.OnMouseButton(1, false);
     f.h.Frame(f.Fn());
-    CHECK(f.h.ctx.AnyMenuOpen());
+    REQUIRE(f.widget.PaletteOpen());
+    f.h.Frame(f.Fn());  // search box takes focus
+    for (char c : std::string("image")) f.h.ctx.OnText(static_cast<u32>(c));
+    f.h.Frame(f.Fn());
+    f.h.ctx.OnKey(257, true);  // Enter
+    f.h.Frame(f.Fn());
+    f.h.ctx.OnKey(257, false);
+    CHECK_FALSE(f.widget.PaletteOpen());
+    REQUIRE(f.model.nodes.size() == 3);
+    const auto& added = f.model.nodes.rbegin()->second.view;
+    CHECK(added.title == "N3");
+    CHECK(added.position.x == 500);
+    CHECK(added.position.y == 300);
+}
+
+TEST_CASE("Escape or a click outside closes the palette", "[grapheditor][widget]") {
+    WidgetFixture f;
+    f.h.ctx.OnMouseMove(100, 400);
+    f.h.ctx.OnMouseButton(1, true);
+    f.h.Frame(f.Fn());
+    f.h.ctx.OnMouseButton(1, false);
+    f.h.Frame(f.Fn());
+    REQUIRE(f.widget.PaletteOpen());
+    f.h.Click(780, 20, f.Fn());
+    CHECK_FALSE(f.widget.PaletteOpen());
+    CHECK(f.model.nodes.size() == 2);
 }
 
 TEST_CASE("Action menus nest categories and sort submenus first", "[grapheditor][widget]") {

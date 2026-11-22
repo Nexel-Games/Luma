@@ -5,6 +5,7 @@
 #include <string>
 
 #include "Luma/GraphEditor/GraphController.h"
+#include "Luma/GraphEditor/GraphPalette.h"
 #include "Luma/Slate/Context.h"
 
 namespace Luma::GraphEditor {
@@ -26,7 +27,9 @@ std::vector<Slate::MenuEntry> BuildActionMenu(const std::vector<GraphAction>& ac
 //   LMB comment corner  resize the comment
 //   Double-click wire   insert a reroute node
 //   RMB / MMB drag      pan;  wheel: zoom at the cursor
-//   RMB click           context menu (empty: add node; node; pin)
+//   RMB click           empty canvas: the palette pops up at the cursor
+//                       (category filter, search, tree; Enter adds the
+//                       first match); node / pin / wire: context menu
 //   Del, Ctrl+C/X/V/D/Z/Y (Ctrl+Shift+Z), C = comment, F = frame
 // Palette drags of type kActionDragType drop as new nodes.
 class GraphEditorWidget {
@@ -36,6 +39,14 @@ public:
     explicit GraphEditorWidget(GraphController& controller, std::string idPrefix = "graph");
 
     void Draw(Slate::Context& ui, const Slate::Rect& rect);
+    // Popups above every panel (the right-click palette): call after the
+    // host has drawn everything else.
+    void DrawOverlays(Slate::Context& ui);
+    bool PaletteOpen() const { return m_paletteOpen; }
+    void ClosePalette() { m_paletteOpen = false; }
+    // A host panel drawn over the canvas (e.g. a palette drawer): the
+    // canvas ignores the pointer there. Set every frame before Draw.
+    void SetInputExclusion(const Slate::Rect& rect) { m_exclusion = rect; }
 
     ViewTransform& View() { return m_view; }
     // Frames everything (or the selection) on the next Draw.
@@ -91,6 +102,13 @@ private:
     std::optional<std::any> m_resizeBefore;
     std::optional<LinkView> m_hoverWire;
     std::string m_linkMessage;
+    Slate::Rect m_exclusion{};
+    // Right-click / drag-off palette popup.
+    GraphPalette m_popup;
+    bool m_paletteOpen = false;
+    int m_paletteAge = 0;  // frames since opening (ignore the opening click)
+    Vec2 m_paletteScreen{0, 0}, m_paletteGraph{0, 0};
+    std::optional<PinKey> m_paletteFrom;
     bool m_linkAllowed = false;
 };
 

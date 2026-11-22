@@ -37,27 +37,53 @@ std::vector<PaletteGroup> FilterActions(const std::vector<GraphAction>& actions,
     return out;
 }
 
+void GraphPalette::FocusSearch(Slate::Context& ui) { ui.FocusField(Slate::Context::ID(m_id + ".search")); }
+
+void GraphPalette::Reset() {
+    m_query.clear();
+    m_category.clear();
+    m_scroll = 0.0f;
+    m_open.clear();
+}
+
 void GraphPalette::Draw(Slate::Context& ui, const Slate::Rect& rect, const std::vector<GraphAction>& actions) {
     using Slate::Context;
     using Slate::Rect;
     const Slate::Theme& t = ui.theme();
     ui.Panel(rect, t.panelBg);
-    const Rect header{rect.x, rect.y, rect.w, 24.0f};
-    ui.Panel(header, t.surface1);
-    ui.LabelIn({header.x + 8.0f, header.y, header.w - 16.0f, header.h}, "Palette", t.text);
-    ui.SearchBox(Context::ID(m_id + ".search"), {rect.x + 4.0f, rect.y + 28.0f, rect.w - 8.0f, 24.0f}, m_query,
-                 "Search expressions");
-    const Rect view{rect.x, rect.y + 56.0f, rect.w, rect.h - 56.0f};
+    // Category filter (UE: "Category: All").
+    std::vector<PaletteGroup> groups = FilterActions(actions, m_query);
+    {
+        std::vector<std::string> cats{"All"};
+        for (const PaletteGroup& g : FilterActions(actions, "")) cats.push_back(g.category);
+        int current = 0;
+        for (usize i = 1; i < cats.size(); ++i)
+            if (cats[i] == m_category) current = static_cast<int>(i);
+        ui.LabelIn({rect.x + 6.0f, rect.y + 4.0f, 64.0f, 22.0f}, "Category:", t.textDim);
+        const int picked = ui.Combo(Context::ID(m_id + ".category"), {rect.x + 72.0f, rect.y + 4.0f, rect.w - 78.0f, 22.0f},
+                                    cats, current);
+        if (picked != current && picked >= 0) m_category = picked == 0 ? std::string() : cats[static_cast<usize>(picked)];
+        if (!m_category.empty())
+            std::erase_if(groups, [&](const PaletteGroup& g) { return g.category != m_category; });
+    }
+    ui.SearchBox(Context::ID(m_id + ".search"), {rect.x + 4.0f, rect.y + 30.0f, rect.w - 8.0f, 24.0f}, m_query,
+                 "Search");
+    const Rect view{rect.x, rect.y + 58.0f, rect.w, rect.h - 58.0f};
+    if (!m_query.empty() && ui.enterPressed() && !groups.empty() && onPick) {
+        onPick(groups.front().actions.front().id);
+        return;
+    }
     ui.PushClip(view);
-    const bool searching = !m_query.empty();
+    const bool searching = !m_query.empty() || !m_category.empty();
     f32 y = view.y - m_scroll;
     constexpr f32 rowH = 22.0f;
-    for (const PaletteGroup& g : FilterActions(actions, m_query)) {
-        bool open = searching || !m_closed[g.category];
+    for (const PaletteGroup& g : groups) {
+        auto it = m_open.try_emplace(g.category, m_categoriesOpen).first;
+        bool open = searching || it->second;
         if (ui.CollapsingHeader(Context::ID(m_id + ".cat." + g.category), {view.x + 2.0f, y, view.w - 12.0f, rowH},
                                 g.category, open) &&
             !searching) {
-            m_closed[g.category] = !open;
+            it->second = open;
         }
         y += rowH + 2.0f;
         if (!open) continue;

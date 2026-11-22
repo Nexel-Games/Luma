@@ -57,6 +57,9 @@ public:
     GraphEditor::GraphController& Controller() { return *m_controller; }
     const MaterialStats& Stats() const { return m_stats; }
     bool liveUpdate = false;
+    bool PaletteVisible() const { return m_paletteVisible; }
+    void SetPaletteVisible(bool visible) { m_paletteVisible = visible; }
+    GraphEditor::GraphEditorWidget& Widget() { return *m_widget; }
 
 private:
     void OnGraphChanged();
@@ -86,6 +89,7 @@ private:
     f32 m_previewSplit = 0.45f;
     f32 m_detailsScroll = 0.0f, m_statsScroll = 0.0f;
     bool m_settingsOpen = true, m_nodeOpen = true;
+    bool m_paletteVisible = false;  // drawer over the graph, toggled by the side tab
 };
 
 }  // namespace Luma::MaterialEditors

@@ -24,16 +24,25 @@ std::vector<PaletteGroup> FilterActions(const std::vector<GraphAction>& actions,
 // Click an entry to call onPick; drag it onto a GraphEditorWidget to place it.
 class GraphPalette {
 public:
-    explicit GraphPalette(std::string idPrefix = "palette") : m_id(std::move(idPrefix)) {}
+    explicit GraphPalette(std::string idPrefix = "palette", bool categoriesOpen = true)
+        : m_id(std::move(idPrefix)), m_categoriesOpen(categoriesOpen) {}
+    // "Category:" filter, search box and the category tree. Enter adds the
+    // first match while searching.
     void Draw(Slate::Context& ui, const Slate::Rect& rect, const std::vector<GraphAction>& actions);
     std::function<void(const std::string& actionId)> onPick;
     std::string& Query() { return m_query; }
+    // Puts the caret in the search box (popup palettes).
+    void FocusSearch(Slate::Context& ui);
+    // Clears search, category filter, scroll and expansion state.
+    void Reset();
 
 private:
     std::string m_id;
     std::string m_query;
     f32 m_scroll = 0.0f;
-    std::map<std::string, bool> m_closed;
+    std::string m_category;  // "" = All
+    bool m_categoriesOpen = true;
+    std::map<std::string, bool> m_open;  // category -> expanded (absent = m_categoriesOpen)
 };
 
 }  // namespace Luma::GraphEditor

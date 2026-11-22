@@ -72,7 +72,36 @@ std::vector<Slate::MenuEntry> BuildActionMenu(const std::vector<GraphAction>& ac
 }
 
 GraphEditorWidget::GraphEditorWidget(GraphController& controller, std::string idPrefix)
-    : m_controller(controller), m_id(std::move(idPrefix)) {}
+    : m_controller(controller), m_id(idPrefix), m_popup(idPrefix + ".popup", /*categoriesOpen=*/false) {
+    m_popup.onPick = [this](const std::string& id) {
+        m_controller.SpawnAction(id, m_paletteGraph, m_paletteFrom);
+        m_paletteOpen = false;
+    };
+}
+
+void GraphEditorWidget::DrawOverlays(Context& ui) {
+    if (!m_paletteOpen) return;
+    const Slate::Theme& t = ui.theme();
+    constexpr f32 kW = 340.0f, kH = 440.0f;
+    Rect r{m_paletteScreen.x, m_paletteScreen.y, kW, kH};
+    r.x = std::clamp(r.x, 0.0f, std::max(ui.displayWidth() - kW, 0.0f));
+    r.y = std::clamp(r.y, 0.0f, std::max(ui.displayHeight() - kH, 0.0f));
+    const bool clickOutside = m_paletteAge > 0 && !r.Contains(ui.mouse()) && !ui.AnyMenuOpen() &&
+                              (ui.mousePressed(0) || ui.mousePressed(1) || ui.mousePressed(2));
+    if ((ui.keyEscape() && !ui.AnyMenuOpen()) || clickOutside) {
+        m_paletteOpen = false;
+        return;
+    }
+    ui.drawList().AddRectShadow(r, 4.0f, 0.8f);
+    ui.PanelRoundedBordered(r, t.panelBg, t.outline, 4.0f);
+    const Rect title{r.x, r.y, r.w, 22.0f};
+    ui.LabelIn(title.Inset(8.0f, 0.0f), m_paletteFrom ? "Actions taking this pin" : "All Actions for this Graph",
+               t.textDim);
+    const PinKey* from = m_paletteFrom ? &*m_paletteFrom : nullptr;
+    m_popup.Draw(ui, {r.x + 2.0f, r.y + 22.0f, r.w - 4.0f, r.h - 24.0f}, m_controller.Model().Actions(from));
+    if (m_paletteAge == 0) m_popup.FocusSearch(ui);
+    ++m_paletteAge;
+}
 
 Vec2 GraphEditorWidget::PinAnchor(const PinKey& pin, const std::vector<NodeView>& nodes) const {
     for (const NodeView& n : nodes) {
@@ -316,16 +345,13 @@ void GraphEditorWidget::DrawNode(Context& ui, const NodeView& n, const NodeGeome
 }
 
 void GraphEditorWidget::OpenActionMenu(Context& ui, Vec2 screen, Vec2 graphPos, std::optional<PinKey> from) {
-    GraphController* controller = &m_controller;
-    const PinKey* fromPtr = from ? &*from : nullptr;
-    auto entries = BuildActionMenu(m_controller.Model().Actions(fromPtr), [controller, graphPos, from](const std::string& id) {
-        controller->SpawnAction(id, graphPos, from);
-    });
-    Slate::MenuOptions o;
-    o.searchable = true;
-    o.searchHint = "Search nodes";
-    o.maxHeight = 420.0f;
-    ui.OpenMenu(Context::ID(m_id + ".actions"), screen, std::move(entries), o);
+    (void)ui;
+    m_popup.Reset();
+    m_paletteOpen = true;
+    m_paletteAge = 0;
+    m_paletteScreen = screen;
+    m_paletteGraph = graphPos;
+    m_paletteFrom = from;
 }
 
 void GraphEditorWidget::OpenContextMenu(Context& ui, Vec2 screen, const Hit& hit) {
@@ -381,7 +407,8 @@ void GraphEditorWidget::HandleKeys(Context& ui, Vec2 mouseGraph) {
 void GraphEditorWidget::HandleInput(Context& ui, const Rect& rect, const std::vector<NodeView>& nodes) {
     const Vec2 mouse = ui.mouse();
     const Vec2 mg = m_view.ToGraph(mouse, m_origin);
-    m_hovered = rect.Contains(mouse) && !ui.inputBlocked();
+    m_hovered = rect.Contains(mouse) && !ui.inputBlocked() && !m_exclusion.Contains(mouse);
+    m_exclusion = {};
     m_hoverWire.reset();
 
     // Palette drops.
@@ -389,6 +416,7 @@ void GraphEditorWidget::HandleInput(Context& ui, const Rect& rect, const std::ve
         m_controller.SpawnAction(drop->data, mg);
     }
 
+    if (m_paletteOpen) return;  // the popup palette owns input while open
     if (m_hovered && m_mode == Mode::None) {
         if (ui.scrollDelta() != 0.0f) m_view.ZoomAt(ui.scrollDelta() > 0.0f ? 1 : -1, mouse, m_origin);
         HandleKeys(ui, mg);
