@@ -178,8 +178,8 @@ private:
     static constexpr f32 kToolbarH = 36.0f;
     // Card dimensions for the asset grid (Unreal-style): a thumbnail on
     // top + name + asset type rows below.
-    static constexpr f32 kTileW = 84.0f;
-    static constexpr f32 kTileH = 138.0f;
+    static constexpr f32 kTileW = 120.0f;
+    static constexpr f32 kTileH = 178.0f;  // square thumbnail (kTileW) + name/type rows
     static constexpr f32 kTileGap = 6.0f;
 
     // Draw helpers (called from Draw).

@@ -495,7 +495,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
     // Compute columns that fit the available width and start rows from
     // the top padding.
     constexpr f32 kPad = 12.0f;
-    constexpr f32 kThumbH = 76.0f;      // top thumbnail strip (reduced)
+    constexpr f32 kThumbH = kTileW;     // square thumbnail strip on top
     constexpr f32 kTextRowsH = kTileH - kThumbH;  // name + type rows
     const Slate::Font& f = ui.uiFont();
     f32 availW = rect.w - kPad * 2.0f;
@@ -638,7 +638,9 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             Slate::Color iconColor = isFolder
                                          ? Slate::Color{255, 178, 92, 255}
                                          : t.textDim;
-            f32 iconSide = std::min(thumb.w, thumb.h) * 0.62f;
+            // Folder art (Luma icon pack) carries its own padding: draw it
+            // near tile size; asset-type glyphs stay smaller.
+            f32 iconSide = std::min(thumb.w, thumb.h) * (isFolder ? 0.95f : 0.62f);
             Rect iconR{thumb.x + (thumb.w - iconSide) * 0.5f,
                        thumb.y + (thumb.h - iconSide) * 0.5f,
                        iconSide, iconSide};
