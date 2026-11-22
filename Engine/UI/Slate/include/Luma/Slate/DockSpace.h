@@ -40,7 +40,7 @@ public:
     void SetTitle(const std::string& id, const std::string& title);
     // Makes `id` the active tab of its leaf.
     void FocusPanel(const std::string& id);
-    // Gives `id` a close button (x) on its tab. `onClose` decides: return
+    // Makes `id` closable (middle click on its tab; tabs show no close button). `onClose` decides: return
     // true to close now, false to keep the tab (e.g. while a Save / Discard /
     // Cancel prompt is open; the owner calls ClosePanel later).
     void SetCloseHandler(const std::string& id, std::function<bool()> onClose);

@@ -243,10 +243,8 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
         const TextureHandle tabIcon = it != m_panels.end() ? it->second.icon : 0;
         const bool closable = it != m_panels.end() && it->second.onClose;
         constexpr f32 kTabIcon = 14.0f;
-        constexpr f32 kCloseW = 18.0f;
         const f32 iconSpace = tabIcon ? kTabIcon + 6.0f : 0.0f;
-        const f32 closeSpace = closable ? kCloseW : 0.0f;
-        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f + iconSpace + closeSpace;
+        f32 tabW = ctx.uiFont().Measure(title).x + 30.0f + iconSpace;
         Rect tab{tx, rect.y + 3.0f, tabW, kTabBarH - 3.0f};
         bool active = (i == n->active);
         bool hovered = tab.Contains(ctx.mouse());
@@ -269,20 +267,14 @@ void DockSpace::DrawLeaf(Context& ctx, Node* n) {
                        kTabIcon},
                       active ? t.text : t.textDim);
         }
-        ctx.Heading({tab.x + iconSpace, tab.y + 1.0f, tabW - iconSpace - closeSpace, tab.h},
+        ctx.Heading({tab.x + iconSpace, tab.y + 1.0f, tabW - iconSpace, tab.h},
                     title, active ? t.text : t.textDim);
+        // Tabs carry no close button: a middle click closes a closable tab
+        // (panels reopen from the Window menu).
         bool closeClicked = false;
-        if (closable) {
-            const Rect close{tab.Right() - kCloseW - 4.0f, tab.y + (tab.h - kCloseW) * 0.5f + 1.0f,
-                             kCloseW, kCloseW};
-            const bool overClose = close.Contains(ctx.mouse());
-            if (overClose) ctx.PanelRounded(close, t.surface3, t.radius.sm);
-            DrawIcon(ctx, close.Inset(2, 2), Icon::Close, overClose ? t.text : t.textDim);
-            ctx.Tooltip(Context::ID(("dock.close." + id).c_str()), close, "Close Tab");
-            if (overClose && ctx.mousePressed(0)) {
-                closeClicked = true;
-                if (it->second.onClose()) ClosePanel(id);
-            }
+        if (closable && hovered && ctx.mousePressed(2)) {
+            closeClicked = true;
+            if (it->second.onClose()) ClosePanel(id);
         }
         if (hovered && !closeClicked) {
             if (ctx.mousePressed(0)) {
