@@ -1808,7 +1808,7 @@ void EditorScreen::AppendCameraModels() {
     // The source model is ~0.8 m; shrink it to a gizmo-sized object so it
     // doesn't dwarf scene geometry. Scale is applied in the camera's local
     // space (prepended) so it shrinks about the camera origin.
-    constexpr f32 kModelScale = 0.30f;
+    constexpr f32 kModelScale = 0.25f;
     Math::Mat4 scale = Math::Mat4::Identity();
     scale.m[0] = scale.m[5] = scale.m[10] = kModelScale;
     auto view = reg.view<const TransformComponent, const CameraComponent>();
