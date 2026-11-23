@@ -101,6 +101,11 @@ public:
     // Loaded graph assets that reference `path` (function calls, collection
     // parameters, textures, instance parents), sorted.
     std::vector<std::string> Dependents(std::string_view path) const;
+    // Everything that depends on `path` directly or through other assets
+    // (function -> material -> instance -> child instance), sorted, without
+    // `path` itself; cycles are safe. Drives targeted thumbnail and preview
+    // refreshes: only these assets change when `path` changes.
+    std::vector<std::string> AllDependents(std::string_view path) const;
 
 private:
     struct Entry {

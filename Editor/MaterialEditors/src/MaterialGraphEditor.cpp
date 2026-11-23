@@ -278,6 +278,7 @@ void MaterialGraphEditor::DrawPreview(Context& ui, const Rect& panel) {
     }
     m_preview.width = static_cast<u32>(std::max(area.w, 1.0f));
     m_preview.height = static_cast<u32>(std::max(area.h, 1.0f));
+    m_preview.key = reinterpret_cast<u64>(this);  // this editor's own preview snapshot
     const TextureHandle image = m_services.renderPreview ? m_services.renderPreview(m_preview) : 0;
     if (image) ui.Image(image, area);
     else ui.LabelIn(area, "Preview unavailable", t.textDisabled, Align::Center);
@@ -480,6 +481,10 @@ void MaterialGraphEditor::DrawStats(Context& ui, const Rect& area) {
     ui.PopClip();
     m_statsScroll =
         ui.VerticalScroll(Context::ID("mge.sscroll." + m_path), view, y + m_statsScroll - view.y + 8.0f, m_statsScroll);
+}
+
+MaterialGraphEditor::~MaterialGraphEditor() {
+    if (m_services.releasePreview) m_services.releasePreview(reinterpret_cast<u64>(this));
 }
 
 }  // namespace Luma::MaterialEditors

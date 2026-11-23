@@ -27,12 +27,15 @@ struct PreviewRequest {
     u32 width = 0, height = 0;
     bool floor = true;          // a floor under the mesh (lit preview stage)
     bool sky = true;            // sky backdrop + sky light, else dark studio
+    u64 key = 0;                // the requesting editor: re-render only on change
 };
 
 struct MaterialEditorServices {
     // Renders the preview; returns the UI texture (0 = nothing yet).
     // The editor's adapter wraps Editor/LumaEditor/MaterialPreview.
     std::function<TextureHandle(const PreviewRequest&)> renderPreview;
+    // Frees the preview resources of `key` (the editor is closing).
+    std::function<void(u64 key)> releasePreview;
     // Asset lists (virtual paths) for pickers.
     std::function<std::vector<std::string>()> listMaterials;  // materials + instances
     std::function<std::vector<std::string>()> listMeshes;

@@ -160,7 +160,103 @@ void VulkanDeferredRenderer::SetProfileName(std::string name) {
                                                   m_profileName);
 }
 
+uint64_t VulkanDeferredRenderer::SnapshotTexture(uint64_t key) const {
+    const auto it = m_snapshots.find(key);
+    return it != m_snapshots.end() && it->second.initialized ? it->second.uiTexture : 0;
+}
+
+void VulkanDeferredRenderer::ReleaseSnapshot(uint64_t key) {
+    const auto it = m_snapshots.find(key);
+    if (it == m_snapshots.end()) return;
+    // Frames in flight may still sample or write it.
+    vkDeviceWaitIdle(m_device);
+    DestroyAttachment(it->second.image);
+    if (it->second.uiTexture) m_freeSnapshotTextures.push_back(it->second.uiTexture);
+    m_snapshots.erase(it);
+}
+
+void VulkanDeferredRenderer::DestroySnapshots() {
+    if (m_snapshots.empty()) return;
+    vkDeviceWaitIdle(m_device);
+    for (auto& [key, snap] : m_snapshots) {
+        DestroyAttachment(snap.image);
+        if (snap.uiTexture) m_freeSnapshotTextures.push_back(snap.uiTexture);
+    }
+    m_snapshots.clear();
+}
+
+void VulkanDeferredRenderer::RecordSnapshot() {
+    const uint64_t key = m_snapshotKey;
+    m_snapshotKey = 0;
+    if (key == 0) return;
+    const Attachment& source = DisplayAttachment();
+    if (source.image == VK_NULL_HANDLE) return;
+    const i32 w = m_gBuffer.width;
+    const i32 h = m_gBuffer.height;
+    Snapshot& snap = m_snapshots[key];
+    if (snap.image.image == VK_NULL_HANDLE || snap.width != w || snap.height != h) {
+        if (snap.image.image != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(m_device);  // an earlier frame may still read it
+            DestroyAttachment(snap.image);
+        }
+        if (!CreateAttachment(kLightFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                              &snap.image, w, h)) {
+            LUMA_LOG_ERROR("VulkanDeferredRenderer", "Could not create a {}x{} preview snapshot", w, h);
+            m_snapshots.erase(key);
+            return;
+        }
+        snap.width = w;
+        snap.height = h;
+        snap.initialized = false;
+        if (snap.uiTexture == 0) {
+            if (!m_freeSnapshotTextures.empty()) {
+                snap.uiTexture = m_freeSnapshotTextures.back();
+                m_freeSnapshotTextures.pop_back();
+                m_uiPass.UpdateExternalTexture(snap.uiTexture, snap.image.view);
+            } else {
+                snap.uiTexture = m_uiPass.RegisterExternalTexture(snap.image.view);
+            }
+        } else {
+            m_uiPass.UpdateExternalTexture(snap.uiTexture, snap.image.view);
+        }
+    }
+    auto barrier = [&](VkImage image, VkImageLayout from, VkImageLayout to, VkAccessFlags srcAccess,
+                       VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        b.srcAccessMask = srcAccess;
+        b.dstAccessMask = dstAccess;
+        vkCmdPipelineBarrier(m_commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    // Display image: written this frame, read by the UI -> copy source.
+    barrier(source.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT);
+    // Snapshot: fully overwritten; waits for earlier UI reads of it.
+    barrier(snap.image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkImageCopy copy{};
+    copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.dstSubresource = copy.srcSubresource;
+    copy.extent = {static_cast<u32>(w), static_cast<u32>(h), 1};
+    vkCmdCopyImage(m_commandBuffer, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, snap.image.image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    barrier(source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    barrier(snap.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    snap.initialized = true;
+}
+
 VulkanDeferredRenderer::~VulkanDeferredRenderer() {
+    DestroySnapshots();
     Cleanup();
     // Caches are released after the frame resources (members, reverse order).
 }
@@ -2200,6 +2296,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
         m_gpuTimer->End(m_commandBuffer, editorScope);
     }
 
+    RecordSnapshot();
     m_gpuTimer->EndFrame(m_commandBuffer);
     m_stats.instances = source.instanceCount;
     Profiling::Global().Counters() += m_stats;

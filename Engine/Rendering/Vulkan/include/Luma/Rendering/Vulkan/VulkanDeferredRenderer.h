@@ -116,6 +116,20 @@ public:
     // Owned by this renderer; stays valid across resizes.
     uint64_t GetViewportTextureHandle() const { return m_textureHandle; }
 
+    // --- Snapshots ---------------------------------------------------------
+    // Persistent copies of the display image, one per key (e.g. one per
+    // material editor preview). Several previews then keep showing their last
+    // result while only the one whose inputs changed re-renders (Unreal's
+    // non-realtime preview viewports).
+    // The next RenderScene also copies its display image into `key`'s
+    // snapshot (0 = none); applies to that one RenderScene only.
+    void SetSnapshotTarget(uint64_t key) { m_snapshotKey = key; }
+    // UI texture of `key`'s snapshot (0 before its first render).
+    uint64_t SnapshotTexture(uint64_t key) const;
+    // Frees `key`'s snapshot image (its UI handle is recycled for the next
+    // snapshot). The caller must stop drawing the handle.
+    void ReleaseSnapshot(uint64_t key);
+
     // --- SceneRenderer -----------------------------------------------------------
     MeshHandle UploadMesh(u64 key, const MeshData& mesh) override;
     void ReleaseMesh(MeshHandle mesh) override;
@@ -310,6 +324,20 @@ private:
     std::array<VkCommandBuffer, kFrameSlots> m_commands{};
     bool m_garbagePending = false;
     u64 m_contentRevision = 0;
+
+    struct Snapshot {
+        Attachment image;
+        uint64_t uiTexture = 0;
+        i32 width = 0;
+        i32 height = 0;
+        bool initialized = false;  // has been written (layout SHADER_READ_ONLY)
+    };
+    // Records the copy of the display image into the pending snapshot.
+    void RecordSnapshot();
+    void DestroySnapshots();
+    std::unordered_map<uint64_t, Snapshot> m_snapshots;
+    std::vector<uint64_t> m_freeSnapshotTextures;  // UI handles to reuse
+    uint64_t m_snapshotKey = 0;
 
     // Cascaded shadow map resources (sun / directional light)
     VkImage m_shadowImage = VK_NULL_HANDLE;

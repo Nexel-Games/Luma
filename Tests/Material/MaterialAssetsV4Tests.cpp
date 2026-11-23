@@ -222,6 +222,34 @@ TEST_CASE("Library serves graph assets, collection values and dependents", "[mat
     const auto deps = lib2.Dependents("/Game/Materials/MF_Wind");
     REQUIRE(deps.size() == 1);
     CHECK(deps[0] == "/Game/Materials/M_Foliage");
+
+    // Transitive: function -> material -> instance -> child instance.
+    GraphMaterialInstance mi;
+    mi.parent = "/Game/Materials/M_Foliage";
+    lib2.SetGraphInstance("/Game/Materials/MI_Foliage", mi);
+    GraphMaterialInstance child;
+    child.parent = "/Game/Materials/MI_Foliage";
+    lib2.SetGraphInstance("/Game/Materials/MI_Foliage_Red", child);
+    GraphMaterialInstance unrelated;
+    unrelated.parent = "/Game/Materials/M_Other";
+    lib2.SetGraphInstance("/Game/Materials/MI_Other", unrelated);
+    const auto all = lib2.AllDependents("/Game/Materials/MF_Wind");
+    REQUIRE(all.size() == 3);
+    CHECK(all[0] == "/Game/Materials/MI_Foliage");
+    CHECK(all[1] == "/Game/Materials/MI_Foliage_Red");
+    CHECK(all[2] == "/Game/Materials/M_Foliage");
+    CHECK(lib2.AllDependents("/Game/Materials/MI_Foliage_Red").empty());
+    // A cycle (instance chains are validated, but a bad file can contain one)
+    // terminates and never lists the root itself.
+    GraphMaterialInstance loopA;
+    loopA.parent = "/Game/Materials/MI_LoopB";
+    GraphMaterialInstance loopB;
+    loopB.parent = "/Game/Materials/MI_LoopA";
+    lib2.SetGraphInstance("/Game/Materials/MI_LoopA", loopA);
+    lib2.SetGraphInstance("/Game/Materials/MI_LoopB", loopB);
+    const auto loop = lib2.AllDependents("/Game/Materials/MI_LoopA");
+    REQUIRE(loop.size() == 1);
+    CHECK(loop[0] == "/Game/Materials/MI_LoopB");
 }
 
 TEST_CASE("The default graph material exposes BaseColor and Roughness parameters", "[material][v4]") {

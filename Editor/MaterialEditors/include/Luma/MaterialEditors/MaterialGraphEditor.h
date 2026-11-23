@@ -43,6 +43,10 @@ class MaterialGraphEditor {
 public:
     MaterialGraphEditor(std::string materialPath, Material::MaterialLibrary& library,
                         MaterialEditorServices services);
+    // Frees this editor's preview snapshot.
+    ~MaterialGraphEditor();
+    MaterialGraphEditor(const MaterialGraphEditor&) = delete;
+    MaterialGraphEditor& operator=(const MaterialGraphEditor&) = delete;
 
     void Draw(Slate::Context& ui, const Slate::Rect& rect);
     // Popups (colour picker, right-click palette) above every panel: call

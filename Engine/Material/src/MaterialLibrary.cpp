@@ -484,4 +484,21 @@ std::vector<std::string> MaterialLibrary::Dependents(std::string_view rawPath) c
     return out;
 }
 
+std::vector<std::string> MaterialLibrary::AllDependents(std::string_view rawPath) const {
+    const std::string root = Normalize(rawPath);
+    std::vector<std::string> out;
+    std::vector<std::string> frontier{root};
+    while (!frontier.empty()) {
+        const std::string current = std::move(frontier.back());
+        frontier.pop_back();
+        for (std::string& dep : Dependents(current)) {
+            if (dep == root || std::find(out.begin(), out.end(), dep) != out.end()) continue;
+            out.push_back(dep);
+            frontier.push_back(std::move(dep));
+        }
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
 }  // namespace Luma::Material

@@ -110,6 +110,7 @@ void MaterialInstanceEditor::DrawPreview(Context& ui, const Rect& panel) {
     }
     m_preview.width = static_cast<u32>(std::max(area.w, 1.0f));
     m_preview.height = static_cast<u32>(std::max(area.h, 1.0f));
+    m_preview.key = reinterpret_cast<u64>(this);  // this editor's own preview snapshot
     const TextureHandle image = m_services.renderPreview ? m_services.renderPreview(m_preview) : 0;
     if (image != 0) {
         ui.Image(image, area);
@@ -367,6 +368,10 @@ void MaterialInstanceEditor::DrawDetails(Context& ui, const Rect& area) {
     ui.PopClip();
     const f32 content = y + m_scroll - view.y + 8.0f;
     m_scroll = ui.VerticalScroll(Context::ID("mie.scroll." + m_model.Path()), view, content, m_scroll);
+}
+
+MaterialInstanceEditor::~MaterialInstanceEditor() {
+    if (m_services.releasePreview) m_services.releasePreview(reinterpret_cast<u64>(this));
 }
 
 }  // namespace Luma::MaterialEditors

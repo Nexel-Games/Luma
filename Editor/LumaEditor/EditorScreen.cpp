@@ -384,7 +384,10 @@ MaterialEditors::MaterialEditorServices EditorScreen::MakeMaterialEditorServices
         if (!m_preview) return 0;
         const int shape = std::min(static_cast<int>(q.shape), 3);
         return m_preview->Render(q.materialPath, static_cast<PreviewShape>(shape), q.yaw, q.pitch, q.width, q.height,
-                                 q.sky, q.floor);
+                                 q.sky, q.floor, q.key);
+    };
+    s.releasePreview = [this](u64 key) {
+        if (m_preview) m_preview->Release(key);
     };
     auto listOf = [this](std::initializer_list<AssetType> types) {
         std::vector<std::string> out;
@@ -787,15 +790,29 @@ std::vector<std::string> EditorScreen::ListAssets(bool materials) const {
     return out;
 }
 
-void EditorScreen::RefreshMaterialThumbnails() {
-    // Material thumbnails depend on their parents and textures, so any
-    // material/texture change re-renders all of them.
+void EditorScreen::RefreshThumbnailsFor(const std::string& virtualPath) {
+    // Dependents are found among loaded graph assets: make sure every
+    // project material / instance is loaded (each parses once, then cached).
     for (AssetType type : {AssetType::Material, AssetType::MaterialInstance}) {
         for (const AssetData* a : m_assetRegistry.Filter(type, std::nullopt, {})) {
-            ThumbnailManager::Get().DirtyThumbnail(a->id);
-            m_contentBrowser.InvalidateThumbnail(a->id);
+            if (const auto v = m_assetPaths.ToVirtual(a->packagePath)) {
+                if (type == AssetType::Material) m_materials->GetGraphMaterial(*v);
+                else m_materials->GetGraphInstance(*v);
+            }
         }
     }
+    std::vector<std::string> targets = m_materials->AllDependents(virtualPath);
+    targets.push_back(virtualPath);
+    usize refreshed = 0;
+    for (const std::string& v : targets) {
+        const auto file = m_assetPaths.ToFile(v, {"lmat", "lmatinst", "lmesh"});
+        const AssetData* a = file ? m_assetRegistry.LookupByPath(*file) : nullptr;
+        if (!a) continue;
+        ThumbnailManager::Get().DirtyThumbnail(a->id);
+        m_contentBrowser.InvalidateThumbnail(a->id);
+        ++refreshed;
+    }
+    LUMA_LOG_INFO("Thumbnails", "'{}' changed: re-rendering {} thumbnail(s)", virtualPath, refreshed);
 }
 
 void EditorScreen::RefreshAssetWatches() {
@@ -833,17 +850,18 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
         // A missing (deleted/renamed) file resolves to the Default Material
         // with a user warning.
         m_materials->Reload(*virtualPath);
-        RefreshMaterialThumbnails();
+        RefreshThumbnailsFor(*virtualPath);
     } else if (ext == ".lmesh") {
         m_bridge.OnMeshFileChanged(*virtualPath);
         if (m_preview) m_preview->OnMeshFileChanged(*virtualPath);
+        RefreshThumbnailsFor(*virtualPath);
     } else {
         // Changed or removed texture: re-validate (missing -> constant, warned
         // once) and re-upload it in the viewport and the preview.
         m_materials->InvalidateTextures();
         m_bridge.OnTextureFileChanged(*virtualPath);
         if (m_preview) m_preview->OnTextureFileChanged(*virtualPath);
-        RefreshMaterialThumbnails();
+        RefreshThumbnailsFor(*virtualPath);
     }
 }
 
@@ -1017,8 +1035,10 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.renderMaterialPreview = [this](const std::string& path, int shape, f32 yaw, f32 pitch,
                                        u32 width, u32 height, bool sky) -> TextureHandle {
         if (!m_preview) return 0;
+        // The Material Editor panel's preview: keyed, so it re-renders only on change.
+        constexpr u64 kPanelPreviewKey = 0x4D41'5450'5256'0001ull;
         return m_preview->Render(path, static_cast<PreviewShape>(std::clamp(shape, 0, 3)), yaw,
-                                 pitch, width, height, sky);
+                                 pitch, width, height, sky, true, kPanelPreviewKey);
     };
     ctx.assetThumbnail = [this](const std::string& path) { return AssetThumbnail(path); };
     ctx.listTextures = [this] { return ListAssets(false); };

@@ -208,7 +208,10 @@ private:
     // re-upload. Watches are refreshed when the asset registry changes.
     void PollAssetChanges(f32 deltaSeconds);
     void RefreshAssetWatches();
-    void RefreshMaterialThumbnails();
+    // Re-renders the thumbnails of the asset at `virtualPath` and of every
+    // material / instance that depends on it (nothing else), like Unreal's
+    // per-package thumbnail invalidation.
+    void RefreshThumbnailsFor(const std::string& virtualPath);
     void OnAssetFileChanged(const std::filesystem::path& file);
     void DrawClosePrompt(Slate::Context& ui);
 

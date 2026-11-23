@@ -68,8 +68,8 @@ MaterialPreview::MaterialPreview(Rendering::VulkanDeferredRenderer& renderer,
     m_view.farZ = 200.0f;
 }
 
-void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
-                                  f32 deltaSeconds) {
+bool MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
+                                  f32 deltaSeconds, u64 key, u64 requestHash) {
     width = std::max(width, 1u);
     height = std::max(height, 1u);
     m_bridge.Sync(m_scene, m_renderer, m_library);  // loads the actor's mesh (bounds)
@@ -108,6 +108,19 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     m_bridge.Sync(m_scene, m_renderer, m_library);
     m_bridge.FinishCompiles(m_renderer, m_library);  // a preview shows the material, not a placeholder
     m_bridge.BuildInstances(m_scene, kNullEntity, m_instances);
+    if (key != 0) {
+        // Content is synced now: any material / texture / mesh change bumped
+        // the renderer's content revision.
+        const u64 hash = requestHash ^ (m_renderer.ContentRevision() * 0x9E3779B97F4A7C15ull);
+        KeyState& state = m_keys[key];
+        if (state.hash != hash) {
+            state.hash = hash;
+            state.settle = kSettleFrames;
+        }
+        if (state.settle == 0 && m_renderer.SnapshotTexture(key) != 0) return false;
+        if (state.settle > 0) --state.settle;
+        m_renderer.SetSnapshotTarget(key);
+    }
     const f32 aspect = static_cast<f32>(width) / static_cast<f32>(height);
     const f32 halfFov = std::min(m_fovY, 2.0f * std::atan(std::tan(m_fovY * 0.5f) * aspect)) * 0.5f;
     const f32 distance = radius / std::sin(halfFov) * 1.08f;
@@ -121,10 +134,10 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
         const Math::Vec3 toEye = Math::Normalize(eye - center);
         const Math::Vec3 right =
             Math::Normalize(Math::Cross(Math::Vec3(0.0f, 1.0f, 0.0f), toEye));
-        const Math::Vec3 key = Math::Normalize(toEye * 0.8f + Math::Vec3(0.0f, 0.9f, 0.0f) -
-                                               right * 0.6f);
-        m_view.sky.sunDirection = key;
-        m_view.lighting.sunDirection = key;
+        const Math::Vec3 keyLight = Math::Normalize(toEye * 0.8f + Math::Vec3(0.0f, 0.9f, 0.0f) -
+                                                    right * 0.6f);
+        m_view.sky.sunDirection = keyLight;
+        m_view.lighting.sunDirection = keyLight;
     }
     m_view.instances = m_instances.data();
     m_view.instanceCount = static_cast<u32>(m_instances.size());
@@ -152,11 +165,18 @@ void MaterialPreview::RenderFrame(f32 yaw, f32 pitch, u32 width, u32 height,
     m_renderer.SetViewportDimensions(static_cast<i32>(width), static_cast<i32>(height));
     m_renderer.PrepareScene();
     m_renderer.RenderScene(frame);
+    ++m_renderedFrames;
+    return true;
+}
+
+void MaterialPreview::Release(u64 key) {
+    m_keys.erase(key);
+    m_renderer.ReleaseSnapshot(key);
 }
 
 TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShape shape,
                                       f32 yaw, f32 pitch, u32 width, u32 height, bool sky,
-                                      bool floor) {
+                                      bool floor, u64 key) {
     auto& mr = m_scene.Registry().get<MeshRendererComponent>(m_actor);
     mr.mesh.clear();
     mr.primitive = ToPrimitive(shape);
@@ -164,11 +184,23 @@ TextureHandle MaterialPreview::Render(std::string_view materialPath, PreviewShap
     m_view.sky.enabled = sky;  // off: dark backdrop, hemisphere ambient
     m_showFloor = floor;
     m_fovY = kPreviewFovY;
+    // Everything that decides the image besides content (revision added in
+    // RenderFrame after syncing).
+    u64 hash = std::hash<std::string_view>{}(materialPath);
+    auto mix = [&hash](u64 v) { hash ^= v + 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2); };
+    mix(static_cast<u64>(shape));
+    mix(std::bit_cast<u32>(yaw));
+    mix(std::bit_cast<u32>(pitch));
+    mix((static_cast<u64>(width) << 32) | height);
+    mix((sky ? 1u : 0u) | (floor ? 2u : 0u));
     // Interactive: exposure adapts over frames like the viewport.
-    RenderFrame(yaw, pitch, width, height, 1.0f / 60.0f);
+    RenderFrame(yaw, pitch, width, height, 1.0f / 60.0f, key, hash);
     m_view.sky.enabled = true;  // thumbnails always use the sky
     m_showFloor = false;        // ... and no floor
     m_fovY = kFovY;             // ... and the narrow lens
+    if (key != 0) {
+        if (const TextureHandle snapshot = m_renderer.SnapshotTexture(key)) return snapshot;
+    }
     return m_renderer.GetViewportTextureHandle();
 }
 

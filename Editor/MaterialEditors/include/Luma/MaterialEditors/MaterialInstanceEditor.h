@@ -23,6 +23,10 @@ class MaterialInstanceEditor {
 public:
     MaterialInstanceEditor(std::string instancePath, Material::MaterialLibrary& library,
                            MaterialEditorServices services);
+    // Frees this editor's preview snapshot.
+    ~MaterialInstanceEditor();
+    MaterialInstanceEditor(const MaterialInstanceEditor&) = delete;
+    MaterialInstanceEditor& operator=(const MaterialInstanceEditor&) = delete;
 
     void Draw(Slate::Context& ui, const Slate::Rect& rect);
     // The colour picker above every panel: call after the host's dock.
