@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "PanelContext.h"
@@ -56,6 +58,13 @@ public:
     void SetTexture(Luma::TextureHandle tex) { m_texture = tex; }
     void SetIcons(const ViewportIcons& icons) { m_icons = icons; }
 
+    // Camera preview inset: the texture rendered from the selected camera's
+    // view, plus the camera's name. A zero texture hides the inset.
+    void SetCameraPreview(Luma::TextureHandle tex, std::string name) {
+        m_cameraPreview = tex;
+        m_cameraPreviewName = std::move(name);
+    }
+
     const ViewportSettings& Settings() const { return m_settings; }
     ViewportSettings& Settings() { return m_settings; }
 
@@ -80,6 +89,8 @@ private:
 
     Slate::Rect m_rect{};
     Luma::TextureHandle m_texture = 0;
+    Luma::TextureHandle m_cameraPreview = 0;  // selected camera's view, 0 = hidden
+    std::string m_cameraPreviewName;
     ViewportSettings m_settings;
     ViewportIcons m_icons;
     // Frame timing (smoothed) for the stats readout + fly speed.

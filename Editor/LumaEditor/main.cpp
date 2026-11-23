@@ -533,6 +533,7 @@ int main(int argc, char** argv) {
     auto lastFlush = Profiling::Clock::now();
     std::optional<u64> lastView;
     Profiling::Clock::time_point settleUntil{};
+    bool cameraPreviewActive = false;  // a camera preview snapshot is live
     i64 benchmarkFrame = 0;
     int exitCode = 0;
     while (running && !window->ShouldClose()) {
@@ -629,15 +630,46 @@ int main(int argc, char** argv) {
                         }
                         needsRender |= now < settleUntil;
                     }
+                    // Selected-camera preview: render the camera's view at the
+                    // same resolution (a different size would rebuild all
+                    // targets) INTO a snapshot, BEFORE the main render so the
+                    // live buffer ends on the main view. Rides needsRender, so
+                    // it re-renders on any scene/selection change and holds its
+                    // snapshot while nothing changes.
+                    Renderer2::DeferredSceneView previewScene;
+                    std::string cameraName;
+                    const bool hasPreview =
+                        editor->BuildCameraPreviewView(previewScene, viewW, viewH, &cameraName);
+                    if (hasPreview && needsRender) {
+                        vulkanDeferredRenderer->SetSnapshotTarget(EditorScreen::kCameraPreviewKey);
+                        vulkanDeferredRenderer->RenderScene(previewScene);
+                        vulkanDeferredRenderer->SetSnapshotTarget(0);
+                    }
+
                     if (needsRender) vulkanDeferredRenderer->RenderScene(deferredScene);
-                    
+
                     // The deferred renderer owns the UI texture handle for its
                     // light-accumulation buffer (re-pointed internally on resize).
                     TextureHandle sceneTex = vulkanDeferredRenderer->GetViewportTextureHandle();
                     if (sceneTex != 0) {
                         editor->SetViewportTexture(sceneTex);
                     }
-                    
+
+                    // Hand the camera preview snapshot to the viewport inset, or
+                    // hide + free it when no camera is selected.
+                    if (hasPreview) {
+                        editor->SetCameraPreview(
+                            vulkanDeferredRenderer->SnapshotTexture(EditorScreen::kCameraPreviewKey),
+                            cameraName);
+                        cameraPreviewActive = true;
+                    } else {
+                        editor->SetCameraPreview(0, "");
+                        if (cameraPreviewActive) {
+                            vulkanDeferredRenderer->ReleaseSnapshot(EditorScreen::kCameraPreviewKey);
+                            cameraPreviewActive = false;
+                        }
+                    }
+
                 } else {
                     LUMA_LOG_ERROR("Editor", "Vulkan deferred renderer not available - viewport will be black");
                 }

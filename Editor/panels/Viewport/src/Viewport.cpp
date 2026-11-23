@@ -557,6 +557,31 @@ void ViewportPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelConte
     const Slate::Rect leftBar = DrawToolbar(ui, body, ctx);
     const Slate::Rect rightBar = DrawTransformToolbar(ui, body, leftBar, ctx);
     DrawStats(ui, body, rightBar.Bottom() + 6.0f);
+
+    // Camera preview inset (bottom-right): the view rendered from the selected
+    // camera. Mirrors the viewport aspect so the snapshot shows undistorted.
+    if (m_cameraPreview != 0 && body.w > 60.0f && body.h > 60.0f) {
+        const f32 margin = 8.0f;
+        f32 fw = std::round(body.w * 0.22f);
+        fw = std::clamp(fw, 140.0f, body.w - 2.0f * margin);
+        f32 fh = fw * body.h / body.w;
+        if (fh > body.h * 0.5f) {  // never let it dominate the view
+            fh = body.h * 0.5f;
+            fw = fh * body.w / body.h;
+        }
+        Slate::Rect frame{body.Right() - margin - fw, body.Bottom() - margin - fh, fw, fh};
+        ui.drawList().AddRectShadow(frame, t.radius.sm, 0.5f, 6.0f);
+        ui.PanelRounded(frame, t.surface2, t.radius.sm);
+        const Slate::Rect image = frame.Inset(2.0f, 2.0f);
+        ui.Image(m_cameraPreview, image);
+        // Name strip along the top of the image.
+        Slate::Rect strip{image.x, image.y, image.w, 16.0f};
+        ui.Panel(strip, Color{18, 18, 22, 205});
+        const std::string label = m_cameraPreviewName.empty()
+                                      ? std::string("Camera")
+                                      : m_cameraPreviewName;
+        ui.LabelIn({strip.x + 6.0f, strip.y, strip.w - 12.0f, strip.h}, label, t.text, Align::Left);
+    }
     const bool overToolbar = leftBar.Inset(-4.0f, -4.0f).Contains(ui.mouse()) ||
                              rightBar.Inset(-4.0f, -4.0f).Contains(ui.mouse());
     const bool inView = body.Contains(ui.mouse()) && !overToolbar;

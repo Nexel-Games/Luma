@@ -95,6 +95,20 @@ public:
     void SetViewportTexture(TextureHandle texture) {
         m_viewportPanel.SetTexture(texture);
     }
+
+    // Snapshot key the renderer uses for the selected-camera preview.
+    static constexpr u64 kCameraPreviewKey = 0xCA3E12A1u;
+    // Fills `out` with a clean scene view (no grid/overlay) from the selected
+    // camera's transform and projection, at width x height; returns false when
+    // no camera is selected. Must be called after BuildDeferredSceneView, which
+    // builds the frame's scene source this reuses. `name` <- the camera's name.
+    bool BuildCameraPreviewView(Renderer2::DeferredSceneView& out, u32 width, u32 height,
+                                std::string* name);
+    // Hands the rendered preview texture (0 = none) and camera name to the
+    // viewport panel for its bottom-right inset.
+    void SetCameraPreview(TextureHandle texture, std::string name) {
+        m_viewportPanel.SetCameraPreview(texture, std::move(name));
+    }
     void SetToolbarIcons(TextureHandle play, TextureHandle pause,
                          TextureHandle stop) {
         m_iconPlay = play;
@@ -415,6 +429,9 @@ private:
     // DeferredSceneView returned by BuildDeferredSceneView (its sceneData /
     // lightingParams members point into this).
     SceneView m_deferredSceneSource;
+    // Same, for the camera-preview view (a grid/overlay-free copy of the frame's
+    // scene source). Must outlive the preview DeferredSceneView.
+    SceneView m_cameraPreviewSceneSource;
 
     Editor::Panels::PanelContext BuildPanelContext();
 };

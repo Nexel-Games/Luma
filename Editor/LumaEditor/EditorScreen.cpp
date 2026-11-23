@@ -1743,8 +1743,57 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
     // Set pointers to RHI scene data
     deferredScene.sceneData = &rhiScene;
     deferredScene.lightingParams = &rhiScene.lighting;
-    
+
     return deferredScene;
+}
+
+bool EditorScreen::BuildCameraPreviewView(Renderer2::DeferredSceneView& out, u32 width,
+                                          u32 height, std::string* name) {
+    using namespace Math;
+    if (!ActiveScene().IsValid(m_selected)) return false;
+    auto& reg = ActiveScene().Registry();
+    if (!reg.all_of<TransformComponent, CameraComponent>(m_selected)) return false;
+
+    const auto& tf = reg.get<TransformComponent>(m_selected);
+    const auto& cam = reg.get<CameraComponent>(m_selected);
+
+    // Reuse this frame's scene content, but strip the editor grid and overlay/
+    // debug lines so the preview reads like the game view. The shallow copy
+    // keeps the instance/light pointers (EditorScreen members, valid this frame).
+    m_cameraPreviewSceneSource = m_deferredSceneSource;
+    m_cameraPreviewSceneSource.grid.enabled = false;
+    m_cameraPreviewSceneSource.overlayLines = nullptr;
+    m_cameraPreviewSceneSource.overlayLineVertexCount = 0;
+    m_cameraPreviewSceneSource.lines = nullptr;
+    m_cameraPreviewSceneSource.lineVertexCount = 0;
+
+    const u32 vpW = width > 0 ? width : 1;
+    const u32 vpH = height > 0 ? height : 1;
+    const f32 aspect = static_cast<f32>(vpW) / static_cast<f32>(vpH);
+    const Mat4 world = tf.Matrix();
+    const Mat4 view = Inverse(world);
+
+    out.cameraPosition = tf.position;
+    out.cameraDirection = Normalize(Vec3(-world.m[8], -world.m[9], -world.m[10]));
+    out.viewMatrix = view;
+    out.projectionMatrix = cam.ProjectionMatrix(aspect);
+    out.viewProjectionMatrix = out.projectionMatrix * view;
+    out.width = vpW;
+    out.height = vpH;
+    out.fov = Radians(cam.fovYDegrees);
+    out.nearPlane = cam.nearZ;
+    out.farPlane = cam.farZ;
+    out.time = 0.0f;
+    out.deltaTime = 0.0f;
+    out.sceneData = &m_cameraPreviewSceneSource;
+    out.lightingParams = &m_cameraPreviewSceneSource.lighting;
+
+    if (name != nullptr) {
+        *name = reg.all_of<NameComponent>(m_selected)
+                    ? reg.get<NameComponent>(m_selected).name
+                    : std::string("Camera");
+    }
+    return true;
 }
 
 namespace {
