@@ -2,10 +2,10 @@
 
 - Phase: P1
 - Branch: `agent/T-0006-plugin-framework` (from `origin/dev` at `f3e326e`)
-- Date: 2026-11-22
-- Status: **PARTIAL**
+- Date: 2026-11-22 (verified 2026-11-22 after Vulkan SDK at `D:\VulkanSDK\1.4.341.1`)
+- Status: **COMPLETE**
 
-The manifest parser, version ranges, and discovery behave as specified and their tests pass. The full engine test suite was not run. Configuring `build/` fails because the Vulkan SDK library `shaderc_combined` is not on this machine.
+The manifest parser, version ranges, and discovery behave as specified. Plugin tests pass inside `LumaTests`. Development `ctest` is green.
 
 ## Purpose
 
@@ -16,7 +16,7 @@ Discover `Plugins/<Id>/<Id>.lplugin` manifests from the engine and project plugi
 - **Implemented:** JSON manifest schema 1, semver ranges (`exact`, `>=`, `>`, `<=`, `<`, `=`, `==`, `^`, `~`, space-separated AND), directory discovery, duplicate-id errors that name every path, folder/file/id mismatch errors, unreadable-file errors, engine and platform diagnostics. `CompiledPluginTable::Instantiate` is the only call that runs a factory. `DiscoverPlugins` does not call it.
 - **Planned:** dependency startup, project enablement, Project Settings, sample plugins, CMake `luma_add_plugin`. Documented in `docs/plugins/overview.md`.
 - **Unsupported:** `||` ranges, DLL loading, hot reload.
-- **Blocked:** `ctest` of `LumaTests` on this machine (see Build).
+- **Blocked:** none for this phase. Cook/package remains a later-phase (P5) item.
 
 ## Code
 
@@ -57,24 +57,32 @@ Luma::Plugins::DiscoverPlugins(std::span<const std::filesystem::path> roots,
 
 ## Build and tests
 
-`cmake --build build --config Development --target LumaPlugins` re-ran CMake and failed:
+Vulkan SDK: `D:\VulkanSDK\1.4.341.1` (version 1.4.341), including `Lib/shaderc_combined.lib` and `Bin/glslc.exe`. Configure:
 
 ```
-CMake Error at Engine/Rendering/ShaderCompiler/CMakeLists.txt:14 (find_library):
-  Could not find LUMA_SHADERC_LIB using the following names: shaderc_combined
+cmake --fresh --preset msvc -DVulkan_ROOT=D:/VulkanSDK/1.4.341.1
+-- Found Vulkan: D:/VulkanSDK/1.4.341.1/Lib/vulkan-1.lib (found version "1.4.341")
 ```
 
-`D:\VulkanSDK\1.4.341.1` is not on this machine. CMake then reported that the cache had to be cleared. `build/CMakeCache.txt` is gone, so `cmake --build build` cannot regenerate until the SDK is available. Object files and libraries already in `build/` were left in place. This phase did not edit the shader compiler.
-
-The plugin tests were compiled with the Development warning set (`/W4 /WX /std:c++20 /permissive- /utf-8 /Zc:preprocessor /MD /DLUMA_CONFIG_DEVELOPMENT=1`) and linked to the existing Development Catch2 libraries:
+Development build of the T-0006 tree succeeded (`Scripts/Build.ps1`, 286 remaining steps after switching from `dev`). Plugin filter:
 
 ```
-build\plugin-p1\PluginP1Tests.exe --reporter compact
-RNG seed: 1212193683
+build\bin\Development\LumaTests.exe "[plugins]" --reporter compact
+Filters: [plugins]
+RNG seed: 986071188
 All tests passed (187 assertions in 16 test cases)
 ```
 
-`PluginManifest.cpp` and `PluginDiscovery.cpp` also compiled clean (`/WX`) as Debug (`/MDd /DLUMA_CONFIG_DEBUG=1`) and Shipping (`/MD /O2 /DNDEBUG /DLUMA_CONFIG_SHIPPING=1`). Release was not a separate invocation. `LumaTests` via `ctest` was **not** run.
+`ctest --test-dir build -C Development --output-on-failure`:
+
+```
+1/2 Test #1: LumaPreferencesTests .............   Passed    0.39 sec
+2/2 Test #2: LumaTests ........................   Passed   49.26 sec
+100% tests passed out of 2
+Total Test time (real) =  49.79 sec
+```
+
+Debug: `cmake --build build --config Debug --target LumaPlugins LumaTests LumaPreferencesTests` succeeded. `build\bin\Debug\LumaTests.exe "[plugins]"`: 187 assertions, 16 cases, all passed (RNG seed 1686162253). Shipping was not rebuilt in this pass.
 
 ## Docs
 
@@ -82,4 +90,4 @@ All tests passed (187 assertions in 16 test cases)
 
 ## Remaining
 
-P2 (dependency resolution and lifecycle) has not started. Full-suite evidence is blocked on a Vulkan SDK that contains `shaderc_combined`, then a fresh configure of `build/`.
+P2 (dependency resolution and lifecycle) has not started.
