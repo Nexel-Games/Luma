@@ -1,6 +1,8 @@
 #include "Luma/Slate/DockSpace.h"
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "Luma/Slate/Icons.h"
 
@@ -200,6 +202,7 @@ void DockSpace::ApplyPending() {
     }
 
     RemovePanel(m_dragPanel);
+    m_layoutDirty = true;  // the tree changed; onLayoutChanged fires this frame
     if (!m_root) {
         DockRoot(m_dragPanel);
         return;
@@ -222,6 +225,93 @@ void DockSpace::ApplyPending() {
         std::unique_ptr<Node>* slot = FindSlot(m_root, tgt);
         if (slot) SplitSlot(*slot, dir, m_dragPanel, 0.5f);
     }
+}
+
+SerialValue DockSpace::SaveNode(const Node* n) {
+    SerialValue o = SerialValue::MakeObject();
+    if (!n) return o;
+    o["leaf"] = n->isLeaf;
+    if (n->isLeaf) {
+        SerialValue tabs = SerialValue::MakeArray();
+        for (const std::string& tab : n->tabs) tabs.PushBack(SerialValue{tab});
+        o["tabs"] = std::move(tabs);
+        o["active"] = n->active;
+    } else {
+        o["horizontal"] = n->horizontal;
+        o["ratio"] = n->ratio;
+        o["a"] = SaveNode(n->a.get());
+        o["b"] = SaveNode(n->b.get());
+    }
+    return o;
+}
+
+SerialValue DockSpace::SaveLayout() const {
+    return m_root ? SaveNode(m_root.get()) : SerialValue::MakeObject();
+}
+
+std::unique_ptr<DockSpace::Node> DockSpace::LoadNode(
+    const SerialValue& v, const std::unordered_set<std::string>& allowed) {
+    if (!v.IsObject()) return nullptr;
+    const SerialValue* leafV = v.Find("leaf");
+    const bool isLeaf = leafV ? leafV->AsBool(true) : true;
+    if (isLeaf) {
+        auto n = std::make_unique<Node>();
+        n->isLeaf = true;
+        if (const SerialValue* tabs = v.Find("tabs"); tabs && tabs->IsArray()) {
+            for (const SerialValue& t : tabs->Elements()) {
+                const std::string id = t.AsString();
+                if (!id.empty() && allowed.count(id)) n->tabs.push_back(id);
+            }
+        }
+        if (n->tabs.empty()) return nullptr;  // drop leaves with no live panels
+        const SerialValue* act = v.Find("active");
+        const int active = act ? static_cast<int>(act->AsInt(0)) : 0;
+        n->active = std::clamp(active, 0, static_cast<int>(n->tabs.size()) - 1);
+        return n;
+    }
+    std::unique_ptr<Node> a, b;
+    if (const SerialValue* av = v.Find("a")) a = LoadNode(*av, allowed);
+    if (const SerialValue* bv = v.Find("b")) b = LoadNode(*bv, allowed);
+    if (!a && !b) return nullptr;
+    if (!a) return b;  // collapse a split with one empty side
+    if (!b) return a;
+    auto n = std::make_unique<Node>();
+    n->isLeaf = false;
+    if (const SerialValue* h = v.Find("horizontal")) n->horizontal = h->AsBool(true);
+    if (const SerialValue* r = v.Find("ratio")) n->ratio = static_cast<f32>(r->AsFloat(0.5));
+    n->a = std::move(a);
+    n->b = std::move(b);
+    return n;
+}
+
+void DockSpace::ApplyLayout(const SerialValue& layout, const std::vector<std::string>& allowed) {
+    std::unordered_set<std::string> allow(allowed.begin(), allowed.end());
+    std::unique_ptr<Node> root = LoadNode(layout, allow);
+
+    // Any open panel the saved layout didn't place is appended so it never
+    // vanishes (e.g. a panel added since the layout was saved).
+    std::unordered_set<std::string> placed;
+    std::function<void(const Node*)> collect = [&](const Node* n) {
+        if (!n) return;
+        if (n->isLeaf) {
+            for (const std::string& t : n->tabs) placed.insert(t);
+        } else {
+            collect(n->a.get());
+            collect(n->b.get());
+        }
+    };
+    collect(root.get());
+    for (const std::string& id : allowed) {
+        if (placed.count(id)) continue;
+        if (!root) {
+            root = std::make_unique<Node>();
+            root->isLeaf = true;
+        }
+        Node* leaf = root.get();
+        while (leaf && !leaf->isLeaf) leaf = leaf->a.get();
+        if (leaf) leaf->tabs.push_back(id);
+    }
+    if (root) m_root = std::move(root);
 }
 
 void DockSpace::DrawLeaf(Context& ctx, Node* n) {
@@ -326,6 +416,7 @@ void DockSpace::DrawNode(Context& ctx, Node* n) {
     } else {
         dragging = ctx.SplitterH(sid, n->rect, n->ratio, aRect, bRect);
     }
+    if (dragging) m_splitterDragging = true;  // ratio being changed this frame
     n->a->rect = aRect;
     n->b->rect = bRect;
     DrawNode(ctx, n->a.get());
@@ -351,6 +442,7 @@ void DockSpace::DrawNode(Context& ctx, Node* n) {
 }
 
 void DockSpace::Draw(Context& ctx, const Rect& area) {
+    m_splitterDragging = false;  // set by DrawNode if a splitter is being dragged
     for (const std::string& id : m_pendingClose) {
         RemovePanel(id);
         m_panels.erase(id);
@@ -477,6 +569,14 @@ void DockSpace::Draw(Context& ctx, const Rect& area) {
         m_dragPanel.clear();
         m_dragging = false;
         m_pending.active = false;
+    }
+
+    // A splitter drag that just ended changed a ratio: persist it once.
+    if (m_splitterWasDragging && !m_splitterDragging) m_layoutDirty = true;
+    m_splitterWasDragging = m_splitterDragging;
+    if (m_layoutDirty) {
+        m_layoutDirty = false;
+        if (onLayoutChanged) onLayoutChanged();
     }
 }
 

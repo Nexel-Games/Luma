@@ -77,7 +77,10 @@ PanelRegistry& EditorPanels() {
 
 EditorPanelHost::EditorPanelHost(PanelRegistry& registry, Slate::DockSpace& dock,
                                  ContextProvider context)
-    : m_registry(registry), m_dock(dock), m_context(std::move(context)) {}
+    : m_registry(registry), m_dock(dock), m_context(std::move(context)) {
+    // Re-docking a panel or dragging a splitter persists the new layout.
+    m_dock.onLayoutChanged = [this] { NotifyChanged(); };
+}
 
 bool EditorPanelHost::WantsOpen(const PanelDesc& panel) const {
     if (!panel.closable) return true;
@@ -140,6 +143,8 @@ void EditorPanelHost::BuildLayout() {
         m_known.push_back(panel->id);
         if (WantsOpen(*panel) && !IsOpen(panel->id)) Dock(*panel);
     }
+    // Restore the saved split/tab arrangement over the freshly docked defaults.
+    if (m_hasSavedDock) m_dock.ApplyLayout(m_savedDock, m_open);
 }
 
 void EditorPanelHost::ResetLayout() {
@@ -150,6 +155,8 @@ void EditorPanelHost::ResetLayout() {
     m_deferredOpen.clear();
     m_closedByUser.clear();
     m_openedByUser.clear();
+    m_savedDock = SerialValue{};  // drop the persisted layout: reset to defaults
+    m_hasSavedDock = false;
     BuildLayout();
     NotifyChanged();
 }
@@ -242,6 +249,7 @@ SerialValue EditorPanelHost::SaveState() const {
     for (const std::string& id : m_openedByUser) opened.PushBack(SerialValue{id});
     state["closed"] = std::move(closed);
     state["opened"] = std::move(opened);
+    state["dock"] = m_dock.SaveLayout();
     return state;
 }
 
@@ -257,6 +265,10 @@ void EditorPanelHost::LoadState(const SerialValue& state) {
     };
     read("closed", m_closedByUser);
     read("opened", m_openedByUser);
+    if (const SerialValue* dock = state.Find("dock"); dock && dock->IsObject()) {
+        m_savedDock = *dock;
+        m_hasSavedDock = true;
+    }
 }
 
 void EditorPanelHost::FillWindowMenu(Slate::MenuBuilder& builder) {

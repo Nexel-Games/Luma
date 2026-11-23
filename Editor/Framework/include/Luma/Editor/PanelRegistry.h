@@ -122,6 +122,8 @@ private:
     std::vector<std::string> m_known;         // panels seen by the last Sync/BuildLayout
     std::vector<std::string> m_closePending;  // closed; the dock drops them at its next Draw
     std::vector<std::string> m_deferredOpen;  // reopened before that happened
+    SerialValue m_savedDock;                  // saved split/tab layout to restore
+    bool m_hasSavedDock = false;
 };
 
 }  // namespace Luma::Editor

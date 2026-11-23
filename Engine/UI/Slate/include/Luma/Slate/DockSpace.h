@@ -4,9 +4,11 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "Luma/Core/Types.h"
+#include "Luma/Serialization/SerialValue.h"
 #include "Luma/Slate/Context.h"
 #include "Luma/Slate/Types.h"
 
@@ -52,6 +54,18 @@ public:
     // handles tab drag-docking.
     void Draw(Context& ctx, const Rect& area);
 
+    // --- Layout persistence ------------------------------------------------
+    // Serializes the split/tab tree (structure, ratios, active tabs) so the
+    // exact arrangement can be restored. Empty when nothing is docked.
+    SerialValue SaveLayout() const;
+    // Rebuilds the tree from `layout`, keeping only tabs whose id is in
+    // `allowed` (currently-open panels); any allowed panel the layout does not
+    // place is appended as a tab so no open panel disappears.
+    void ApplyLayout(const SerialValue& layout, const std::vector<std::string>& allowed);
+    // Fired after the user re-docks a panel or finishes dragging a splitter, so
+    // the owner can persist the new layout.
+    std::function<void()> onLayoutChanged;
+
 private:
     struct Node {
         bool isLeaf = true;
@@ -92,6 +106,9 @@ private:
     void DrawNode(Context& ctx, Node* n);
     void DrawLeaf(Context& ctx, Node* n);
     void ApplyPending();
+    static SerialValue SaveNode(const Node* n);
+    static std::unique_ptr<Node> LoadNode(const SerialValue& v,
+                                          const std::unordered_set<std::string>& allowed);
 
     std::unordered_map<std::string, PanelInfo> m_panels;
     std::unique_ptr<Node> m_root;
@@ -102,6 +119,11 @@ private:
     Vec2 m_dragStart;
     PendingDock m_pending;
     std::vector<std::string> m_pendingClose;
+
+    // Layout-change tracking (drives onLayoutChanged once per change).
+    bool m_layoutDirty = false;
+    bool m_splitterDragging = false;
+    bool m_splitterWasDragging = false;
 };
 
 }  // namespace Luma::Slate

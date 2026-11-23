@@ -22,6 +22,6 @@ target_include_directories(LumaSlate
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${PROJECT_SOURCE_DIR}/ThirdParty/stb)
 
-target_link_libraries(LumaSlate PUBLIC Luma::Core Luma::RHI Luma::Platform)
+target_link_libraries(LumaSlate PUBLIC Luma::Core Luma::RHI Luma::Platform Luma::Serialization)
 
 set_target_properties(LumaSlate PROPERTIES FOLDER "Engine/UI")
