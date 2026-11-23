@@ -1307,6 +1307,52 @@ SceneView EditorScreen::BuildSceneView() {
         GizmoTransform gt{tf.position, tf.rotationEuler, tf.scale};
         const auto& lines = m_gizmo.BuildLines(gt, m_gizmoScale, m_view);
         m_overlayLines.assign(lines.begin(), lines.end());
+
+        // Influence/frustum gizmo for the selected camera or light. Drawn as
+        // overlay DebugDraw shapes (picked up just below), from the real
+        // component data so it matches what the renderer uses.
+        const Mat4 world = tf.Matrix();
+        const Vec3 pos = tf.position;
+        const Vec3 fwd = Normalize(Vec3(-world.m[8], -world.m[9], -world.m[10]));
+        const Vec3 right = Normalize(Vec3(world.m[0], world.m[1], world.m[2]));
+        auto& dd = DebugDrawer();
+        using Overlay = DebugDraw::Mode;
+        auto& reg = ActiveScene().Registry();
+        if (reg.all_of<CameraComponent>(m_selected)) {
+            const auto& cam = reg.get<CameraComponent>(m_selected);
+            // Preview aspect: the game camera has no fixed aspect until it
+            // renders, so use a 16:9 default (see design doc).
+            const Mat4 invVP = world * Inverse(cam.ProjectionMatrix(16.0f / 9.0f));
+            dd.Frustum(invVP, Vec3{0.8f, 0.8f, 0.85f}, Overlay::Overlay);
+        }
+        if (reg.all_of<LightComponent>(m_selected)) {
+            const auto& lc = reg.get<LightComponent>(m_selected);
+            switch (lc.type) {
+                case LightType::Spot:
+                    dd.Cone(pos, fwd, lc.range, lc.outerAngleDeg, lc.color, Overlay::Overlay);
+                    dd.Cone(pos, fwd, lc.range, lc.innerAngleDeg, lc.color, Overlay::Overlay);
+                    break;
+                case LightType::Point:
+                    dd.Sphere(pos, lc.attenuationRadius, lc.color, Overlay::Overlay);
+                    break;
+                case LightType::Tube:
+                    dd.Capsule(pos - right * (lc.length * 0.5f), pos + right * (lc.length * 0.5f),
+                               lc.attenuationRadius, lc.color, Overlay::Overlay);
+                    break;
+                case LightType::Directional: {
+                    // Aim arrow: a shaft plus two angled head lines.
+                    const f32 len = 2.0f;
+                    const Vec3 tip = pos + fwd * len;
+                    dd.Line(pos, tip, lc.color, Overlay::Overlay);
+                    const Vec3 up = Normalize(Vec3(world.m[4], world.m[5], world.m[6]));
+                    dd.Line(tip, tip - fwd * 0.4f + right * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - fwd * 0.4f - right * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - fwd * 0.4f + up * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - fwd * 0.4f - up * 0.2f, lc.color, Overlay::Overlay);
+                    break;
+                }
+            }
+        }
     }
     const auto& debugOverlay = DebugDrawer().Lines(DebugDraw::Mode::Overlay);
     m_overlayLines.insert(m_overlayLines.end(), debugOverlay.begin(), debugOverlay.end());
