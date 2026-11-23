@@ -167,6 +167,22 @@ public:
      * Load a thumbnail from disk
      */
     std::optional<ThumbnailData> LoadThumbnail(const std::filesystem::path& thumbnailPath);
+
+    /**
+     * Only the fast path of GetThumbnail: the up-to-date cached thumbnail
+     * from disk, never generating one. Safe on worker threads.
+     */
+    std::optional<ThumbnailData> LoadCachedThumbnail(const AssetId& assetId,
+                                                     const std::filesystem::path& nativePath,
+                                                     const ThumbnailSettings& settings = {});
+
+    /**
+     * True when generating `nativePath`'s thumbnail must run on the main
+     * thread: GPU renders through the render callback (materials, instances,
+     * meshes) and asset-type thumbnail hooks (plugins; thread safety
+     * unknown). Everything else (images, sounds...) can generate on a worker.
+     */
+    bool GeneratesOnMainThread(const std::filesystem::path& nativePath) const;
     
     /**
      * Save a thumbnail to disk

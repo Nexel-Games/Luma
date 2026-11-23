@@ -229,6 +229,28 @@ std::optional<ThumbnailData> ThumbnailManager::GetThumbnail(const AssetId& asset
     return std::nullopt;
 }
 
+std::optional<ThumbnailData> ThumbnailManager::LoadCachedThumbnail(const AssetId& assetId,
+                                                                   const std::filesystem::path& nativePath,
+                                                                   const ThumbnailSettings& settings) {
+    std::error_code ec;
+    if (!std::filesystem::exists(nativePath, ec)) return std::nullopt;
+    const std::filesystem::path thumbnailPath = m_cacheDirectory / (ToString(assetId) + "_thumb.png");
+    if (!std::filesystem::exists(thumbnailPath, ec)) return std::nullopt;
+    if (settings.autoRegenerate && NeedsRegeneration(assetId, nativePath, thumbnailPath)) return std::nullopt;
+    auto thumbnail = LoadThumbnail(thumbnailPath);
+    if (thumbnail && thumbnail->IsValid()) return thumbnail;
+    return std::nullopt;
+}
+
+bool ThumbnailManager::GeneratesOnMainThread(const std::filesystem::path& nativePath) const {
+    const auto desc = AssetTypes().FindByExtension(nativePath.extension().string());
+    if (!desc) return false;
+    if (desc->thumbnail) return true;
+    AssetType type = desc->builtin;
+    if (desc->thumbnailSource != AssetType::Unknown) type = desc->thumbnailSource;
+    return type == AssetType::Material || type == AssetType::MaterialInstance || type == AssetType::Mesh;
+}
+
 const AssetMetadata* ThumbnailManager::ResolveMetadata(const AssetId& id) const {
     // The registry caches its metadata lookup in a local optional. We
     // intentionally return a borrowed pointer only valid for the lifetime

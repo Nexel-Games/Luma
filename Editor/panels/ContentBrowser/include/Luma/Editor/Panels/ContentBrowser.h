@@ -1,6 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -8,6 +11,7 @@
 #include "Luma/Asset/AssetData.h"
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
+#include "Luma/Asset/ThumbnailRenderer.h"
 #include "Luma/Editor/Panels/FileSystemTree.h"
 #include "Luma/Editor/Panels/ThumbnailBudget.h"
 #include "Luma/Tasks/TaskManager.h"
@@ -71,7 +75,14 @@ public:
     // Selects the given asset (single-click selection, not activation).
     void SetSelected(const AssetId& id) { m_selected = id; }
     // Drops the cached GPU thumbnail of `id` (re-requested when drawn).
-    void InvalidateThumbnail(const AssetId& id) { m_thumbnailCache.erase(id); }
+    // Drops the cached texture and any in-flight background load (its
+    // result would be stale).
+    void InvalidateThumbnail(const AssetId& id) {
+        m_thumbnailCache.erase(id);
+        m_thumbJobs.erase(id);
+    }
+    // Thumbnails still loading on worker threads (tests / status).
+    usize PendingThumbnailJobs() const { return m_thumbJobs.size(); }
     // Opens the folder holding `file` and selects it (Browse to Asset).
     void BrowseTo(const std::filesystem::path& file);
 
@@ -96,7 +107,12 @@ public:
     std::filesystem::path ImportDropFolder() const noexcept { return m_importDropFolder; }
     
     // Thumbnail helpers
-    u64 GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer);
+    // Cached texture, else starts a background load (worker thread: cached
+    // PNG, or full generation for image-type assets) and returns 0 until it
+    // lands. GPU-rendered thumbnails without a cache fall back to the main
+    // thread under the frame budget. `jobs` null = everything synchronous.
+    u64 GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer,
+                            Jobs::JobSystem* jobs = nullptr);
     void RequestThumbnail(const AssetId& assetId, const std::filesystem::path& nativePath);
 
     std::vector<const AssetData*> CurrentEntries() const;
@@ -170,6 +186,16 @@ private:
     
     // Thumbnail cache (asset ID -> texture handle)
     std::unordered_map<AssetId, u64> m_thumbnailCache;
+    struct ThumbJob {
+        std::atomic<bool> done{false};
+        std::optional<ThumbnailData> data;  // set by the worker before `done`
+        bool needsMainThread = false;       // no cache; GPU render required
+    };
+    std::unordered_map<AssetId, std::shared_ptr<ThumbJob>> m_thumbJobs;
+    // Main-thread generation (the original synchronous path), budgeted.
+    u64 GenerateThumbnailNow(const AssetId& assetId, const std::filesystem::path& nativePath,
+                             Luma::Renderer* renderer);
+    u64 UploadThumbnail(const AssetId& assetId, const ThumbnailData& thumbnail, Luma::Renderer* renderer);
     ThumbnailBudget m_thumbBudget;
     Tasks::TaskToken m_thumbTask;  // "Generating thumbnails" while tiles wait
     void UpdateThumbnailTask(PanelContext& ctx);

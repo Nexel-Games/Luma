@@ -1,6 +1,7 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
+#include "Luma/Jobs/JobSystem.h"
 #include "Luma/Profiling/Profiler.h"
 
 #include <algorithm>
@@ -47,7 +48,7 @@ ContentBrowserPanel::ContentBrowserPanel() = default;
 // Last frame's deferred count drives a Background Tasks entry, so a folder of
 // fresh imports shows progress instead of looking idle.
 void ContentBrowserPanel::UpdateThumbnailTask(PanelContext& ctx) {
-    const u32 waiting = m_thumbBudget.DeferredThisFrame();
+    const u32 waiting = m_thumbBudget.DeferredThisFrame() + static_cast<u32>(m_thumbJobs.size());
     if (waiting > 0 && !m_thumbTask.IsValid() && ctx.tasks != nullptr) {
         Tasks::TaskDesc desc;
         desc.title = "Generating thumbnails";
@@ -645,7 +646,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         if (!isFolder) {
             Luma::Renderer* activeRenderer =
                 (ctx.renderer != nullptr) ? ctx.renderer : m_renderer;
-            thumbTex = GetThumbnailTexture(a->id, a->packagePath, activeRenderer);
+            thumbTex = GetThumbnailTexture(a->id, a->packagePath, activeRenderer, ctx.jobs);
         }
 
         if (thumbTex != 0) {
@@ -741,7 +742,8 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
     }
 }
 
-u64 ContentBrowserPanel::GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath, Luma::Renderer* renderer) {
+u64 ContentBrowserPanel::GetThumbnailTexture(const AssetId& assetId, const std::filesystem::path& nativePath,
+                                             Luma::Renderer* renderer, Jobs::JobSystem* jobs) {
     if (!renderer) {
         LUMA_LOG_ERROR("ContentBrowser", "GetThumbnailTexture: renderer is null");
         return 0;
@@ -752,6 +754,66 @@ u64 ContentBrowserPanel::GetThumbnailTexture(const AssetId& assetId, const std::
     if (it != m_thumbnailCache.end()) {
         return it->second;  // Return cached result (may be 0 if failed before)
     }
+    if (jobs == nullptr) return GenerateThumbnailNow(assetId, nativePath, renderer);
+
+    // Background load in flight or finished?
+    if (auto job = m_thumbJobs.find(assetId); job != m_thumbJobs.end()) {
+        if (!job->second->done.load(std::memory_order_acquire)) return 0;
+        const std::shared_ptr<ThumbJob> result = job->second;
+        if (result->data) {
+            m_thumbJobs.erase(job);
+            return UploadThumbnail(assetId, *result->data, renderer);
+        }
+        if (!result->needsMainThread) {  // generation failed on the worker
+            m_thumbJobs.erase(job);
+            m_thumbnailCache[assetId] = 0;
+            return 0;
+        }
+        // No cache and a GPU render is needed: main thread, budgeted (the job
+        // entry stays until a budget slot runs it).
+        const u64 handle = GenerateThumbnailNow(assetId, nativePath, renderer);
+        if (m_thumbnailCache.contains(assetId)) m_thumbJobs.erase(assetId);
+        return handle;
+    }
+
+    // Start one: workers load cached PNGs (and generate image-type assets)
+    // without touching the frame.
+    auto job = std::make_shared<ThumbJob>();
+    const bool mainThreadGeneration = ThumbnailManager::Get().GeneratesOnMainThread(nativePath);
+    Jobs::JobDesc desc;
+    desc.name = "Thumbnail: " + nativePath.filename().string();
+    desc.priority = Jobs::Priority::Low;
+    jobs->Schedule(std::move(desc), [job, assetId, nativePath, mainThreadGeneration] {
+        ThumbnailSettings settings;
+        settings.width = 128;
+        settings.height = 128;
+        settings.autoRegenerate = true;
+        auto& manager = ThumbnailManager::Get();
+        if (mainThreadGeneration) {
+            job->data = manager.LoadCachedThumbnail(assetId, nativePath, settings);
+            job->needsMainThread = !job->data.has_value();
+        } else {
+            job->data = manager.GetThumbnail(assetId, nativePath, settings);
+        }
+        job->done.store(true, std::memory_order_release);
+    });
+    m_thumbJobs[assetId] = std::move(job);
+    return 0;
+}
+
+u64 ContentBrowserPanel::UploadThumbnail(const AssetId& assetId, const ThumbnailData& thumbnail,
+                                         Luma::Renderer* renderer) {
+    if (!thumbnail.IsValid()) {
+        m_thumbnailCache[assetId] = 0;
+        return 0;
+    }
+    const TextureHandle handle = renderer->CreateTexture(thumbnail.width, thumbnail.height, thumbnail.pixels.data());
+    m_thumbnailCache[assetId] = handle;
+    return handle;
+}
+
+u64 ContentBrowserPanel::GenerateThumbnailNow(const AssetId& assetId, const std::filesystem::path& nativePath,
+                                              Luma::Renderer* renderer) {
     // Producing a thumbnail can mean a GPU preview render; keep the frame
     // responsive and leave the rest for the next frames (tile shows its icon).
     if (!m_thumbBudget.TryStart(SteadyMs())) {

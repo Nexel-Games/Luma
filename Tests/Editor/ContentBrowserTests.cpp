@@ -386,3 +386,78 @@ TEST_CASE("Cards scrolled out of the grid pane don't catch clicks outside it", "
     }
     REQUIRE(selectedInside);
 }
+
+#include <chrono>
+#include <thread>
+
+#include "Luma/Asset/TextureThumbnailRenderer.h"
+#include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Jobs/JobSystem.h"
+
+namespace {
+// Hands out distinct non-zero texture handles and counts uploads.
+class CountingRenderer final : public Luma::Renderer {
+public:
+    void OnResize(Luma::u32, Luma::u32) override {}
+    void SetClearColor(const Luma::ClearColor&) override {}
+    bool BeginFrame() override { return true; }
+    void EndFrame() override {}
+    void DrawUI(const Luma::UIDrawData&) override {}
+    Luma::TextureHandle CreateTexture(Luma::u32, Luma::u32, const void*) override { return ++uploads; }
+    void DestroyTexture(Luma::TextureHandle) override {}
+    void CaptureFrame(const std::string&) override {}
+    void WaitIdle() override {}
+    Luma::u64 uploads = 0;
+};
+}  // namespace
+
+TEST_CASE("Thumbnails load on worker threads; GPU-rendered types stay on the main thread",
+          "[contentbrowser][thumbnail]") {
+    TempDir dir;
+    fs::copy_file(fs::path(LUMA_SOURCE_DIR) / "Tests/Fixtures/Import/img_rgba.png", dir.Path() / "T_Rock.png");
+    AssetRegistry r;
+    r.AddRoot(dir.Path());
+    r.Scan();
+    const AssetData* tex = r.LookupByPath(dir.Path() / "T_Rock.png");
+    REQUIRE(tex != nullptr);
+
+    ThumbnailManager& manager = ThumbnailManager::Get();
+    manager.RegisterRenderer(AssetType::Texture, std::make_unique<TextureThumbnailRenderer>());
+    manager.SetProjectRoot(dir.Path() / "Project");
+    CHECK_FALSE(manager.GeneratesOnMainThread(dir.Path() / "T_Rock.png"));
+    CHECK(manager.GeneratesOnMainThread(dir.Path() / "M_Rock.lmat"));
+    CHECK(manager.GeneratesOnMainThread(dir.Path() / "SM_Rock.lmesh"));
+
+    Jobs::JobSystem jobs(2);
+    CountingRenderer renderer;
+    ContentBrowserPanel panel;
+    panel.SetRegistry(&r);
+
+    // First request: nothing on the main thread, a worker job starts.
+    CHECK(panel.GetThumbnailTexture(tex->id, tex->packagePath, &renderer, &jobs) == 0);
+    CHECK(panel.PendingThumbnailJobs() == 1);
+    CHECK(renderer.uploads == 0);
+    // Asking again while it runs doesn't start another.
+    panel.GetThumbnailTexture(tex->id, tex->packagePath, &renderer, &jobs);
+    CHECK(panel.PendingThumbnailJobs() <= 1);
+
+    // The worker generates and caches the PNG; the main thread only uploads.
+    u64 handle = 0;
+    for (int i = 0; i < 500 && handle == 0; ++i) {
+        handle = panel.GetThumbnailTexture(tex->id, tex->packagePath, &renderer, &jobs);
+        if (handle == 0) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(handle != 0);
+    CHECK(renderer.uploads == 1);
+    CHECK(panel.PendingThumbnailJobs() == 0);
+    CHECK(fs::exists(dir.Path() / "Project" / "Intermediate" / "Thumbnails" / (ToString(tex->id) + "_thumb.png")));
+    // Cached: no new upload.
+    CHECK(panel.GetThumbnailTexture(tex->id, tex->packagePath, &renderer, &jobs) == handle);
+    CHECK(renderer.uploads == 1);
+
+    // Invalidation drops the texture: the next request loads the (still valid)
+    // cached PNG on a worker again.
+    panel.InvalidateThumbnail(tex->id);
+    CHECK(panel.GetThumbnailTexture(tex->id, tex->packagePath, &renderer, &jobs) == 0);
+    CHECK(panel.PendingThumbnailJobs() == 1);
+}
