@@ -57,6 +57,34 @@ AssetId AssetRegistry::MakeId(const std::filesystem::path& p) const {
     return MakeAssetIdFromKey(key);
 }
 
+namespace {
+// Index key for a folder: lexically normal, no trailing separator.
+std::string FolderKey(const std::filesystem::path& dir) {
+    std::filesystem::path p = dir.lexically_normal();
+    if (!p.has_filename() && p.has_parent_path() && p != p.root_path()) p = p.parent_path();
+    return p.make_preferred().string();
+}
+}  // namespace
+
+void AssetRegistry::IndexAdd(const AssetData& data) {
+    m_children[FolderKey(data.packagePath.parent_path())].push_back(data.id);
+}
+
+void AssetRegistry::IndexRemove(const AssetId& id, const std::filesystem::path& packagePath) {
+    auto it = m_children.find(FolderKey(packagePath.parent_path()));
+    if (it == m_children.end()) return;
+    std::erase(it->second, id);
+    if (it->second.empty()) m_children.erase(it);
+}
+
+const std::vector<AssetId>* AssetRegistry::ChildrenOf(const std::filesystem::path& dir) const {
+    if (auto it = m_children.find(FolderKey(dir)); it != m_children.end()) return &it->second;
+    // Not in lexical form (relative path, "..", different casing of a
+    // symlinked root): resolve through the filesystem once.
+    if (auto it = m_children.find(FolderKey(Normalize(dir))); it != m_children.end()) return &it->second;
+    return nullptr;
+}
+
 void AssetRegistry::AddRoot(const std::filesystem::path& root) {
     auto norm = Normalize(root);
     if (std::find(m_roots.begin(), m_roots.end(), norm) == m_roots.end()) {
@@ -68,6 +96,7 @@ void AssetRegistry::Scan() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_byId.clear();
     m_byPath.clear();
+    m_children.clear();
 
     for (const auto& root : m_roots) {
         std::error_code ec;
@@ -125,12 +154,12 @@ void AssetRegistry::Scan() {
         for (auto& d : pendingDirs) {
             auto id = d.id;
             m_byPath[d.packagePath.string()] = id;
-            m_byId.emplace(id, std::move(d));
+            if (m_byId.emplace(id, d).second) IndexAdd(d);
         }
         for (auto& f : pendingFiles) {
             auto id = f.id;
             m_byPath[f.packagePath.string()] = id;
-            m_byId.emplace(id, std::move(f));
+            if (m_byId.emplace(id, f).second) IndexAdd(f);
         }
     }
 }
@@ -139,6 +168,7 @@ void AssetRegistry::Clear() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_byId.clear();
     m_byPath.clear();
+    m_children.clear();
 }
 
 usize AssetRegistry::Size() const noexcept {
@@ -229,26 +259,27 @@ std::vector<const AssetData*> AssetRegistry::Filter(
         std::transform(needle.begin(), needle.end(), needle.begin(),
                        [](unsigned char c) { return std::tolower(c); });
     }
-    auto normDir = dir ? Normalize(*dir) : std::filesystem::path{};
-    bool hasDir = dir.has_value();
-    for (const auto& [id, data] : m_byId) {
-        if (type.has_value() && data.type != *type) continue;
-        if (hasDir) {
-            auto rel = data.packagePath.lexically_relative(normDir);
-            auto relStr = rel.string();
-            // Skip the directory itself and anything not directly under it
-            if (relStr.empty() || relStr.front() == '.') continue;
-            // Skip assets in subdirectories (path contains separator)
-            if (relStr.find('/') != std::string::npos || relStr.find('\\') != std::string::npos) continue;
-        }
+    auto accept = [&](const AssetData& data) {
+        if (type.has_value() && data.type != *type) return;
         if (!needle.empty()) {
             std::string hay = data.assetName;
             std::transform(hay.begin(), hay.end(), hay.begin(),
                            [](unsigned char c) { return std::tolower(c); });
-            if (hay.find(needle) == std::string::npos) continue;
+            if (hay.find(needle) == std::string::npos) return;
         }
         out.push_back(&data);
+    };
+    if (dir.has_value()) {
+        // Direct children of `dir` only: read them from the path tree.
+        if (const std::vector<AssetId>* children = ChildrenOf(*dir)) {
+            out.reserve(children->size());
+            for (const AssetId& id : *children) {
+                if (auto it = m_byId.find(id); it != m_byId.end()) accept(it->second);
+            }
+        }
+        return out;
     }
+    for (const auto& [id, data] : m_byId) accept(data);
     return out;
 }
 
@@ -265,6 +296,7 @@ void AssetRegistry::RefreshPath(const std::filesystem::path& path) {
         // Path went away — drop any entry under it.
         auto it = m_byPath.find(abs.string());
         if (it != m_byPath.end()) {
+            IndexRemove(it->second, abs);
             m_byId.erase(it->second);
             m_byPath.erase(it);
         }
@@ -287,6 +319,10 @@ void AssetRegistry::RefreshPath(const std::filesystem::path& path) {
     }
     auto id = data.id;
     m_byPath[abs.string()] = id;
+    if (auto existing = m_byId.find(id); existing != m_byId.end()) {
+        IndexRemove(id, existing->second.packagePath);
+    }
+    IndexAdd(data);
     m_byId[id] = std::move(data);
 }
 
@@ -305,6 +341,7 @@ void AssetRegistry::RemoveUnder(const std::filesystem::path& dir) {
     }
     for (auto& p : pathsToDrop) {
         auto id = m_byPath[p];
+        IndexRemove(id, std::filesystem::path(p));
         m_byId.erase(id);
         m_byPath.erase(p);
     }

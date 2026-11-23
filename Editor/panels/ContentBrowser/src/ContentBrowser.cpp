@@ -1,6 +1,7 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/Panels/ContentBrowser.h"
+#include "Luma/Profiling/Profiler.h"
 
 #include <algorithm>
 #include <cctype>
@@ -453,6 +454,7 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
 void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
                                        const Slate::Rect& rect,
                                        PanelContext& ctx) {
+    LUMA_PROFILE_SCOPE("Content Browser Grid");
     if (m_renderer == nullptr && ctx.renderer != nullptr) {
         m_renderer = ctx.renderer;
     }
@@ -477,19 +479,27 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
     // Sort: folders first, then by name (case-insensitive). The toolbar
     // chevron now drives the filter menu (not sort direction), so the grid
     // always sorts ascending by name.
-    std::sort(entries.begin(), entries.end(),
-              [](const AssetData* a, const AssetData* b) {
-                  if (a->IsFolder() != b->IsFolder())
-                      return a->IsFolder();
-                  std::string an = a->assetName;
-                  std::transform(an.begin(), an.end(), an.begin(),
-                                 [](unsigned char c) { return std::tolower(c); });
-                  std::string bn = b->assetName;
-                  std::transform(bn.begin(), bn.end(), bn.begin(),
-                                 [](unsigned char c) { return std::tolower(c); });
-                  if (an == bn) return false;
-                  return an < bn;
-              });
+    // Lower-case keys built once per entry (not two string copies per
+    // comparison), then an index sort.
+    {
+        struct Keyed {
+            const AssetData* asset;
+            std::string key;
+        };
+        std::vector<Keyed> keyed;
+        keyed.reserve(entries.size());
+        for (const AssetData* a : entries) {
+            std::string key = a->assetName;
+            std::transform(key.begin(), key.end(), key.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            keyed.push_back({a, std::move(key)});
+        }
+        std::stable_sort(keyed.begin(), keyed.end(), [](const Keyed& a, const Keyed& b) {
+            if (a.asset->IsFolder() != b.asset->IsFolder()) return a.asset->IsFolder();
+            return a.key < b.key;
+        });
+        for (usize i = 0; i < keyed.size(); ++i) entries[i] = keyed[i].asset;
+    }
 
     // Card grid: each card is kTileW x kTileH with kTileGap between them.
     // Compute columns that fit the available width and start rows from
@@ -525,6 +535,8 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         f32 tx = startX + col * colW;
         f32 ty = startY + row * (kTileH + kTileGap);
         Rect card{tx, ty, kTileW, kTileH};
+        // Off-screen tiles: no thumbnail lookup, drag payload or drawing.
+        if (card.Bottom() < rect.y || card.y > rect.Bottom()) continue;
         // Clicks, drags and drops use only the part of the card visible in
         // the pane: rows scrolled out of view (drawn clipped) must not catch
         // clicks over the panels next to the Content Browser.
@@ -747,6 +759,7 @@ u64 ContentBrowserPanel::GetThumbnailTexture(const AssetId& assetId, const std::
     }
     
     // Request or load thumbnail from thumbnail manager
+    LUMA_PROFILE_SCOPE("Thumbnail Load");
     auto& thumbnailMgr = ThumbnailManager::Get();
     ThumbnailSettings settings;
     settings.width = 128;
@@ -798,6 +811,7 @@ void ContentBrowserPanel::RequestThumbnail(const AssetId& assetId, const std::fi
 
 void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                                PanelContext& ctx) {
+    LUMA_PROFILE_SCOPE("Content Browser");
     Slate::Theme& t = ui.theme();
     
     

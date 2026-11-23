@@ -108,6 +108,16 @@ private:
     std::vector<std::filesystem::path> m_roots;
     std::unordered_map<AssetId, AssetData> m_byId;
     std::unordered_map<std::string, AssetId> m_byPath;  // path.string() -> id
+    // Path tree: parent folder (packagePath.parent_path().string()) -> direct
+    // children. Folder listings (Filter with a directory: Content Browser grid,
+    // folder tree) read only that folder's entries instead of walking every
+    // asset, like Unreal's cached asset-registry path tree.
+    std::unordered_map<std::string, std::vector<AssetId>> m_children;
+    void IndexAdd(const AssetData& data);
+    void IndexRemove(const AssetId& id, const std::filesystem::path& packagePath);
+    // Children of `dir` (nullptr when none); tries the lexical form first and
+    // only falls back to the canonical (filesystem) form when it misses.
+    const std::vector<AssetId>* ChildrenOf(const std::filesystem::path& dir) const;
     std::unordered_map<AssetId, AssetMetadata> m_metadata;  // Asset metadata storage
     mutable std::mutex m_mutex;
 

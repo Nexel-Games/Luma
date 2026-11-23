@@ -158,6 +158,8 @@ public:
     // Name GPU timings and CPU scopes are reported under ("Viewport",
     // "Preview"). Set before the first frame.
     void SetProfileName(std::string name);
+    // Shadow passes skipped by the shadow cache since creation (tests / stats).
+    u64 ShadowCacheHits() const { return m_shadowCacheHits; }
     // Counters of the last RenderScene (draws, triangles, culled instances).
     const Profiling::FrameCounters& LastFrameStats() const { return m_stats; }
 
@@ -257,6 +259,12 @@ private:
                                     VkImageView targetView);
     // Records the depth-only cascade passes (clears every layer; draws only
     // when `enabled`) and leaves the array in SHADER_READ_ONLY for lighting.
+    // Cached shadow maps: a hash of everything the cascades depend on. When
+    // it matches the last rendered one the depth passes are skipped and the
+    // shadow array is reused (Unreal's cached CSM for static scenes).
+    u64 ShadowCacheKey(const SceneView& source, const Renderer2::SunCascades& cascades, bool enabled) const;
+    u64 m_shadowCacheKey = 0;
+    bool m_shadowCacheValid = false;
     void RecordSunShadows(const SceneView& source,
                           const Renderer2::SunCascades& cascades, bool enabled);
 
@@ -324,6 +332,7 @@ private:
     std::array<VkCommandBuffer, kFrameSlots> m_commands{};
     bool m_garbagePending = false;
     u64 m_contentRevision = 0;
+    u64 m_shadowCacheHits = 0;
 
     struct Snapshot {
         Attachment image;

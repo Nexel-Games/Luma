@@ -274,3 +274,53 @@ TEST_CASE("Import sidecars, temp files and dot folders are not assets", "[asset]
     r.RefreshPath(dir.Path() / "c.png.meta");
     REQUIRE(r.LookupByPath(dir.Path() / "c.png.meta") == nullptr);
 }
+
+namespace {
+std::set<std::string> Names(const std::vector<const AssetData*>& entries) {
+    std::set<std::string> out;
+    for (const AssetData* a : entries) out.insert(a->assetName);
+    return out;
+}
+}  // namespace
+
+TEST_CASE("Folder listings come from the path index and follow every change", "[asset][registry]") {
+    TempDir dir;
+    dir.Touch("rock.png");
+    dir.Touch("Materials/M_Rock.lmat");
+    dir.Touch("Materials/Sub/M_Deep.lmat");
+    AssetRegistry r;
+    r.AddRoot(dir.Path());
+    r.Scan();
+
+    const fs::path materials = dir.Path() / "Materials";
+    // Direct children only (no grandchildren), folders included.
+    CHECK(Names(r.Filter(std::nullopt, dir.Path(), "")) == std::set<std::string>{"rock", "Materials"});
+    CHECK(Names(r.Filter(std::nullopt, materials, "")) == std::set<std::string>{"M_Rock", "Sub"});
+    // Lexical variants of the same folder hit the same entries.
+    CHECK(Names(r.Filter(std::nullopt, materials / "", "")) == std::set<std::string>{"M_Rock", "Sub"});
+    CHECK(Names(r.Filter(std::nullopt, materials / "Sub" / "..", "")) == std::set<std::string>{"M_Rock", "Sub"});
+    // Type and name filters still apply on top of the folder.
+    CHECK(Names(r.Filter(AssetType::Folder, materials, "")) == std::set<std::string>{"Sub"});
+    CHECK(Names(r.Filter(std::nullopt, materials, "rOCk")) == std::set<std::string>{"M_Rock"});
+    CHECK(r.Filter(std::nullopt, dir.Path() / "Missing", "").empty());
+
+    // Incremental add / remove (file watcher) updates the listing.
+    dir.Touch("Materials/M_New.lmat");
+    r.RefreshPath(materials / "M_New.lmat");
+    CHECK(Names(r.Filter(std::nullopt, materials, "")) == std::set<std::string>{"M_Rock", "M_New", "Sub"});
+    r.RefreshPath(materials / "M_New.lmat");  // refreshing again doesn't duplicate
+    CHECK(r.Filter(std::nullopt, materials, "").size() == 3);
+    fs::remove(materials / "M_Rock.lmat");
+    r.RefreshPath(materials / "M_Rock.lmat");
+    CHECK(Names(r.Filter(std::nullopt, materials, "")) == std::set<std::string>{"M_New", "Sub"});
+
+    // Dropping a folder subtree removes its entries from every listing.
+    r.RemoveUnder(materials / "Sub");
+    CHECK(r.Filter(std::nullopt, materials / "Sub", "").empty());
+
+    // A rescan rebuilds the index from disk.
+    r.Scan();
+    CHECK(Names(r.Filter(std::nullopt, materials / "Sub", "")) == std::set<std::string>{"M_Deep"});
+    r.Clear();
+    CHECK(r.Filter(std::nullopt, materials, "").empty());
+}

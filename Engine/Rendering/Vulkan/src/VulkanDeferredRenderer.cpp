@@ -1701,6 +1701,48 @@ void VulkanDeferredRenderer::DestroyShadowResources() {
     if (m_shadowMem) vkFreeMemory(m_device, m_shadowMem, nullptr);
     m_shadowSampler = VK_NULL_HANDLE; m_shadowArrayView = VK_NULL_HANDLE; m_shadowImage = VK_NULL_HANDLE; m_shadowMem = VK_NULL_HANDLE;
     m_shadowImageInitialized = false;
+    m_shadowCacheValid = false;
+}
+
+u64 VulkanDeferredRenderer::ShadowCacheKey(const SceneView& source, const Renderer2::SunCascades& cascades,
+                                           bool enabled) const {
+    u64 h = 0xCBF29CE484222325ull;
+    auto bytes = [&h](const void* data, usize size) {
+        const auto* p = static_cast<const unsigned char*>(data);
+        for (usize i = 0; i < size; ++i) h = (h ^ p[i]) * 0x100000001B3ull;
+    };
+    auto value = [&bytes](const auto& v) { bytes(&v, sizeof(v)); };
+    value(enabled);
+    value(m_quality.shadows);
+    value(m_quality.shadowMapSize);
+    value(m_quality.maxCascades);
+    value(m_quality.shadowCasterCulling);
+    value(m_contentRevision);  // meshes, materials, textures (masked shadows)
+    value(cascades.count);
+    for (u32 c = 0; c < cascades.count; ++c) value(cascades.viewProj[c]);
+    value(source.instanceCount);
+    for (u32 i = 0; i < source.instanceCount; ++i) {
+        const SceneInstance& inst = source.instances[i];
+        value(inst.model);
+        value(inst.mesh);
+        value(inst.primitive);
+        value(inst.sectionCount);
+        for (u32 s = 0; s < std::min(inst.sectionCount, kMaxSectionMaterials); ++s) {
+            const MaterialHandle m = inst.sectionMaterials[s];
+            value(m);
+            // World Position Offset can animate (time): never cache those casters.
+            if (const CompiledMaterialGpu* material = m_materials->Drawable(m); material && material->usesWPO) {
+                return 0;
+            }
+        }
+        if (inst.sectionCount == 0) {
+            if (const CompiledMaterialGpu* material = m_materials->Drawable(kDefaultMaterialHandle);
+                material && material->usesWPO) {
+                return 0;
+            }
+        }
+    }
+    return h == 0 ? 1 : h;
 }
 
 void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
@@ -2094,8 +2136,16 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     // Sun cascade depth passes (always recorded so every layer is cleared and
     // in SHADER_READ_ONLY before the lighting pass samples it).
     {
-        GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Sun Shadows");
-        RecordSunShadows(source, cascades, sunShadows);
+        // Unchanged cascades and casters: reuse last frame's shadow maps.
+        const u64 shadowKey = ShadowCacheKey(source, cascades, sunShadows);
+        if (m_shadowCacheValid && m_shadowImageInitialized && shadowKey == m_shadowCacheKey) {
+            ++m_shadowCacheHits;
+        } else {
+            GpuScope gpu(m_gpuTimer.get(), m_commandBuffer, "Sun Shadows");
+            RecordSunShadows(source, cascades, sunShadows);
+            m_shadowCacheKey = shadowKey;
+            m_shadowCacheValid = shadowKey != 0;
+        }
     }
     m_shadowImageInitialized = true;
     const u32 lightingScope = m_gpuTimer->Begin(m_commandBuffer, "Lighting");

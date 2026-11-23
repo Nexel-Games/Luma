@@ -1,5 +1,6 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
 #include "EditorScreen.h"
+#include "Luma/Profiling/Profiler.h"
 
 #include <atomic>
 #include <algorithm>
@@ -181,6 +182,7 @@ void EditorScreen::SetRenderer(Luma::Renderer* renderer) {
         [this](AssetType type, const std::filesystem::path& path, u32 width, u32 height,
                std::vector<u8>& rgba) {
             if (!m_preview || width != height) return false;
+            LUMA_PROFILE_SCOPE("Thumbnail GPU Render");
             if (type == AssetType::Material) {
                 const auto virtualPath = m_assetPaths.ToVirtual(path);
                 return virtualPath && m_preview->CaptureMaterial(*virtualPath, width, rgba);
