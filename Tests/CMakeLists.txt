@@ -112,6 +112,7 @@ add_executable(LumaTests
     Rendering/PerformanceSettingsTests.cpp
     Rendering/MaterialGpuDescTests.cpp
     Rendering/DebugDrawTests.cpp
+    Rendering/BakeCameraMesh.cpp
     Rendering/VulkanTextureCacheTests.cpp
     Rendering/VulkanUITextureTests.cpp
     Rendering/VulkanMaterialSystemTests.cpp

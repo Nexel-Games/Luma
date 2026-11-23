@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "Luma/Asset/AssetData.h"
@@ -73,7 +74,13 @@ public:
     bool Hovered() const noexcept { return m_hovered; }
 
     // Selects the given asset (single-click selection, not activation).
-    void SetSelected(const AssetId& id) { m_selected = id; }
+    // Replaces any multi-selection with this single asset.
+    void SetSelected(const AssetId& id) {
+        m_selected = id;
+        m_selection.clear();
+        if (id.IsValid()) m_selection.insert(id);
+        m_selectAnchor = id;
+    }
     // Drops the cached GPU thumbnail of `id` (re-requested when drawn).
     // Drops the cached texture and any in-flight background load (its
     // result would be stale).
@@ -89,6 +96,12 @@ public:
     // The asset the user last activated (double-clicked). EditorScreen
     // reads this to drive the inspector / preview.
     AssetId Selected() const noexcept { return m_selected; }
+
+    // The full multi-selection (Ctrl / Shift-click). Always contains
+    // Selected() when non-empty. Single-click leaves exactly one entry here.
+    const std::unordered_set<AssetId>& Selection() const noexcept {
+        return m_selection;
+    }
 
     // The asset the user double-clicked this frame (single-click selection
     // stays in Selected()). EditorScreen polls this to open the right
@@ -125,7 +138,10 @@ private:
     std::filesystem::path m_currentFolder;  // empty = root of first root
     std::string m_nameFilter;
     std::string m_typeFilter;  // empty = all
-    AssetId m_selected{};
+    AssetId m_selected{};  // primary / active selection (inspector, rename)
+    // Full multi-selection. m_selected is always a member while non-empty.
+    std::unordered_set<AssetId> m_selection;
+    AssetId m_selectAnchor{};  // anchor tile for Shift-click range selection
     AssetId m_activated{};  // double-clicked this frame
 
     // Inline rename state. When m_renaming matches a tile's id the name

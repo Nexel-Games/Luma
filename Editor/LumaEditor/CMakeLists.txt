@@ -21,7 +21,7 @@ target_include_directories(LumaEditor
 target_link_libraries(LumaEditor
     PRIVATE Luma::Core Luma::Math Luma::Platform Luma::RenderVulkan Luma::Slate
             Luma::Project Luma::ProjectBrowser Luma::Grid Luma::Scene
-            Luma::Gizmo Luma::VFS Luma::Asset Luma::Renderer
+            Luma::Gizmo Luma::VFS Luma::Asset Luma::Renderer Luma::Mesh
             Luma::PanelWorldOutliner Luma::PanelViewport Luma::PanelInspector
             Luma::PanelConsole Luma::PanelContentBrowser Luma::PanelImportDialog
             Luma::Audio

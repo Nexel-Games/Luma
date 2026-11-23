@@ -22,8 +22,12 @@
 #include "Luma/AssetImport/SourceWatch.h"
 #include "Luma/Jobs/JobSystem.h"
 #include "Luma/Tasks/TaskManager.h"
+#include "Luma/Asset/LumaMesh.h"
 #include "Luma/Asset/LumaMeshFormat.h"
 #include "Luma/Asset/ThumbnailRenderer.h"
+#include "Luma/Mesh/MeshConversion.h"
+#include "Luma/RHI/MaterialGpuDesc.h"
+#include "Luma/RHI/SceneRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/EditorIcons.h"
@@ -1149,6 +1153,7 @@ SceneView EditorScreen::BuildSceneView() {
         m_bridge.Sync(ActiveScene(), *sceneRenderer, *m_materials);
     }
     m_bridge.BuildInstances(ActiveScene(), m_selected, m_instances);
+    AppendCameraModels();
 
     // The first directional light is the scene's sun: it drives the sky
     // atmosphere, the sun disk, cascaded shadows and the directional term in
@@ -1745,6 +1750,47 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
     deferredScene.lightingParams = &rhiScene.lighting;
 
     return deferredScene;
+}
+
+void EditorScreen::EnsureCameraModel() {
+    if (m_cameraModelLoaded || !m_renderer) return;
+    SceneRenderer* sr = m_renderer->GetSceneRenderer();
+    if (!sr) return;  // renderer not ready yet; retry next frame
+    m_cameraModelLoaded = true;
+
+    // Content/Editor sits above Fonts/<family>/<file> (staged next to the exe);
+    // the camera model lives in Content/Editor/Meshes/SM_Camera.lmesh.
+    std::error_code ec;
+    std::filesystem::path editorRoot =
+        std::filesystem::path(m_uiFontPath).parent_path().parent_path().parent_path();
+    std::filesystem::path meshPath = editorRoot / "Meshes" / "SM_Camera.lmesh";
+    if (!std::filesystem::exists(meshPath, ec)) meshPath = "Content/Editor/Meshes/SM_Camera.lmesh";
+
+    std::optional<LumaMeshData> lmd = LumaMeshIO::ReadMesh(meshPath);
+    if (!lmd) {
+        LUMA_LOG_WARN("Editor", "Camera model not found at {}", meshPath.string());
+        return;
+    }
+    MeshData md = ConvertLumaMesh(*lmd);
+    m_cameraModelMesh = sr->UploadMesh(0xCA3E4D0D0EULL, md);
+}
+
+void EditorScreen::AppendCameraModels() {
+    if (m_runner.PlayScene()) return;  // hidden in game / during play
+    EnsureCameraModel();
+    if (m_cameraModelMesh == kInvalidHandle) return;
+    auto& reg = ActiveScene().Registry();
+    auto view = reg.view<const TransformComponent, const CameraComponent>();
+    for (Entity e : view) {
+        if (reg.all_of<EditorHiddenComponent>(e)) continue;
+        SceneInstance inst;
+        inst.model = reg.get<const TransformComponent>(e).Matrix();
+        inst.mesh = m_cameraModelMesh;
+        inst.sectionCount = 1;
+        inst.sectionMaterials[0] = kDefaultMaterialHandle;
+        inst.selected = (e == m_selected);
+        m_instances.push_back(inst);
+    }
 }
 
 bool EditorScreen::BuildCameraPreviewView(Renderer2::DeferredSceneView& out, u32 width,

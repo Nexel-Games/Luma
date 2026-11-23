@@ -96,12 +96,14 @@ void ContentBrowserPanel::ResetNavigation() {
     m_currentFolder.clear();
     m_tree.SetSelectedFolder({});
     m_selected = AssetId{};
+    m_selection.clear();
+    m_selectAnchor = AssetId{};
 }
 
 void ContentBrowserPanel::BrowseTo(const std::filesystem::path& file) {
     NavigateTo(file.parent_path());
     if (m_registry) {
-        if (const AssetData* data = m_registry->LookupByPath(file)) m_selected = data->id;
+        if (const AssetData* data = m_registry->LookupByPath(file)) SetSelected(data->id);
     }
 }
 
@@ -467,7 +469,19 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
     ui.Panel(rect, Slate::Darken(t.surface1, 0.10f));
 
     auto entries = CurrentEntries();
-    
+
+    // Keep the multi-selection limited to tiles visible in the current
+    // folder / filter (assets and folders alike), so navigating or filtering
+    // can't leave invisible tiles selected.
+    if (!m_selection.empty()) {
+        std::unordered_set<AssetId> visible;
+        for (const AssetData* e : entries)
+            visible.insert(e->id);
+        for (auto it = m_selection.begin(); it != m_selection.end();) {
+            if (visible.count(*it)) ++it;
+            else it = m_selection.erase(it);
+        }
+    }
 
     if (entries.empty()) {
         ui.LabelIn({rect.x, rect.y + 12.0f, rect.w, 22.0f},
@@ -554,10 +568,18 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         if (hover) ui.RequestCursor(Luma::CursorShape::Hand);
         if (hover && ui.mousePressed(1)) {
             m_contextTarget = a->id;
-            if (!a->IsFolder()) m_selected = a->id;
+            // Right-clicking a tile outside the current selection re-selects
+            // just it; right-clicking within a multi-selection keeps the
+            // selection so the menu can act on all of it.
+            if (!m_selection.count(a->id)) {
+                m_selection.clear();
+                m_selection.insert(a->id);
+                m_selectAnchor = a->id;
+            }
+            m_selected = a->id;
         }
 
-        bool selected = (m_selected == a->id);
+        bool selected = m_selection.count(a->id) > 0;
 
         // Materials, textures, and meshes still drag onto the Inspector and
         // viewport. Every tile can also be dropped on a folder to move it.
@@ -594,11 +616,43 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         const bool onPlay = soundTile && playR.Contains(ui.mouse());
         bool allowCard = !(selected && onNameRow);
         if (ui.Selectable(cardId, hitCard, "", false, Icon::None) && allowCard && !onPlay) {
-            if (a->IsFolder()) {
-                m_currentFolder = a->packagePath;
+            // Single-click selects (assets and folders alike) and holds the
+            // highlight. Folders OPEN on double-click, not here.
+            if (ui.shiftDown() && m_selectAnchor.IsValid()) {
+                // Shift-click: select the range from the anchor to this tile
+                // in the current grid order. The anchor stays put so the
+                // range can be re-stretched with further Shift-clicks.
+                int ai = -1, bi = -1;
+                for (int k = 0; k < static_cast<int>(entries.size()); ++k) {
+                    if (entries[k]->id == m_selectAnchor) ai = k;
+                    if (entries[k]->id == a->id) bi = k;
+                }
+                m_selection.clear();
+                if (ai >= 0 && bi >= 0) {
+                    for (int k = std::min(ai, bi); k <= std::max(ai, bi); ++k)
+                        m_selection.insert(entries[k]->id);
+                } else {
+                    m_selection.insert(a->id);
+                }
                 m_selected = a->id;
+            } else if (ui.ctrlDown()) {
+                // Ctrl-click: toggle this tile in or out of the selection.
+                if (m_selection.count(a->id)) {
+                    m_selection.erase(a->id);
+                    if (m_selected == a->id)
+                        m_selected = m_selection.empty() ? AssetId{}
+                                                         : *m_selection.begin();
+                } else {
+                    m_selection.insert(a->id);
+                    m_selected = a->id;
+                }
+                m_selectAnchor = a->id;
             } else {
-                m_selected = (selected ? AssetId{} : a->id);
+                // Plain click: this tile becomes the sole selection.
+                m_selection.clear();
+                m_selection.insert(a->id);
+                m_selected = a->id;
+                m_selectAnchor = a->id;
             }
         }
         // Double-click opens (Unreal): folders navigate, assets activate (the
@@ -607,20 +661,26 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             if (a->IsFolder()) {
                 m_currentFolder = a->packagePath;
                 m_selected = AssetId{};
+                m_selection.clear();
+                m_selectAnchor = AssetId{};
             } else if (soundTile && ctx.audioPreview) {
-                m_selected = a->id;
+                SetSelected(a->id);
                 ctx.audioPreview->Play(a->packagePath);
             } else {
-                m_selected = a->id;
+                SetSelected(a->id);
                 m_activated = a->id;
             }
         }
-        (void)selected;
-
-        // Card chrome is instantaneous: bg/border/shadow appear and
-        // disappear with hover — no Animate, no lingering highlight.
+        // Card chrome. A selected tile keeps a persistent highlight (filled
+        // card + accent border) whether or not the pointer is over it; an
+        // unselected tile's bg/border appear and disappear with hover.
         bool isFolder = a->IsFolder();
-        if (!isFolder || hover) {
+        if (selected) {
+            ui.drawList().AddRectShadow(card, t.radius.md, 0.45f, 3.0f);
+            ui.PanelRounded(card, t.cardSelected, t.radius.md);
+            ui.PanelRoundedBordered(card, t.cardSelected, t.accent,
+                                    t.radius.md, t.border.thick);
+        } else if (!isFolder || hover) {
             ui.drawList().AddRectShadow(card, t.radius.md, 0.45f, 3.0f);
             ui.PanelRounded(card, kCardHover, t.radius.md);
             if (hover) {
@@ -636,7 +696,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         // the icon reads as framed inside the card.
         Rect thumb{card.x + 4.0f, card.y + 4.0f, card.w - 8.0f,
                    kThumbH - 4.0f};
-        if (!isFolder || hover) {
+        if (!isFolder || hover || selected) {
             ui.PanelRounded(thumb, Slate::Darken(kCardHover, 0.30f),
                             t.radius.sm);
         }
@@ -724,13 +784,18 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
                                      contentH, m_gridScroll);
 
     // Empty grid space (and gaps between tiles) drops into the open folder.
+    // Track folder tiles (for drop target) and any tile (for click-to-deselect)
+    // separately so a left-click on true empty space clears the selection.
     bool overFolderTile = false;
+    bool overAnyTile = false;
     for (usize i = 0; i < entries.size(); ++i) {
-        if (!entries[i]->IsFolder()) continue;
         const int row = static_cast<int>(i) / cols;
         const int col = static_cast<int>(i) % cols;
         Rect card{startX + col * colW, startY + row * (kTileH + kTileGap), kTileW, kTileH};
-        if (card.Contains(ui.mouse()) && rect.Contains(ui.mouse())) overFolderTile = true;
+        if (card.Contains(ui.mouse()) && rect.Contains(ui.mouse())) {
+            overAnyTile = true;
+            if (entries[i]->IsFolder()) overFolderTile = true;
+        }
     }
     if (!overFolderTile && rect.Contains(ui.mouse())) {
         m_importDropFolder = m_currentFolder.empty() && m_registry && !m_registry->Roots().empty()
@@ -739,6 +804,13 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, rect)) {
             MoveDropped(*drop, m_importDropFolder, ctx);
         }
+    }
+    // Click on empty grid space deselects. Selection otherwise persists until
+    // another asset is clicked or the folder changes.
+    if (!overAnyTile && rect.Contains(ui.mouse()) && ui.mouseReleased(0)) {
+        m_selected = AssetId{};
+        m_selection.clear();
+        m_selectAnchor = AssetId{};
     }
 }
 
@@ -1243,6 +1315,7 @@ std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildAssetMenu(const AssetDat
                    [this, del, path, id] {
                        if (!del) return;
                        if (m_selected == id) m_selected = AssetId{};
+                       m_selection.erase(id);
                        m_thumbnailCache.erase(id);
                        del(path);
                    },

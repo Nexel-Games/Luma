@@ -433,6 +433,13 @@ private:
     // scene source). Must outlive the preview DeferredSceneView.
     SceneView m_cameraPreviewSceneSource;
 
+    // Editor-only camera model (UE SM_CineCam-style): loaded once, instanced at
+    // each camera's transform, hidden during play.
+    MeshHandle m_cameraModelMesh = kInvalidHandle;
+    bool m_cameraModelLoaded = false;
+    void EnsureCameraModel();     // lazy-load + upload SM_Camera.lmesh
+    void AppendCameraModels();    // append an instance per CameraComponent
+
     Editor::Panels::PanelContext BuildPanelContext();
 };
 
