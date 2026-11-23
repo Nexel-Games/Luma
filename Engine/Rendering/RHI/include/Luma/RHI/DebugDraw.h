@@ -33,6 +33,16 @@ public:
     // Rings at both ends, four side lines and the two hemisphere caps.
     void Capsule(const Math::Vec3& a, const Math::Vec3& b, f32 radius, const Math::Vec3& color,
                  Mode mode = Mode::DepthTested, u32 segments = 24);
+    // A cone from `apex` opening along `dir` for `length`, with the given
+    // half-angle: a base ring (radius length*tan(halfAngle)) plus four side
+    // lines from the apex. Used for spot-light influence gizmos.
+    void Cone(const Math::Vec3& apex, const Math::Vec3& dir, f32 length, f32 halfAngleDeg,
+              const Math::Vec3& color, Mode mode = Mode::DepthTested, u32 segments = 24);
+    // A view frustum from the inverse of a view-projection matrix: unprojects
+    // the 8 clip-space corners (x,y in [-1,1], z in [0,1]) and draws the near
+    // rect, far rect and four connecting edges. Handles perspective and
+    // orthographic projections uniformly.
+    void Frustum(const Math::Mat4& invViewProj, const Math::Vec3& color, Mode mode = Mode::DepthTested);
 
     // Vertex pairs (line list) for one mode.
     const std::vector<LineVertex>& Lines(Mode mode) const {

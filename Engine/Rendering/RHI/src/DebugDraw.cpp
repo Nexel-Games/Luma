@@ -95,6 +95,49 @@ void DebugDraw::Capsule(const Math::Vec3& a, const Math::Vec3& b, f32 radius, co
     cap(a, -1.0f);
 }
 
+void DebugDraw::Cone(const Math::Vec3& apex, const Math::Vec3& dir, f32 length, f32 halfAngleDeg,
+                     const Math::Vec3& color, Mode mode, u32 segments) {
+    segments = std::max(segments, 4u);
+    Math::Vec3 axis = dir;
+    const f32 axisLen = std::sqrt(Math::Dot(axis, axis));
+    axis = axisLen > 1e-6f ? Scale(axis, 1.0f / axisLen) : Math::Vec3{0, 0, -1};
+    const Math::Vec3 baseCenter = Add(apex, Scale(axis, length));
+    const f32 radius = std::max(length, 0.0f) * std::tan(Math::Radians(std::max(halfAngleDeg, 0.0f)));
+    Math::Vec3 u, v;
+    Basis(axis, u, v);
+    auto ringPoint = [&](f32 a) {
+        return Add(baseCenter, Add(Scale(u, std::cos(a) * radius), Scale(v, std::sin(a) * radius)));
+    };
+    for (u32 i = 0; i < segments; ++i) {
+        const f32 a0 = Math::kPi * 2.0f * static_cast<f32>(i) / static_cast<f32>(segments);
+        const f32 a1 = Math::kPi * 2.0f * static_cast<f32>(i + 1) / static_cast<f32>(segments);
+        Line(ringPoint(a0), ringPoint(a1), color, mode);
+    }
+    // Four side lines from the apex to the ring (0/90/180/270 degrees).
+    for (int i = 0; i < 4; ++i) Line(apex, ringPoint(Math::kPi * 0.5f * static_cast<f32>(i)), color, mode);
+}
+
+void DebugDraw::Frustum(const Math::Mat4& invViewProj, const Math::Vec3& color, Mode mode) {
+    // Unproject the 8 clip-space corners (column-major: element (row,col) = m[col*4+row]).
+    Math::Vec3 c[8];
+    for (int i = 0; i < 8; ++i) {
+        const f32 x = (i & 1) ? 1.0f : -1.0f;
+        const f32 y = (i & 2) ? 1.0f : -1.0f;
+        const f32 z = (i & 4) ? 1.0f : 0.0f;  // Vulkan clip depth 0..1
+        const f32* m = invViewProj.m;
+        const f32 px = m[0] * x + m[4] * y + m[8] * z + m[12];
+        const f32 py = m[1] * x + m[5] * y + m[9] * z + m[13];
+        const f32 pz = m[2] * x + m[6] * y + m[10] * z + m[14];
+        const f32 pw = m[3] * x + m[7] * y + m[11] * z + m[15];
+        const f32 inv = std::fabs(pw) > 1e-6f ? 1.0f / pw : 1.0f;
+        c[i] = {px * inv, py * inv, pz * inv};
+    }
+    // Corners differing in exactly one bit share an edge (12 edges of the box).
+    for (int i = 0; i < 8; ++i)
+        for (int bit = 1; bit < 8; bit <<= 1)
+            if (!(i & bit)) Line(c[i], c[i | bit], color, mode);
+}
+
 DebugDraw& DebugDrawer() {
     static DebugDraw drawer;
     return drawer;

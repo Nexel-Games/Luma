@@ -70,6 +70,59 @@ TEST_CASE("DebugDraw spheres and capsules lie on their surfaces", "[rendering][d
     CHECK(cap.Lines(Mode::DepthTested).empty());
 }
 
+TEST_CASE("DebugDraw cones are a base ring plus four side lines", "[rendering][debugdraw]") {
+    DebugDraw dd;
+    const Math::Vec3 apex{0, 0, 0};
+    const Math::Vec3 dir{0, 0, -1};
+    const f32 length = 2.0f;
+    const f32 halfAngleDeg = 30.0f;
+    dd.Cone(apex, dir, length, halfAngleDeg, {1, 1, 0}, Mode::Overlay, 24);
+    const auto& v = dd.Lines(Mode::Overlay);
+    // ring: 24 segments * 2 verts, + 4 side lines * 2 verts.
+    REQUIRE(v.size() == (24u + 4u) * 2u);
+    const Math::Vec3 baseCenter{0, 0, -length};
+    const f32 baseRadius = length * std::tan(Math::Radians(halfAngleDeg));
+    for (const LineVertex& p : v) {
+        // Every vertex is either the apex or on the base ring.
+        const bool atApex = Dist(p.position, apex) < 1e-4f;
+        const bool onRing = std::fabs(p.position.z - baseCenter.z) < 1e-4f &&
+                            std::fabs(Dist(p.position, baseCenter) - baseRadius) < 1e-3f;
+        CHECK((atApex || onRing));
+    }
+    // Degenerate cone (zero length / angle) emits only finite coordinates.
+    DebugDraw z;
+    z.Cone(apex, dir, 0.0f, 0.0f, {1, 1, 1}, Mode::Overlay, 24);
+    for (const LineVertex& p : z.Lines(Mode::Overlay)) {
+        CHECK(std::isfinite(p.position.x));
+        CHECK(std::isfinite(p.position.y));
+        CHECK(std::isfinite(p.position.z));
+    }
+}
+
+TEST_CASE("DebugDraw frustum unprojects clip corners into 12 edges", "[rendering][debugdraw]") {
+    // Identity inverse-view-projection: corners are the clip cube itself
+    // (x,y in [-1,1], z in [0,1]).
+    DebugDraw dd;
+    dd.Frustum(Math::Mat4::Identity(), {1, 1, 1}, Mode::Overlay);
+    const auto& v = dd.Lines(Mode::Overlay);
+    REQUIRE(v.size() == 12u * 2u);  // 12 edges
+    for (const LineVertex& p : v) {
+        CHECK(std::isfinite(p.position.x));
+        CHECK(p.position.x == Approx(p.position.x < 0 ? -1.0f : 1.0f).margin(1e-4));
+        CHECK(p.position.y == Approx(p.position.y < 0 ? -1.0f : 1.0f).margin(1e-4));
+        CHECK(p.position.z >= -1e-4f);
+        CHECK(p.position.z <= 1.0f + 1e-4f);
+    }
+    // A real perspective projection's inverse must stay finite (no NaNs even
+    // for a singular projection, where Inverse() falls back to identity).
+    DebugDraw persp;
+    const Math::Mat4 proj = Math::Perspective(Math::Radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+    persp.Frustum(Math::Inverse(proj), {1, 1, 1}, Mode::Overlay);
+    const auto& pv = persp.Lines(Mode::Overlay);
+    REQUIRE(pv.size() == 12u * 2u);
+    for (const LineVertex& p : pv) CHECK(std::isfinite(p.position.z));
+}
+
 TEST_CASE("The process-wide DebugDraw is shared and clearable", "[rendering][debugdraw]") {
     DebugDrawer().Clear();
     DebugDrawer().Line({0, 0, 0}, {0, 0, 1}, {1, 1, 1});
