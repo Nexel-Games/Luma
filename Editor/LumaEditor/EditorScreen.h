@@ -437,6 +437,10 @@ private:
     // each camera's transform, hidden during play.
     MeshHandle m_cameraModelMesh = kInvalidHandle;
     bool m_cameraModelLoaded = false;
+    // Count of real scene instances before the editor camera models are
+    // appended; the camera preview uses only these so a camera never films the
+    // editor's own camera gizmos.
+    u32 m_sceneInstanceCount = 0;
     void EnsureCameraModel();     // lazy-load + upload SM_Camera.lmesh
     void AppendCameraModels();    // append an instance per CameraComponent
 

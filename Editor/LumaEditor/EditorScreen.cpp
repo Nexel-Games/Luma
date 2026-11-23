@@ -1153,6 +1153,7 @@ SceneView EditorScreen::BuildSceneView() {
         m_bridge.Sync(ActiveScene(), *sceneRenderer, *m_materials);
     }
     m_bridge.BuildInstances(ActiveScene(), m_selected, m_instances);
+    m_sceneInstanceCount = static_cast<u32>(m_instances.size());
     AppendCameraModels();
 
     // The first directional light is the scene's sun: it drives the sky
@@ -1780,11 +1781,17 @@ void EditorScreen::AppendCameraModels() {
     EnsureCameraModel();
     if (m_cameraModelMesh == kInvalidHandle) return;
     auto& reg = ActiveScene().Registry();
+    // The source model is ~0.8 m; shrink it to a gizmo-sized object so it
+    // doesn't dwarf scene geometry. Scale is applied in the camera's local
+    // space (prepended) so it shrinks about the camera origin.
+    constexpr f32 kModelScale = 0.30f;
+    Math::Mat4 scale = Math::Mat4::Identity();
+    scale.m[0] = scale.m[5] = scale.m[10] = kModelScale;
     auto view = reg.view<const TransformComponent, const CameraComponent>();
     for (Entity e : view) {
         if (reg.all_of<EditorHiddenComponent>(e)) continue;
         SceneInstance inst;
-        inst.model = reg.get<const TransformComponent>(e).Matrix();
+        inst.model = reg.get<const TransformComponent>(e).Matrix() * scale;
         inst.mesh = m_cameraModelMesh;
         inst.sectionCount = 1;
         inst.sectionMaterials[0] = kDefaultMaterialHandle;
@@ -1807,6 +1814,9 @@ bool EditorScreen::BuildCameraPreviewView(Renderer2::DeferredSceneView& out, u32
     // debug lines so the preview reads like the game view. The shallow copy
     // keeps the instance/light pointers (EditorScreen members, valid this frame).
     m_cameraPreviewSceneSource = m_deferredSceneSource;
+    // Drop the editor camera models (appended after the real instances) so a
+    // camera never sees its own or other cameras' gizmo meshes.
+    m_cameraPreviewSceneSource.instanceCount = m_sceneInstanceCount;
     m_cameraPreviewSceneSource.grid.enabled = false;
     m_cameraPreviewSceneSource.overlayLines = nullptr;
     m_cameraPreviewSceneSource.overlayLineVertexCount = 0;
