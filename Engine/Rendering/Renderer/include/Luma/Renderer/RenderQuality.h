@@ -19,6 +19,10 @@ struct RenderQuality {
     bool autoExposure = true;
     bool frustumCulling = true;
     bool shadowCasterCulling = true;
+    // Mesh levels of detail: pick each instance's LOD by its screen size;
+    // `lodBias` shifts the choice (positive = coarser, negative = finer).
+    bool meshLods = true;
+    i32 lodBias = 0;
 
     bool operator==(const RenderQuality&) const = default;
 };

@@ -1,5 +1,12 @@
 #include "Luma/Editor/MaterialSceneBridge.h"
 
+#include <atomic>
+#include <cstdio>
+
+#include "Luma/Jobs/JobSystem.h"
+#include "Luma/Mesh/MeshLodCache.h"
+#include "Luma/Mesh/MeshSimplify.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -109,8 +116,37 @@ std::string MaterialSceneBridge::SlotKey(std::string_view path) {
     return std::string(path);
 }
 
+struct MaterialSceneBridge::LodBuild {
+    std::string path;          // mesh virtual path
+    MeshHandle handle = kInvalidHandle;
+    std::atomic<bool> done{false};
+    std::vector<MeshLodData> lods;
+    bool fromCache = false;
+};
+
+void MaterialSceneBridge::EnableMeshLods(Jobs::JobSystem* jobs, std::filesystem::path cacheDir) {
+    m_lodJobs = jobs;
+    m_lodCacheDir = std::move(cacheDir);
+}
+
+void MaterialSceneBridge::PollLodBuilds(SceneRenderer& renderer) {
+    std::erase_if(m_lodBuilds, [&](const std::shared_ptr<LodBuild>& build) {
+        if (!build->done.load(std::memory_order_acquire)) return false;
+        // Applies only if the mesh is still the one the build started from
+        // (a reload / file change uploads a new handle and a new build).
+        const auto it = m_meshes.find(build->path);
+        if (it != m_meshes.end() && it->second.handle == build->handle && !build->lods.empty() &&
+            renderer.SetMeshLods(build->handle, build->lods)) {
+            LUMA_LOG_INFO("Meshes", "'{}': {} LOD(s) {}", build->path, build->lods.size(),
+                          build->fromCache ? "loaded from cache" : "built");
+        }
+        return true;
+    });
+}
+
 void MaterialSceneBridge::Sync(const Scene& scene, SceneRenderer& renderer,
                                Material::MaterialLibrary& library) {
+    PollLodBuilds(renderer);
     ProcessCompiles(renderer, library);
     // Changed texture files: drop the GPU copy; materials sampling it rebuild.
     for (const std::string& path : m_staleTextures) {
@@ -500,7 +536,8 @@ void MaterialSceneBridge::SyncMesh(const std::string& path, SceneRenderer& rende
     if (!inserted) return;
     MeshEntry& entry = it->second;
     std::optional<LumaMeshData> source;
-    if (const auto file = paths.ToFile(path, {"lmesh"})) source = LumaMeshIO::ReadMesh(*file);
+    const auto file = paths.ToFile(path, {"lmesh"});
+    if (file) source = LumaMeshIO::ReadMesh(*file);
     if (!source || !source->IsValid()) {
         entry.failed = true;
         LUMA_USER_WARN("Meshes", "Mesh '{}' could not be loaded; drawing its primitive instead", path);
@@ -516,6 +553,34 @@ void MaterialSceneBridge::SyncMesh(const std::string& path, SceneRenderer& rende
     const MeshData mesh = ConvertLumaMesh(*source);
     entry.handle = renderer.UploadMesh(MeshKey(path), mesh);
     entry.failed = entry.handle == kInvalidHandle;
+    if (!entry.failed && m_lodJobs != nullptr && file && !m_lodCacheDir.empty()) {
+        auto build = std::make_shared<LodBuild>();
+        build->path = path;
+        build->handle = entry.handle;
+        char name[32];
+        std::snprintf(name, sizeof(name), "%016llx.lods", static_cast<unsigned long long>(MeshKey(path)));
+        auto lodSource = std::make_shared<MeshData>(mesh);
+        Jobs::JobDesc desc;
+        desc.name = "Mesh LODs: " + path;
+        desc.priority = Jobs::Priority::Low;
+        m_lodJobs->Schedule(std::move(desc), [build, lodSource, meshFile = *file, cacheFile = m_lodCacheDir / name] {
+            const auto key = Mesh::MakeLodCacheKey(meshFile, *lodSource);
+            if (key) {
+                if (auto cached = Mesh::ReadLodCache(cacheFile, *key)) {
+                    build->lods = std::move(*cached);
+                    build->fromCache = true;
+                }
+            }
+            if (!build->fromCache) {
+                build->lods = Mesh::BuildMeshLods(*lodSource);
+                if (key && !Mesh::WriteLodCache(cacheFile, *key, build->lods)) {
+                    LUMA_LOG_WARN("Meshes", "Could not write the LOD cache {}", cacheFile.string());
+                }
+            }
+            build->done.store(true, std::memory_order_release);
+        });
+        m_lodBuilds.push_back(std::move(build));
+    }
     entry.sectionCount = static_cast<u32>(std::max<usize>(mesh.sections.size(), 1));
     if (!mesh.vertices.empty()) {
         entry.bounds.min = entry.bounds.max = mesh.vertices.front().position;

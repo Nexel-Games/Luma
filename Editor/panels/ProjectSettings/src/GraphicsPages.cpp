@@ -257,6 +257,22 @@ bool DrawRenderingPage(Slate::Context& ui, const Rect& area, Graphics::Rendering
                           "cascade are kept).",
                           s.shadowCasterCulling);
 
+    rows.Heading("Level of Detail");
+    changed |= rows.Check("meshlods", "Mesh LODs",
+                          "Draw simpler versions of meshes as they get smaller on screen. LODs are built in the "
+                          "background the first time a mesh loads and cached in Intermediate/MeshLods.",
+                          s.meshLods);
+    {
+        Slate::SpinBoxOptions o;
+        o.min = -2;
+        o.max = 3;
+        o.speed = 0.05;
+        changed |= rows.Integer("lodbias", "LOD Bias",
+                                "Shifts every mesh's LOD choice: positive values switch to simpler LODs sooner "
+                                "(faster), negative values keep detailed LODs longer.",
+                                s.lodBias, o);
+    }
+
     rows.Heading("Textures (applied on restart)");
     {
         const std::vector<u32> values = {1, 2, 4, 8, 16};
@@ -316,7 +332,7 @@ RegistrationToken RegisterRenderingPage(SettingsPageRegistry& pages, Graphics::R
     SettingsPageDesc page;
     page.id = std::string(Graphics::kRenderingPageId);
     page.category = "Engine";
-    page.contentHeight = 630;  // 5 headers + 13 rows
+    page.contentHeight = 740;  // 6 headers + 15 rows
     page.title = "Rendering Quality";
     page.tooltip = "Quality tier, render scale, anti-aliasing, post effects, shadows, culling and texture "
                    "filtering (Config/Graphics.json).";

@@ -12,7 +12,7 @@ target_include_directories(LumaMaterialBridge
     PRIVATE ${CMAKE_SOURCE_DIR}/ThirdParty/stb)
 
 target_link_libraries(LumaMaterialBridge
-    PUBLIC Luma::Core Luma::Math Luma::RHI Luma::Scene Luma::Asset Luma::Material Luma::ShaderCompiler
+    PUBLIC Luma::Core Luma::Math Luma::RHI Luma::Scene Luma::Asset Luma::Material Luma::ShaderCompiler Luma::Jobs
         Luma::MaterialCompiler
     PRIVATE Luma::Mesh)
 

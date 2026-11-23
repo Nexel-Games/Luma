@@ -3,7 +3,9 @@
 add_library(LumaMesh STATIC
     src/Mesh.cpp
     src/Tangents.cpp
-    src/MeshConversion.cpp)
+    src/MeshConversion.cpp
+    src/MeshSimplify.cpp
+    src/MeshLodCache.cpp)
 
 add_library(Luma::Mesh ALIAS LumaMesh)
 

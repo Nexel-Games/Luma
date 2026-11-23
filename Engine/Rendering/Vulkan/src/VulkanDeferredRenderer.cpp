@@ -266,6 +266,15 @@ MeshHandle VulkanDeferredRenderer::UploadMesh(u64 key, const MeshData& mesh) {
     return m_meshes->Upload(key, mesh);
 }
 
+bool VulkanDeferredRenderer::SetMeshLods(MeshHandle mesh, const std::vector<MeshLodData>& lods) {
+    for (MeshHandle primitive : m_primitiveMeshes) {
+        if (primitive == mesh) return false;  // built-in shapes are tiny
+    }
+    if (!m_meshes->SetLods(mesh, lods)) return false;
+    ++m_contentRevision;
+    return true;
+}
+
 void VulkanDeferredRenderer::ReleaseMesh(MeshHandle mesh) {
     for (MeshHandle primitive : m_primitiveMeshes) {
         if (primitive == mesh) return;  // built-in shapes stay resident
@@ -537,7 +546,11 @@ void VulkanDeferredRenderer::DrawMaterialSections(const SceneInstance& inst, u32
 
 void VulkanDeferredRenderer::DrawSection(const SceneInstance& inst, u32 objectId, GpuPass pass,
                                         const GpuMesh* mesh, u32 sectionIndex, MaterialHandle handle,
-                                        const CompiledMaterialGpu& material, VkPipeline pipeline) {
+                                        const CompiledMaterialGpu& material, VkPipeline pipeline, u32 lod) {
+    // LOD n draws GpuMesh::lods[n - 1] (same vertices, its own indices).
+    if (lod > mesh->lods.size()) lod = static_cast<u32>(mesh->lods.size());
+    const MeshSection& section = lod == 0 ? mesh->sections[sectionIndex] : mesh->lods[lod - 1].sections[sectionIndex];
+    if (section.indexCount == 0) return;  // simplified away in this LOD
     VulkanMaterialLayout::Push push{};
     push.model = inst.model;
     const Math::Mat4 inverse = NormalMatrix(inst.model);
@@ -548,10 +561,12 @@ void VulkanDeferredRenderer::DrawSection(const SceneInstance& inst, u32 objectId
     }
     push.objectId = objectId;
     const VkDeviceSize offset = 0;
-    if (m_boundMesh != mesh) {
-        vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
-        vkCmdBindIndexBuffer(m_commandBuffer, mesh->indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+    if (m_boundMesh != mesh || m_boundLod != lod) {
+        if (m_boundMesh != mesh) vkCmdBindVertexBuffers(m_commandBuffer, 0, 1, &mesh->vertices.buffer, &offset);
+        const VkBuffer indices = lod == 0 ? mesh->indices.buffer : mesh->lods[lod - 1].indices.buffer;
+        vkCmdBindIndexBuffer(m_commandBuffer, indices, 0, VK_INDEX_TYPE_UINT32);
         m_boundMesh = mesh;
+        m_boundLod = lod;
     }
     if (m_boundPipeline != pipeline) {
         vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -562,7 +577,6 @@ void VulkanDeferredRenderer::DrawSection(const SceneInstance& inst, u32 objectId
     push.opacityMaskClip = material.opacityMaskClip;
     vkCmdPushConstants(m_commandBuffer, m_materialLayout->PipelineLayout(),
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
-    const MeshSection& section = mesh->sections[sectionIndex];
     vkCmdDrawIndexed(m_commandBuffer, section.indexCount, 1, section.indexOffset, 0, 0);
     ++m_stats.drawCalls;
     m_stats.triangles += section.indexCount / 3;
@@ -582,13 +596,16 @@ void VulkanDeferredRenderer::BuildDrawList(const SceneView& source, GpuPass pass
             const auto handle = SectionMaterial(inst, section);
             const auto* mat = m_materials->Drawable(handle);
             if (!mat || !mat->HasPass(pass)) continue;
+            // Shadows tolerate one level coarser than the camera sees.
+            u32 lod = i < m_instanceLods.size() ? m_instanceLods[i] : 0u;
+            if (pass == GpuPass::DepthOnly && lod > 0) lod = std::min<u32>(lod + 1, static_cast<u32>(mesh->lods.size()));
             if (auto pipeline = m_materialPipelines->Get(*mat, pass))
-                list.push_back({pipeline, handle, mesh, mat, i, section});
+                list.push_back({pipeline, handle, mesh, mat, i, section, lod});
         }
     }
     std::sort(list.begin(), list.end(), [](const DrawItem& a, const DrawItem& b) {
-        return std::tie(a.pipeline, a.handle, a.mesh, a.instance, a.section) <
-               std::tie(b.pipeline, b.handle, b.mesh, b.instance, b.section);
+        return std::tie(a.pipeline, a.handle, a.mesh, a.lod, a.instance, a.section) <
+               std::tie(b.pipeline, b.handle, b.mesh, b.lod, b.instance, b.section);
     });
 }
 
@@ -1721,6 +1738,7 @@ u64 VulkanDeferredRenderer::ShadowCacheKey(const SceneView& source, const Render
     value(cascades.count);
     for (u32 c = 0; c < cascades.count; ++c) value(cascades.viewProj[c]);
     value(source.instanceCount);
+    bytes(m_instanceLods.data(), m_instanceLods.size() * sizeof(u32));  // LOD switches change casters
     for (u32 i = 0; i < source.instanceCount; ++i) {
         const SceneInstance& inst = source.instances[i];
         value(inst.model);
@@ -1803,7 +1821,7 @@ void VulkanDeferredRenderer::RecordSunShadows(const SceneView& source,
                 const u32 i = item.instance;
                 if (m_quality.shadowCasterCulling && m_staticBounds[i] && !frustum.IntersectsAabb(m_worldBounds[i])) continue;
                 DrawSection(source.instances[i], m_instanceObjects[i], GpuPass::DepthOnly, item.mesh,
-                            item.section, item.handle, *item.material, item.pipeline);
+                            item.section, item.handle, *item.material, item.pipeline, item.lod);
             }
         }
         vkCmdEndRendering(m_commandBuffer);
@@ -1911,6 +1929,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     m_worldBounds.resize(source.instanceCount);
     m_staticBounds.assign(source.instanceCount, true);
     m_visible.assign(source.instanceCount, true);
+    m_instanceLods.assign(source.instanceCount, 0u);
     m_instanceObjects.assign(source.instanceCount, 0u);
     m_instanceCenters.assign(source.instanceCount, Math::Vec3{0.0f, 0.0f, 0.0f});
     for (u32 i = 0; i < source.instanceCount; ++i) {
@@ -1937,6 +1956,21 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
                                         Math::Length(Math::Vec3{inst.model.m[4], inst.model.m[5], inst.model.m[6]}),
                                         Math::Length(Math::Vec3{inst.model.m[8], inst.model.m[9], inst.model.m[10]})});
             SetVec3(object.boundsCenterRadius, worldCenter, Math::Length(extent) * scale);
+            // LOD by screen size (Unreal's LOD screen sizes): the coarsest LOD
+            // whose threshold the bounding sphere has shrunk below, + bias.
+            if (m_quality.meshLods && !mesh->lods.empty()) {
+                const f32 radius = Math::Length(extent) * scale;
+                const Math::Vec3 toCamera = worldCenter - scene.cameraPosition;
+                const f32 distance = Math::Length(toCamera);
+                const f32 halfTan = std::tan(std::max(scene.fov, 1e-3f) * 0.5f);
+                const f32 screenSize = distance <= radius ? 1.0f : std::min(radius / (distance * halfTan), 1.0f);
+                i32 lod = 0;
+                for (usize l = 0; l < mesh->lods.size(); ++l) {
+                    if (screenSize < mesh->lods[l].screenSize) lod = static_cast<i32>(l) + 1;
+                }
+                lod = std::clamp(lod + m_quality.lodBias, 0, static_cast<i32>(mesh->lods.size()));
+                m_instanceLods[i] = static_cast<u32>(lod);
+            }
             m_instanceCenters[i] = worldCenter;
             SetVec3(object.boundsExtent, extent, 0.0f);
         }
@@ -2125,7 +2159,7 @@ void VulkanDeferredRenderer::RenderScene(const Renderer2::DeferredSceneView& sce
     BuildDrawList(source, GpuPass::GBuffer, m_opaqueDraws);
     for (const auto& item : m_opaqueDraws) {
         DrawSection(source.instances[item.instance], m_instanceObjects[item.instance], GpuPass::GBuffer,
-                    item.mesh, item.section, item.handle, *item.material, item.pipeline);
+                    item.mesh, item.section, item.handle, *item.material, item.pipeline, item.lod);
     }
     vkCmdEndRenderPass(m_commandBuffer);
     m_gpuTimer->End(m_commandBuffer, gbufferScope);

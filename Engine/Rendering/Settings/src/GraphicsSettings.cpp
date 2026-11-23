@@ -229,6 +229,8 @@ Renderer2::RenderQuality ToRenderQuality(const RenderingSettings& s) {
     q.autoExposure = s.autoExposure;
     q.frustumCulling = s.frustumCulling;
     q.shadowCasterCulling = s.shadowCasterCulling;
+    q.meshLods = s.meshLods;
+    q.lodBias = s.lodBias;
     return q;
 }
 
@@ -240,6 +242,7 @@ void Sanitize(RenderingSettings& s) {
     s.maxShadowDistance = ClampFinite(s.maxShadowDistance, 5.0f, 2000.0f, d.maxShadowDistance);
     s.maxAnisotropy = SnapPow2(std::max(s.maxAnisotropy, 1u), 1, 16);
     s.textureMipBias = ClampFinite(s.textureMipBias, -2.0f, 4.0f, d.textureMipBias);
+    s.lodBias = std::clamp(s.lodBias, -2, 3);
     if (static_cast<u8>(s.tier) > static_cast<u8>(QualityTier::Custom)) s.tier = QualityTier::Custom;
     if (static_cast<u8>(s.antiAliasing) > static_cast<u8>(AntiAliasing::FXAA)) s.antiAliasing = d.antiAliasing;
 }
@@ -257,6 +260,8 @@ SerialValue SaveRendering(const RenderingSettings& s) {
     out["maxShadowDistance"] = static_cast<f64>(s.maxShadowDistance);
     out["frustumCulling"] = s.frustumCulling;
     out["shadowCasterCulling"] = s.shadowCasterCulling;
+    out["meshLods"] = s.meshLods;
+    out["lodBias"] = static_cast<i64>(s.lodBias);
     out["maxAnisotropy"] = static_cast<i64>(s.maxAnisotropy);
     out["textureMipBias"] = static_cast<f64>(s.textureMipBias);
     return out;
@@ -275,6 +280,10 @@ RenderingSettings LoadRendering(const SerialValue& section) {
     s.maxShadowDistance = ReadFloat(section, "maxShadowDistance", s.maxShadowDistance);
     s.frustumCulling = ReadBool(section, "frustumCulling", s.frustumCulling);
     s.shadowCasterCulling = ReadBool(section, "shadowCasterCulling", s.shadowCasterCulling);
+    s.meshLods = ReadBool(section, "meshLods", s.meshLods);
+    if (const SerialValue* v = section.IsObject() ? section.Find("lodBias") : nullptr) {
+        s.lodBias = static_cast<i32>(std::clamp<i64>(v->AsInt(s.lodBias), -2, 3));
+    }
     s.maxAnisotropy = ReadU32(section, "maxAnisotropy", s.maxAnisotropy);
     s.textureMipBias = ReadFloat(section, "textureMipBias", s.textureMipBias);
     Sanitize(s);

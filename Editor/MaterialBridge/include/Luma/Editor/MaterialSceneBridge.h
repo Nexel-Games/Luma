@@ -12,6 +12,7 @@
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Editor/MaterialGpuCompile.h"
+#include "Luma/Jobs/JobSystem.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/MaterialCompiler/Preshader.h"
 #include "Luma/RHI/SceneRenderer.h"
@@ -54,6 +55,15 @@ public:
     // is cached. Defaults: the engine shader directory, and
     // <project>/Saved/ShaderCache (beside the project's Assets folder).
     void SetShaderPaths(std::filesystem::path includeDir, std::filesystem::path cacheDir);
+
+    // Mesh LODs: every mesh asset loaded from now on gets its LOD chain from
+    // a background job on `jobs` (read from `cacheDir` when an up-to-date
+    // cache exists, else simplified and cached there) and handed to the
+    // renderer on a later Sync. Until then the mesh draws at full detail.
+    // Null `jobs` = no LODs.
+    void EnableMeshLods(Jobs::JobSystem* jobs, std::filesystem::path cacheDir);
+    // LOD builds still running (tests / status).
+    usize PendingLodBuilds() const { return m_lodBuilds.size(); }
 
     // Makes everything `scene` references resident in `renderer`. Call once
     // per frame before BuildInstances.
@@ -166,6 +176,11 @@ private:
     std::unordered_map<std::string, MaterialEntry> m_materials;  // by slot key
     std::unordered_map<std::string, TextureEntry> m_textures;    // by virtual path
     std::unordered_map<std::string, MeshEntry> m_meshes;  // by virtual path
+    struct LodBuild;
+    std::vector<std::shared_ptr<LodBuild>> m_lodBuilds;
+    Jobs::JobSystem* m_lodJobs = nullptr;
+    std::filesystem::path m_lodCacheDir;
+    void PollLodBuilds(SceneRenderer& renderer);
     std::vector<std::string> m_staleTextures;
     std::vector<std::string> m_staleMeshes;
     std::optional<std::pair<std::string, Math::Mat4>> m_preview;  // mesh path, model

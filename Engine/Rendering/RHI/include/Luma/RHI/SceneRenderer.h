@@ -20,6 +20,13 @@ public:
 
     virtual MeshHandle UploadMesh(u64 key, const MeshData& mesh) = 0;
     virtual void ReleaseMesh(MeshHandle mesh) = 0;
+    // Gives an uploaded mesh its LOD chain (LOD1..; empty = LOD0 only), e.g.
+    // once a background job built it. False when the LODs don't fit the mesh.
+    virtual bool SetMeshLods(MeshHandle mesh, const std::vector<MeshLodData>& lods) {
+        (void)mesh;
+        (void)lods;
+        return false;
+    }
 
     virtual GpuTextureHandle UploadTexture(u64 key, const TextureUploadDesc& texture) = 0;
     virtual void ReleaseTexture(GpuTextureHandle texture) = 0;

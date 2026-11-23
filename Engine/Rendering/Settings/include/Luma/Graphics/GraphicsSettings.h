@@ -76,6 +76,9 @@ struct RenderingSettings {
     // Culling.
     bool frustumCulling = true;
     bool shadowCasterCulling = true;
+    // Mesh levels of detail (generated in the background, cached per mesh).
+    bool meshLods = true;
+    i32 lodBias = 0;  // [-2, 3]; positive = switch to coarser LODs sooner
     // Texture filtering (applied when the renderer starts: restart required).
     u32 maxAnisotropy = 16;      // 1, 2, 4, 8, 16
     f32 textureMipBias = 0.0f;   // [-2, 4]; positive = blurrier, cheaper

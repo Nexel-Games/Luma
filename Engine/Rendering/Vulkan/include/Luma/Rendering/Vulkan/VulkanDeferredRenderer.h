@@ -133,6 +133,7 @@ public:
     // --- SceneRenderer -----------------------------------------------------------
     MeshHandle UploadMesh(u64 key, const MeshData& mesh) override;
     void ReleaseMesh(MeshHandle mesh) override;
+    bool SetMeshLods(MeshHandle mesh, const std::vector<MeshLodData>& lods) override;
     GpuTextureHandle UploadTexture(u64 key, const TextureUploadDesc& texture) override;
     void ReleaseTexture(GpuTextureHandle texture) override;
     MaterialHandle UpdateMaterial(u64 key, const CompiledMaterialGpu& material,
@@ -243,13 +244,17 @@ private:
         const GpuMesh* mesh;
         const CompiledMaterialGpu* material;
         u32 instance, section;
+        u32 lod;  // 0 = the mesh's base indices, n = GpuMesh::lods[n - 1]
     };
+    std::vector<u32> m_instanceLods;  // per instance, main view (shadows: +1)
+    u32 m_boundLod = 0;
     std::vector<DrawItem> m_opaqueDraws, m_depthDraws;
     const GpuMesh* m_boundMesh = nullptr;
     VkPipeline m_boundPipeline = VK_NULL_HANDLE;
     void BuildDrawList(const SceneView& source, GpuPass pass, std::vector<DrawItem>& list);
     void DrawSection(const SceneInstance& inst, u32 objectId, GpuPass pass, const GpuMesh* mesh,
-                     u32 sectionIndex, MaterialHandle handle, const CompiledMaterialGpu& material, VkPipeline pipeline);
+                     u32 sectionIndex, MaterialHandle handle, const CompiledMaterialGpu& material, VkPipeline pipeline,
+                     u32 lod = 0);
     void DrawMaterialSections(const SceneInstance& inst, u32 objectId, GpuPass pass);
     // Forward pass: translucent sections back to front over the lit scene.
     void RecordTranslucency(const SceneView& source, const Math::Vec3& cameraPosition);

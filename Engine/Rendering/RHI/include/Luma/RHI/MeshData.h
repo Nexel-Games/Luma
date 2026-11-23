@@ -30,6 +30,15 @@ struct MeshSection {
     std::string materialName;  // name from the source asset (display only)
 };
 
+// A coarser level of detail of a mesh: a new index list over the same
+// vertices, with the same sections (a section may become empty) and the
+// screen size below which it replaces the previous level.
+struct MeshLodData {
+    std::vector<u32> indices;
+    std::vector<MeshSection> sections;  // same count/order as the source's
+    f32 screenSize = 0.5f;              // fraction of the view height
+};
+
 struct MeshData {
     std::vector<MeshVertex> vertices;
     std::vector<u32> indices;

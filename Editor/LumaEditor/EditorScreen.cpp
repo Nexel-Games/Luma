@@ -1816,6 +1816,9 @@ void EditorScreen::SetBackgroundServices(Jobs::JobSystem* jobs, Tasks::TaskManag
     m_jobs = jobs;
     m_tasks = tasks;
     m_sourceWatch = std::make_unique<Import::SourceWatch>(jobs, tasks);
+    // Mesh LODs for the level viewport, built in the background and cached
+    // per project (derived data; safe to delete).
+    if (m_project) m_bridge.EnableMeshLods(jobs, m_project->RootDir() / "Intermediate" / "MeshLods");
 }
 
 void EditorScreen::BeginTranslate(std::string title, std::filesystem::path folder, bool reimport,

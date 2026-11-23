@@ -83,6 +83,7 @@ MeshHandle VulkanMeshCache::Upload(u64 key, const MeshData& mesh) {
         return kInvalidHandle;
     }
     entry.mesh.indexCount = indexCount;
+    entry.mesh.vertexCount = vertexCount;
     entry.mesh.boundsMin = entry.mesh.boundsMax = mesh.vertices.front().position;
     for (const MeshVertex& v : mesh.vertices) {
         entry.mesh.boundsMin = {std::min(entry.mesh.boundsMin.x, v.position.x), std::min(entry.mesh.boundsMin.y, v.position.y),
@@ -120,6 +121,56 @@ void VulkanMeshCache::CollectGarbage() {
         m_free.push_back(h);
     }
     m_pendingRelease.clear();
+    std::erase_if(m_retired, [this](RetiredBuffer& r) {
+        if (--r.framesLeft > 0) return false;
+        DestroyBuffer(m_device, r.buffer);
+        return true;
+    });
+}
+
+bool VulkanMeshCache::SetLods(MeshHandle handle, const std::vector<MeshLodData>& lods) {
+    if (handle >= m_entries.size() || !m_entries[handle].alive) return false;
+    GpuMesh& mesh = m_entries[handle].mesh;
+    for (const MeshLodData& lod : lods) {
+        if (lod.sections.size() != mesh.sections.size()) {
+            LUMA_LOG_ERROR("MeshCache", "Rejected a LOD with {} sections (mesh has {})", lod.sections.size(),
+                           mesh.sections.size());
+            return false;
+        }
+        for (u32 index : lod.indices) {
+            if (index >= mesh.vertexCount) {
+                LUMA_LOG_ERROR("MeshCache", "Rejected a LOD with index {} >= {} vertices", index, mesh.vertexCount);
+                return false;
+            }
+        }
+        for (const MeshSection& s : lod.sections) {
+            if (usize(s.indexOffset) + s.indexCount > lod.indices.size()) {
+                LUMA_LOG_ERROR("MeshCache", "Rejected a LOD section past its index list");
+                return false;
+            }
+        }
+    }
+    std::vector<GpuMesh::Lod> uploaded;
+    for (const MeshLodData& lod : lods) {
+        GpuMesh::Lod gpu;
+        gpu.sections = lod.sections;
+        gpu.screenSize = lod.screenSize;
+        if (!lod.indices.empty()) {
+            gpu.indices = UploadBuffer(lod.indices.data(), sizeof(u32) * lod.indices.size(),
+                                       VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+            if (!gpu.indices.buffer) {
+                LUMA_LOG_ERROR("MeshCache", "Failed to allocate a LOD index buffer");
+                for (GpuMesh::Lod& done : uploaded) DestroyBuffer(m_device, done.indices);
+                return false;
+            }
+        }
+        uploaded.push_back(std::move(gpu));
+    }
+    for (GpuMesh::Lod& old : mesh.lods) {
+        if (old.indices.buffer) m_retired.push_back({old.indices});
+    }
+    mesh.lods = std::move(uploaded);
+    return true;
 }
 
 const GpuMesh* VulkanMeshCache::Get(MeshHandle handle) const {
@@ -130,6 +181,7 @@ const GpuMesh* VulkanMeshCache::Get(MeshHandle handle) const {
 void VulkanMeshCache::Destroy(Entry& entry) {
     DestroyBuffer(m_device, entry.mesh.vertices);
     DestroyBuffer(m_device, entry.mesh.indices);
+    for (GpuMesh::Lod& lod : entry.mesh.lods) DestroyBuffer(m_device, lod.indices);
     entry = Entry{};
 }
 
