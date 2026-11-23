@@ -1774,12 +1774,36 @@ void EditorScreen::EnsureCameraModel() {
     }
     MeshData md = ConvertLumaMesh(*lmd);
     m_cameraModelMesh = sr->UploadMesh(0xCA3E4D0D0EULL, md);
+
+    // Each section's material name is an "rrggbb" base colour (baked per colour
+    // bucket). Parse them so AppendCameraModels can assign flat materials.
+    m_cameraModelSections = static_cast<u32>(md.sections.size());
+    m_cameraModelColors.clear();
+    for (const MeshSection& s : md.sections) {
+        Math::Vec3 c{0.3f, 0.3f, 0.3f};
+        if (s.materialName.size() == 6) {
+            auto hx = [&](usize i) {
+                return static_cast<f32>(std::stoi(s.materialName.substr(i, 2), nullptr, 16)) / 255.0f;
+            };
+            c = {hx(0), hx(2), hx(4)};
+        }
+        m_cameraModelColors.push_back(c);
+    }
 }
 
 void EditorScreen::AppendCameraModels() {
     if (m_runner.PlayScene()) return;  // hidden in game / during play
     EnsureCameraModel();
     if (m_cameraModelMesh == kInvalidHandle) return;
+    SceneRenderer* sr = m_renderer ? m_renderer->GetSceneRenderer() : nullptr;
+    // Resolve the per-section flat materials once (cached by colour thereafter).
+    std::array<MaterialHandle, kMaxSectionMaterials> mats{};
+    const u32 slots = std::min(m_cameraModelSections, kMaxSectionMaterials);
+    for (u32 s = 0; s < slots; ++s) {
+        mats[s] = (sr && m_materials)
+                      ? m_bridge.EnsureFlatMaterial(*sr, *m_materials, m_cameraModelColors[s])
+                      : kDefaultMaterialHandle;
+    }
     auto& reg = ActiveScene().Registry();
     // The source model is ~0.8 m; shrink it to a gizmo-sized object so it
     // doesn't dwarf scene geometry. Scale is applied in the camera's local
@@ -1793,8 +1817,8 @@ void EditorScreen::AppendCameraModels() {
         SceneInstance inst;
         inst.model = reg.get<const TransformComponent>(e).Matrix() * scale;
         inst.mesh = m_cameraModelMesh;
-        inst.sectionCount = 1;
-        inst.sectionMaterials[0] = kDefaultMaterialHandle;
+        inst.sectionCount = m_cameraModelSections;
+        for (u32 s = 0; s < slots; ++s) inst.sectionMaterials[s] = mats[s];
         inst.selected = (e == m_selected);
         m_instances.push_back(inst);
     }

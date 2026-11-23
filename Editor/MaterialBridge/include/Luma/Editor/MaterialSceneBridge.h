@@ -104,6 +104,13 @@ public:
     // Renderer handle for a material slot path ("" = Default Material).
     MaterialHandle HandleFor(std::string_view materialPath) const;
 
+    // A flat opaque material of the given base colour, compiled synchronously
+    // from the Default Material graph and cached by colour. Used by editor
+    // gizmos (e.g. the camera model) that aren't scene materials. Returns the
+    // Default Material handle if the compile fails.
+    MaterialHandle EnsureFlatMaterial(SceneRenderer& renderer, Material::MaterialLibrary& library,
+                                      const Math::Vec3& color);
+
     // Shader compiles run on worker threads; Sync lands finished ones. This
     // blocks until every pending compile has landed (previews, thumbnails).
     void FinishCompiles(SceneRenderer& renderer, Material::MaterialLibrary& library);
@@ -174,6 +181,7 @@ private:
                       Material::MaterialLibrary& library);
 
     std::unordered_map<std::string, MaterialEntry> m_materials;  // by slot key
+    std::unordered_map<u32, MaterialHandle> m_flatMaterials;     // editor flat colours (0xRRGGBB)
     std::unordered_map<std::string, TextureEntry> m_textures;    // by virtual path
     std::unordered_map<std::string, MeshEntry> m_meshes;  // by virtual path
     struct LodBuild;

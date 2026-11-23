@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <optional>
 #include <thread>
 
 #if defined(_MSC_VER)
@@ -688,6 +690,33 @@ MaterialHandle MaterialSceneBridge::HandleFor(std::string_view materialPath) con
     auto it = m_materials.find(SlotKey(materialPath));
     return it != m_materials.end() && it->second.uploaded ? it->second.handle
                                                           : kDefaultMaterialHandle;
+}
+
+MaterialHandle MaterialSceneBridge::EnsureFlatMaterial(SceneRenderer& renderer,
+                                                       Material::MaterialLibrary& library,
+                                                       const Math::Vec3& color) {
+    auto ch = [](f32 v) { return static_cast<u32>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
+    const u32 key = (ch(color.x) << 16) | (ch(color.y) << 8) | ch(color.z);
+    if (auto it = m_flatMaterials.find(key); it != m_flatMaterials.end()) return it->second;
+
+    // A copy of the Default Material graph with its BaseColor overridden.
+    Material::GraphMaterial mat = Material::GraphMaterial::MakeDefault();
+    Material::ParameterOverride o;
+    o.name = "BaseColor";
+    o.kind = Material::ParameterOverride::Kind::Vector;
+    o.vector = {color.x, color.y, color.z, 1.0f};
+    std::vector<Material::ParameterOverride> overrides{o};
+
+    GpuMaterialBuild build = BuildGpuMaterial(mat, &library, overrides, std::nullopt, std::nullopt,
+                                              Shaders(library), "EditorFlat");
+    MaterialHandle handle = kDefaultMaterialHandle;
+    if (build.ok) {
+        handle = renderer.UpdateMaterial(0xF1A7'0000'0000'0000ULL | key, build.gpu, build.block);
+    } else {
+        LUMA_LOG_WARN("Materials", "Flat editor material compile failed: {}", build.errors);
+    }
+    m_flatMaterials.emplace(key, handle);
+    return handle;
 }
 
 void MaterialSceneBridge::Clear(SceneRenderer& renderer) {

@@ -437,6 +437,8 @@ private:
     // each camera's transform, hidden during play.
     MeshHandle m_cameraModelMesh = kInvalidHandle;
     bool m_cameraModelLoaded = false;
+    u32 m_cameraModelSections = 0;              // one per baked colour bucket
+    std::vector<Math::Vec3> m_cameraModelColors;  // base colour per section
     // Count of real scene instances before the editor camera models are
     // appended; the camera preview uses only these so a camera never films the
     // editor's own camera gizmos.
