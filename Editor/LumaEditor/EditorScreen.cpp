@@ -1327,10 +1327,13 @@ SceneView EditorScreen::BuildSceneView() {
         }
         if (reg.all_of<LightComponent>(m_selected)) {
             const auto& lc = reg.get<LightComponent>(m_selected);
+            // Lights shine along the entity's local +Z; the gizmos follow the
+            // emitted light, not the camera-style -Z forward.
+            const Vec3 aim = fwd * -1.0f;
             switch (lc.type) {
                 case LightType::Spot:
-                    dd.Cone(pos, fwd, lc.range, lc.outerAngleDeg, lc.color, Overlay::Overlay);
-                    dd.Cone(pos, fwd, lc.range, lc.innerAngleDeg, lc.color, Overlay::Overlay);
+                    dd.Cone(pos, aim, lc.range, lc.outerAngleDeg, lc.color, Overlay::Overlay);
+                    dd.Cone(pos, aim, lc.range, lc.innerAngleDeg, lc.color, Overlay::Overlay);
                     break;
                 case LightType::Point:
                     dd.Sphere(pos, lc.attenuationRadius, lc.color, Overlay::Overlay);
@@ -1340,15 +1343,15 @@ SceneView EditorScreen::BuildSceneView() {
                                lc.attenuationRadius, lc.color, Overlay::Overlay);
                     break;
                 case LightType::Directional: {
-                    // Aim arrow: a shaft plus two angled head lines.
+                    // Aim arrow: a shaft plus four angled head lines.
                     const f32 len = 2.0f;
-                    const Vec3 tip = pos + fwd * len;
+                    const Vec3 tip = pos + aim * len;
                     dd.Line(pos, tip, lc.color, Overlay::Overlay);
                     const Vec3 up = Normalize(Vec3(world.m[4], world.m[5], world.m[6]));
-                    dd.Line(tip, tip - fwd * 0.4f + right * 0.2f, lc.color, Overlay::Overlay);
-                    dd.Line(tip, tip - fwd * 0.4f - right * 0.2f, lc.color, Overlay::Overlay);
-                    dd.Line(tip, tip - fwd * 0.4f + up * 0.2f, lc.color, Overlay::Overlay);
-                    dd.Line(tip, tip - fwd * 0.4f - up * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - aim * 0.4f + right * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - aim * 0.4f - right * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - aim * 0.4f + up * 0.2f, lc.color, Overlay::Overlay);
+                    dd.Line(tip, tip - aim * 0.4f - up * 0.2f, lc.color, Overlay::Overlay);
                     break;
                 }
             }
