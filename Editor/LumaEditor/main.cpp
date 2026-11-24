@@ -555,7 +555,13 @@ int main(int argc, char** argv) {
             window->PollEvents();
         }
         if (editor) {
-            if (editor->CloseConfirmed()) break;
+            if (editor->CloseConfirmed()) {
+                if (editor->WantsRelaunch() && !editor->ProjectFile().empty()) {
+                    LaunchDetached(ExecutablePath(),
+                                   {"--project", editor->ProjectFile().string()});
+                }
+                break;
+            }
             window->SetShouldClose(false);  // closing waits for the prompt
             // Live settings: a present-mode change rebuilds the swapchain
             // before the next frame (no restart).

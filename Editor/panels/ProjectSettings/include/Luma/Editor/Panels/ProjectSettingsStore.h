@@ -1,11 +1,13 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "Luma/Editor/SettingsPageRegistry.h"
+#include "Luma/Serialization/SerialValue.h"
 
 // Persistence of the Project Settings pages. Every page owns one section (keyed
 // by its id) of a JSON file under the project's Config/ folder:
@@ -44,6 +46,12 @@ public:
 
     std::filesystem::path FileFor(const SettingsPageDesc& page) const;
 
+    // Plugin `Config/Default<Name>.json` documents, keyed by plugin id
+    // (settings page `owner`). Load overlays the project Config/ section
+    // on top. Save still writes only the project file.
+    void SetPluginDefaultConfig(std::string pluginName, SerialValue document);
+    void ClearPluginDefaultConfigs();
+
 private:
     // Parses `file` (an empty document when it doesn't exist). False when it
     // exists but can't be read as a JSON object.
@@ -53,6 +61,7 @@ private:
 
     const SettingsPageRegistry& m_pages;
     std::filesystem::path m_configDir;
+    std::map<std::string, SerialValue> m_pluginDefaults;
     std::vector<std::string> m_loaded;      // page ids loaded from disk
     std::vector<std::string> m_dirty;       // page ids with unsaved edits
     std::vector<std::string> m_blockedFiles;  // unparsable files (never overwritten)

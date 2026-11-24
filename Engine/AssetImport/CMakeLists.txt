@@ -6,7 +6,7 @@
 
 luma_require_assimp()
 
-add_library(LumaAssetImport STATIC
+add_library(LumaAssetImport ${LUMA_LIBRARY_TYPE}
     src/ImportScene.cpp
     src/ImportSettings.cpp
     src/ImportMetadata.cpp

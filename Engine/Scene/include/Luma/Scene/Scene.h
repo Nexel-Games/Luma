@@ -2,6 +2,9 @@
 
 #include <string>
 
+// EnTT storage is keyed by type_hash (pretty-function hash), not the
+// sequential type_index. That hash is stable across DLLs when every module is
+// built with the same MSVC /FUNCSIG settings (see docs/plugins/binary-compatibility.md).
 #include <entt/entt.hpp>
 
 #include "Luma/Core/Types.h"

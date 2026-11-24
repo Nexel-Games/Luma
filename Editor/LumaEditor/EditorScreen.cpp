@@ -1,4 +1,6 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
+#include "Luma/AssetImport/Factories/FactoryCommon.h"
+#include "Luma/AssetImport/TranslatorRegistry.h"
 #include "EditorScreen.h"
 
 #include "Luma/AssetImport/ImportMetadata.h"
@@ -32,7 +34,10 @@
 #include "Luma/RHI/SceneRenderer.h"
 #include "Luma/Audio/AudioPreview.h"
 #include "Luma/Core/Log.h"
+#include "Luma/Platform/Process.h"
+#include "Luma/Plugins/PluginManager.h"
 #include "Luma/Editor/EditorIcons.h"
+#include "Luma/Editor/InspectorDrawers.h"
 #include "Luma/Editor/MenuRegistry.h"
 #include "Luma/Editor/PanelRegistry.h"
 #include "Luma/Editor/SettingsPageRegistry.h"
@@ -46,6 +51,7 @@
 #include "Luma/Scene/MaterialMigration.h"
 #include "Luma/Scene/SceneSerializer.h"
 #include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/SceneSystems.h"
 #include "Luma/Scene/EntityTemplates.h"
 #include "Luma/VFS/VFS.h"
 #include "Luma/Renderer/DeferredSceneView.h"
@@ -127,6 +133,64 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
         m_projectSettings.SetStore(m_settingsStore.get());
         m_scenePath = Editor::Panels::EditorStartupScenePath(*m_project, m_mapsAndModes);
     }
+
+    {
+        std::vector<std::filesystem::path> pluginRoots;
+        auto& vfs = VFS::VFS::Global();
+        if (vfs.IsMounted(VFS::Root::Engine)) {
+            pluginRoots.push_back(vfs.RootPath(VFS::Root::Engine).parent_path() / "Plugins");
+        }
+        if (m_project) pluginRoots.push_back(m_project->RootDir() / "Plugins");
+        Plugins::PluginHostServices host;
+        host.components = &Components();
+        host.sceneSystems = &SceneSystems();
+        host.assetTypes = &AssetTypes();
+        host.assetFactories = &Import::AssetFactories();
+        host.translators = &Import::Translators();
+        host.hasEditor = true;
+        host.editor.menus = &Editor::Menus();
+        host.editor.panels = &Editor::EditorPanels();
+        host.editor.settingsPages = &Editor::SettingsPages();
+        host.editor.inspectorDrawers = &Editor::InspectorDrawers();
+        host.editor.images = &Editor::EditorImages();
+        host.editor.openPanel = [this](std::string_view id) {
+            if (m_panelHost) m_panelHost->Open(std::string(id));
+        };
+        m_plugins.SetHostServices(host);
+        m_plugins.Discover(pluginRoots);
+        m_plugins.ApplyProject(m_project ? &*m_project : nullptr);
+        std::filesystem::path templates;
+        std::filesystem::path enginePlugins;
+        if (vfs.IsMounted(VFS::Root::Engine)) {
+            templates = vfs.RootPath(VFS::Root::Engine) / "Plugins" / "Templates";
+            enginePlugins = vfs.RootPath(VFS::Root::Engine).parent_path() / "Plugins";
+        }
+        std::filesystem::path projectPlugins;
+        if (m_project) projectPlugins = m_project->RootDir() / "Plugins";
+        m_pluginsWindow.SetFolders(std::move(templates), std::move(enginePlugins),
+                                   std::move(projectPlugins));
+        m_plugins.MountContentAndConfig(&m_assetPaths, nullptr);
+        m_plugins.StartAll(Plugins::PluginHostKind::Editor);
+        m_modules.SetHostServices(host);
+        m_modules.SetTarget(Plugins::PluginTarget::Editor);
+        m_modules.SetActivePlugins(m_plugins.LoadableDescriptors());
+        m_modules.LoadAllPhases();
+        m_plugins.ApplyModuleStatuses(m_modules);
+        if (m_settingsStore) {
+            for (const auto& status : m_plugins.Statuses()) {
+                if (const SerialValue* defaults = m_plugins.PluginDefaultConfig(status.manifest.id)) {
+                    m_settingsStore->SetPluginDefaultConfig(status.manifest.id, *defaults);
+                }
+            }
+            m_settingsStore->LoadNewPages();
+        }
+        for (const auto& status : m_plugins.Statuses()) {
+            LUMA_LOG_INFO("Plugins", "{}: {} (compiledIn={}, enabled={})",
+                          status.manifest.id, Plugins::ToString(status.state),
+                          status.compiledIn, status.enabledInProject);
+        }
+    }
+
     if (!LoadScene()) {
         EnsureAutoCreatedEntities(ActiveScene());
         // New projects already declare a startup scene path. Materialize the
@@ -144,9 +208,12 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
         std::error_code ec;
         if (std::filesystem::exists(contentRoot, ec)) {
             m_assetRegistry.AddRoot(contentRoot);
+        }
+        m_plugins.MountContentAndConfig(&m_assetPaths, &m_assetRegistry);
+        if (!m_assetRegistry.Roots().empty()) {
             m_assetRegistry.Scan();
-            LUMA_LOG_INFO("Editor", "content root: {} ({} entries)",
-                          contentRoot.string(), m_assetRegistry.Size());
+            LUMA_LOG_INFO("Editor", "content roots: {} ({} entries)",
+                          m_assetRegistry.Roots().size(), m_assetRegistry.Size());
         }
         m_contentBrowser.SetRegistry(&m_assetRegistry);
 
@@ -159,6 +226,8 @@ EditorScreen::EditorScreen(const std::filesystem::path& projectFile)
 }
 
 EditorScreen::~EditorScreen() {
+    m_modules.ShutdownAll();
+    m_plugins.ShutdownAll();
     StopPlay();
     m_preferences.SaveChanges();
     // Unsaved Project Settings edits are written on the way out.
@@ -262,6 +331,11 @@ std::vector<std::string> EditorScreen::UnsavedAssets() const {
     return m_materials ? m_materials->DirtyAssets() : std::vector<std::string>{};
 }
 
+void EditorScreen::RequestRelaunch() {
+    m_relaunch = true;
+    RequestClose();
+}
+
 void EditorScreen::RequestClose() {
     StopPlay();
     if (UnsavedAssets().empty()) {
@@ -313,6 +387,7 @@ void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
         ui.EndModal();
     } else if (ui.Button(id ^ 0xCA9Cull, cancelRect, "Cancel")) {
         m_closeRequested = false;
+        m_relaunch = false;
         ui.EndModal();
     }
 }
@@ -1623,6 +1698,14 @@ void EditorScreen::RegisterEditorUi() {
         return m_activePresentMode ? m_activePresentMode() : std::string{};
     }));
     reg.Add(Editor::Panels::RegisterRenderingPage(Editor::SettingsPages(), m_graphics.rendering));
+    EditorPlugins::RegisterPluginsWindow(
+        reg, menus, panels, m_pluginsWindow, m_plugins,
+        [this]() -> Project* { return m_project ? &*m_project : nullptr; },
+        [this]() -> const Scene* { return &m_authoringScene; },
+        [this] {
+            if (m_panelHost) m_panelHost->Open(EditorPlugins::kPluginsPanelId);
+        });
+    m_pluginsWindow.openUrl = [](std::string_view url) { OpenExternal(std::string(url)); };
     reg.Add(Editor::Panels::RegisterMapsAndModesPage(
         Editor::SettingsPages(), m_mapsAndModes, [this] {
             // Every scene file under Assets/, as a project-relative path.
@@ -2355,6 +2438,15 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     const Rect statusBar{0, height - kStatusBarH, width, kStatusBarH};
     ui.Panel(statusBar, t.surface1);
     ui.Panel({0, statusBar.y, width, 1.0f}, t.separator);
+    if (m_plugins.RestartRequired()) {
+        ui.LabelIn({statusBar.x + 10.0f, statusBar.y, width * 0.45f, statusBar.h},
+                   "Restart required to apply plugin changes", t.warning);
+        const Rect now{statusBar.x + width * 0.47f, statusBar.y + 2.0f, 110.0f, statusBar.h - 4.0f};
+        if (ui.Button(Slate::Context::ID("plugins.statusbar.restart"), now, "Restart Now")) {
+            RequestRelaunch();
+        }
+    }
+    if (m_pluginsWindow.TakeRestartNow()) RequestRelaunch();
     if (m_tasks) m_backgroundTasks.DrawStatusIndicator(ui, statusBar, *m_tasks);
     // Floating asset editor windows sit above the level editor.
     m_windows.DrawFloating(ui, m_windowWorkArea);

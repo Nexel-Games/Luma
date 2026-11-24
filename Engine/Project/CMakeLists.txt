@@ -1,6 +1,6 @@
 # Luma::Project - project (.luma) creation, loading and discovery.
 
-add_library(LumaProject STATIC
+add_library(LumaProject ${LUMA_LIBRARY_TYPE}
     src/Project/Project.cpp)
 
 add_library(Luma::Project ALIAS LumaProject)

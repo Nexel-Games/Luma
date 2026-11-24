@@ -1,6 +1,6 @@
 # Luma::UniformBuffer - Uniform buffer system for shader constants
 
-add_library(LumaUniformBuffer STATIC
+add_library(LumaUniformBuffer ${LUMA_LIBRARY_TYPE}
     src/UniformBuffer.cpp)
 
 add_library(Luma::UniformBuffer ALIAS LumaUniformBuffer)

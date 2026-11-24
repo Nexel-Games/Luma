@@ -92,6 +92,13 @@ void ContentBrowserPanel::SetRenderer(Luma::Renderer* renderer) {
     m_renderer = renderer;
 }
 
+void ContentBrowserPanel::SetShowPluginContent(bool show) {
+    m_showPluginContent = show;
+    if (!show && m_registry && m_registry->IsPluginPath(m_currentFolder)) {
+        ResetNavigation();
+    }
+}
+
 void ContentBrowserPanel::ResetNavigation() {
     m_currentFolder.clear();
     m_tree.SetSelectedFolder({});
@@ -147,6 +154,11 @@ std::vector<const AssetData*> ContentBrowserPanel::CurrentEntries() const {
     }
     auto filter = AssetTypes().Find(m_typeFilter);
     auto entries = m_registry->Filter(std::nullopt, dir, m_nameFilter);
+    if (!m_showPluginContent) {
+        std::erase_if(entries, [&](const AssetData* asset) {
+            return m_registry->IsPluginPath(asset->packagePath);
+        });
+    }
     if (filter) std::erase_if(entries, [&](const AssetData* asset) { return Describe(*asset)->id != filter->id; });
     return entries;
 }
@@ -998,6 +1010,7 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     // Reusable FileSystemTreePanel handles the dark inset folder list.
     // Keep its selection synced with our navigation state both ways.
     m_tree.SetRegistry(m_registry);
+    m_tree.SetShowPluginContent(m_showPluginContent);
     m_tree.SetSelectedFolder(m_currentFolder);
     m_tree.Draw(ui, treePane);
     if (m_tree.SelectedFolder() != m_currentFolder) {
@@ -1095,6 +1108,11 @@ void ContentBrowserPanel::BeginRename(const AssetData& asset) {
 
 std::vector<Slate::MenuEntry> ContentBrowserPanel::BuildFilterMenu() {
     Slate::MenuBuilder b;
+    b.BeginSection("Content");
+    Slate::MenuEntryOptions pluginOpt;
+    pluginOpt.checked = m_showPluginContent;
+    b.AddEntry("Show Plugin Content", Icon::None,
+               [this] { SetShowPluginContent(!m_showPluginContent); }, pluginOpt);
     b.BeginSection("Filter by Type");
     Slate::MenuEntryOptions all;
     all.checked = !AssetTypes().Find(m_typeFilter);

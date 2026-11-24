@@ -46,6 +46,8 @@ public:
     // caller (EditorScreen) decides when to Scan() / RefreshPath().
     void SetRegistry(AssetRegistry* registry) { m_registry = registry; }
     AssetRegistry* Registry() const noexcept { return m_registry; }
+    void SetShowPluginContent(bool show);
+    bool ShowPluginContent() const noexcept { return m_showPluginContent; }
     
     // Wire renderer for thumbnail generation
     void SetRenderer(Luma::Renderer* renderer);
@@ -139,6 +141,7 @@ public:
 private:
     // Per-frame state mutated by Draw.
     AssetRegistry* m_registry = nullptr;
+    bool m_showPluginContent = false;
     std::filesystem::path m_currentFolder;  // empty = root of first root
     std::string m_nameFilter;
     std::string m_typeFilter;  // empty = all

@@ -2,7 +2,7 @@
 # of material expressions (pins, properties, categories). Pure data: no
 # compiler, no renderer.
 
-add_library(LumaMaterialGraph STATIC
+add_library(LumaMaterialGraph ${LUMA_LIBRARY_TYPE}
     src/Graph.cpp
     src/ExpressionRegistry.cpp
     src/Expressions/ConstantsParameters.cpp

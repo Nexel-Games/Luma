@@ -1,7 +1,7 @@
 # Luma::Core - foundational module. Depends only on the C++ standard library.
 
 # Sources grouped by subsystem under src/<Subsystem>/.
-add_library(LumaCore STATIC
+add_library(LumaCore ${LUMA_LIBRARY_TYPE}
     src/Foundation/Version.cpp
     src/Foundation/Assert.cpp
     src/Log/Log.cpp

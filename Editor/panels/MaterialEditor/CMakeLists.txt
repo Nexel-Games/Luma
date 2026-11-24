@@ -2,7 +2,7 @@
 # Material / Material Instance (live preview + details), on top of
 # MaterialEditModel (the library-backed editing operations).
 
-add_library(LumaPanelMaterialEditor STATIC
+add_library(LumaPanelMaterialEditor ${LUMA_LIBRARY_TYPE}
     src/MaterialEditModel.cpp
     src/MaterialEditor.cpp)
 

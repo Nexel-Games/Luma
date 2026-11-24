@@ -1,4 +1,4 @@
-add_library(LumaPanelPreferences STATIC
+add_library(LumaPanelPreferences ${LUMA_LIBRARY_TYPE}
     src/Preferences.cpp
     src/PreferencesPanel.cpp)
 add_library(Luma::PanelPreferences ALIAS LumaPanelPreferences)

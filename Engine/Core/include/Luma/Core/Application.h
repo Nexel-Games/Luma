@@ -47,7 +47,7 @@ public:
     const ApplicationSpec& Spec() const { return m_spec; }
     LayerStack& Layers() { return m_layerStack; }
 
-    static Application* Get() { return s_instance; }
+    static Application* Get();
 
 private:
     bool OnWindowClose(WindowCloseEvent& event);

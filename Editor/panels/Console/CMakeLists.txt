@@ -1,4 +1,4 @@
-add_library(LumaPanelConsole STATIC
+add_library(LumaPanelConsole ${LUMA_LIBRARY_TYPE}
     src/Console.cpp)
 
 add_library(Luma::PanelConsole ALIAS LumaPanelConsole)

@@ -2,7 +2,7 @@
 # minimize / maximize / close that dock into the window row above the
 # toolbar (Home = the level editor).
 
-add_library(LumaAssetWindows STATIC src/AssetWindows.cpp)
+add_library(LumaAssetWindows ${LUMA_LIBRARY_TYPE} src/AssetWindows.cpp)
 add_library(Luma::AssetWindows ALIAS LumaAssetWindows)
 
 target_include_directories(LumaAssetWindows PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

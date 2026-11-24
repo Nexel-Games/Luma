@@ -23,6 +23,8 @@ public:
     SceneSystemRegistry() = default;
     SceneSystemRegistry(const SceneSystemRegistry&) = delete;
     RegistrationToken Register(std::unique_ptr<ISceneSystem> system, i32 order, std::string* error = nullptr);
+    usize Size() const { return m_entries.size(); }
+    bool Contains(std::string_view id) const;
 private:
     friend class SceneRunner;
     struct Entry {

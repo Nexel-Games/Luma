@@ -9,6 +9,14 @@ add_library(Luma::Flags ALIAS luma_flags)
 
 target_compile_features(luma_flags INTERFACE cxx_std_20)
 
+# MSVC's C++20 header-unit scanner fails to find the STL when dyndep runs
+# without a full INCLUDE. The engine does not use C++20 modules.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 if(MSVC)
     target_compile_options(luma_flags INTERFACE
         /W4 /permissive- /EHsc /utf-8 /Zc:preprocessor

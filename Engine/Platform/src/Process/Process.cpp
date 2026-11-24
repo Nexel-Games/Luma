@@ -4,6 +4,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 namespace Luma {
@@ -57,12 +58,24 @@ bool LaunchDetached(const std::filesystem::path& exe,
     return true;
 }
 
+bool OpenExternal(const std::string& target) {
+    if (target.empty()) return false;
+    HINSTANCE result = ShellExecuteW(nullptr, L"open", Widen(target).c_str(), nullptr, nullptr,
+                                     SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(result) > 32;
+}
+
 #else  // non-Windows stub (filled in when other platforms are supported)
 
 std::filesystem::path ExecutablePath() { return {}; }
 bool LaunchDetached(const std::filesystem::path&,
                     const std::vector<std::string>&) {
     LUMA_LOG_ERROR("Process", "LaunchDetached not implemented on this platform");
+    return false;
+}
+
+bool OpenExternal(const std::string&) {
+    LUMA_LOG_ERROR("Process", "OpenExternal not implemented on this platform");
     return false;
 }
 

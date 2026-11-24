@@ -1,4 +1,4 @@
-add_library(LumaPanelImportDialog STATIC
+add_library(LumaPanelImportDialog ${LUMA_LIBRARY_TYPE}
     src/ImportDialog.cpp)
 
 add_library(Luma::PanelImportDialog ALIAS LumaPanelImportDialog)

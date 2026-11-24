@@ -1,0 +1,2 @@
+add_subdirectory(Source/SampleSpinner)
+add_subdirectory(Source/SampleSpinnerEditor)

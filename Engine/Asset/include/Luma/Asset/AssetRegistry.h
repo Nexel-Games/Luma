@@ -24,18 +24,34 @@
 
 namespace Luma {
 
+enum class ContentRootKind { Project, Plugin };
+
+struct ContentRoot {
+    std::filesystem::path path;
+    ContentRootKind kind = ContentRootKind::Project;
+    std::string label;
+};
+
 class AssetRegistry {
 public:
     AssetRegistry() = default;
 
+    // Virtual tree parent for plugin content in the Content Browser.
+    static const std::filesystem::path& PluginBrowserGroupPath();
+
     // Adds a content root directory (recursive). Files inside are picked up
     // by Scan(); directories themselves become Folder-typed AssetData rows.
     void AddRoot(const std::filesystem::path& root);
+    void AddRoot(const std::filesystem::path& root, ContentRootKind kind,
+                 std::string label = {});
+    bool RemoveRoot(const std::filesystem::path& root);
 
     // Returns the set of roots this registry indexes. Order-stable.
     const std::vector<std::filesystem::path>& Roots() const noexcept {
         return m_roots;
     }
+    const std::vector<ContentRoot>& ContentRoots() const noexcept { return m_rootInfos; }
+    bool IsPluginPath(const std::filesystem::path& path) const;
 
     // Returns a user-facing label for `path` rooted at the first registered
     // content root (e.g. "Content/Textures/hero.png"). Falls back to the
@@ -106,6 +122,7 @@ public:
 private:
     std::string m_salt = "luma";
     std::vector<std::filesystem::path> m_roots;
+    std::vector<ContentRoot> m_rootInfos;
     std::unordered_map<AssetId, AssetData> m_byId;
     std::unordered_map<std::string, AssetId> m_byPath;  // path.string() -> id
     // Path tree: parent folder (packagePath.parent_path().string()) -> direct

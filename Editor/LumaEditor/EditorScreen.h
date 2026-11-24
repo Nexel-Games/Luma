@@ -40,6 +40,8 @@
 #include "Luma/Gizmo/TransformGizmo.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Math/Math.h"
+#include "Luma/EditorPlugins/PluginsWindow.h"
+#include "Luma/Plugins/PluginManager.h"
 #include "Luma/Project/Project.h"
 #include "Luma/RHI/DebugDraw.h"
 #include "Luma/RHI/Renderer.h"
@@ -145,6 +147,11 @@ public:
     // otherwise the Save All / Don't Save / Cancel prompt opens.
     void RequestClose();
     bool CloseConfirmed() const { return m_closeConfirmed; }
+    void RequestRelaunch();
+    bool WantsRelaunch() const { return m_closeConfirmed && m_relaunch; }
+    std::filesystem::path ProjectFile() const {
+        return m_project ? m_project->ProjectFile() : std::filesystem::path{};
+    }
 
     // Handle dropped files from the OS (forwarded to Content Browser)
     void HandleDroppedFiles(const std::vector<std::filesystem::path>& files);
@@ -305,6 +312,13 @@ private:
 
     // ---- Shared state the panels read/write via PanelContext ----------------
     std::optional<Project> m_project;
+    Plugins::PluginManager m_plugins{Plugins::CompiledPluginTable::Global()};
+#if defined(LUMA_MODULAR)
+    Plugins::ModuleManager m_modules{Plugins::DllModuleBackend::Global()};
+#else
+    Plugins::ModuleManager m_modules;
+#endif
+    EditorPlugins::PluginsWindow m_pluginsWindow;
     std::string m_title;
 
     Scene m_authoringScene;
@@ -415,6 +429,7 @@ private:
     std::vector<std::string> m_editorsToDelete;  // closed tabs, freed after the dock draws
     bool m_closeRequested = false;
     bool m_closeConfirmed = false;
+    bool m_relaunch = false;
 
 
     TextureHandle m_iconPlay = 0;

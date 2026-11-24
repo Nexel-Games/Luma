@@ -3,7 +3,7 @@
 # keyed by everything that affects the output, and SPIR-V stats. Used for
 # generated material shaders; knows nothing about materials or Vulkan objects.
 
-add_library(LumaShaderCompiler STATIC
+add_library(LumaShaderCompiler ${LUMA_LIBRARY_TYPE}
     src/ShaderCompiler.cpp
     src/ShaderCache.cpp
     src/SpirvStats.cpp)

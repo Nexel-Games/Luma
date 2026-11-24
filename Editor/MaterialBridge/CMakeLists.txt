@@ -1,7 +1,7 @@
 # Luma::MaterialBridge - editor glue between scene material slots / mesh
 # assets and the renderer's SceneRenderer residency API.
 
-add_library(LumaMaterialBridge STATIC
+add_library(LumaMaterialBridge ${LUMA_LIBRARY_TYPE}
     src/MaterialGpuCompile.cpp
     src/MaterialSceneBridge.cpp)
 

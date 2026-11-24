@@ -1,4 +1,4 @@
-add_library(LumaPanelInspector STATIC
+add_library(LumaPanelInspector ${LUMA_LIBRARY_TYPE}
     src/AssetInspector.cpp
     src/Inspector.cpp
     src/MaterialSlots.cpp

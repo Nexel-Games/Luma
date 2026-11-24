@@ -8,6 +8,8 @@ namespace Luma {
 
 Application* Application::s_instance = nullptr;
 
+Application* Application::Get() { return s_instance; }
+
 Application::Application(ApplicationSpec spec) : m_spec(std::move(spec)) {
     LUMA_ASSERT(s_instance == nullptr, "Only one Application may exist");
     s_instance = this;

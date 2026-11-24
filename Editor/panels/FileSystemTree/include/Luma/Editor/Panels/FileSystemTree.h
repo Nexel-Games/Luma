@@ -25,6 +25,7 @@ public:
     void SetRetractTexture(TextureHandle tex);
     void SetSelectedFolder(const std::filesystem::path& folder);
     void SetRegistry(Luma::AssetRegistry* registry);
+    void SetShowPluginContent(bool show) { m_showPluginContent = show; }
     
     void Draw(Slate::Context& ui, const Slate::Rect& body);
 
@@ -50,6 +51,7 @@ private:
     TextureHandle m_retractTex = 0;
     std::filesystem::path m_currentFolder;
     Luma::AssetRegistry* m_registry = nullptr;
+    bool m_showPluginContent = false;
     
     // Expansion state tracking
     std::unordered_set<std::string> m_expanded;

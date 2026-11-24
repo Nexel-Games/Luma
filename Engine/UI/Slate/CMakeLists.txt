@@ -1,7 +1,7 @@
 # Luma::Slate - our own immediate-mode UI framework (drawn via the RHI).
 # Uses stb_truetype (vendored) only for glyph rasterization.
 
-add_library(LumaSlate STATIC
+add_library(LumaSlate ${LUMA_LIBRARY_TYPE}
     src/Font.cpp
     src/Image.cpp
     src/DrawList.cpp

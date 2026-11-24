@@ -1,7 +1,7 @@
 # Luma::Jobs - the engine's job system: worker threads, priorities,
 # dependencies, ParallelFor and a main-thread queue. Depends only on Core.
 
-add_library(LumaJobs STATIC
+add_library(LumaJobs ${LUMA_LIBRARY_TYPE}
     src/JobSystem.cpp)
 
 add_library(Luma::Jobs ALIAS LumaJobs)
