@@ -49,6 +49,7 @@
 #include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialFromTextures.h"
 #include "Luma/Scene/MaterialMigration.h"
+#include "Luma/Scene/Prefab.h"
 #include "Luma/Scene/SceneSerializer.h"
 #include "Luma/Scene/ComponentRegistry.h"
 #include "Luma/Scene/SceneSystems.h"
@@ -91,7 +92,7 @@ std::filesystem::path EngineContentRoot() {
 
 // Files whose external edits the editor reacts to.
 bool IsWatchedAssetFile(const std::filesystem::path& p) {
-    static const char* kExtensions[] = {".lmat", ".lmatinst", ".lmesh", ".png", ".jpg",
+    static const char* kExtensions[] = {".lmat", ".lmatinst", ".lmesh", ".lprefab", ".png", ".jpg",
                                         ".jpeg", ".tga", ".bmp", ".psd", ".gif"};
     std::string ext = p.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -294,6 +295,7 @@ bool EditorScreen::LoadScene() {
     // Version-1 scenes carried a color per mesh; move those onto material
     // assets (in memory until the scene is saved).
     if (!legacy.empty()) MigrateLegacyMaterials(ActiveScene(), legacy, *m_materials);
+    SyncScenePrefabs();
     return true;
 }
 
@@ -855,6 +857,169 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
     LUMA_USER_INFO("Level", "Placed '{}'", name);
 }
 
+std::optional<std::filesystem::path> EditorScreen::PrefabFile(const std::string& prefab) const {
+    return m_assetPaths.ToFile(prefab, {"lprefab"});
+}
+
+void EditorScreen::CreatePrefab(Entity actor, const std::filesystem::path& folder) {
+    Scene& scene = ActiveScene();
+    if (m_runner.PlayScene()) {
+        LUMA_USER_WARN("Prefabs", "Stop play before creating a prefab");
+        return;
+    }
+    if (!scene.IsValid(actor)) return;
+    const Entity instanceRoot = PrefabInstanceRoot(scene, actor);
+    if (instanceRoot != kNullEntity && instanceRoot != actor) {
+        // Its objects already belong to another prefab's copy.
+        LUMA_USER_WARN("Prefabs", "'{}' is part of a prefab copy: unpack the copy first",
+                       scene.Registry().get<NameComponent>(actor).name);
+        return;
+    }
+    // The file name: the actor's name, made safe, unique in the folder.
+    std::string base = scene.Registry().get<NameComponent>(actor).name;
+    for (char& ch : base) {
+        if (std::string_view("<>:\"/\\|?*").find(ch) != std::string_view::npos ||
+            static_cast<unsigned char>(ch) < 32) {
+            ch = '_';
+        }
+    }
+    if (base.empty()) base = "Prefab";
+    std::error_code ec;
+    std::filesystem::path file = folder / (base + kPrefabExtension);
+    for (int n = 1; std::filesystem::exists(file, ec); ++n) {
+        file = folder / (base + "_" + std::to_string(n) + kPrefabExtension);
+    }
+    const auto path = m_assetPaths.ToVirtual(file);
+    if (!path) {
+        LUMA_USER_ERROR("Prefabs", "Prefabs can only be created inside the project content");
+        return;
+    }
+    const PrefabAsset prefab = CapturePrefab(scene, actor, file.stem().string());
+    std::string err;
+    if (!SavePrefab(prefab, file, &err)) {
+        LUMA_USER_ERROR("Prefabs", "Could not create '{}': {}", *path, err);
+        return;
+    }
+    // The actor becomes the prefab's first linked copy.
+    LinkPrefabInstance(scene, actor, prefab, MakeAssetIdFromKey(*path), *path);
+    m_assetRegistry.Scan();
+    LUMA_USER_INFO("Prefabs", "Created prefab '{}' from '{}' ({} object(s))", *path,
+                   scene.Registry().get<NameComponent>(actor).name, prefab.objects.size());
+}
+
+void EditorScreen::DropPrefab(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& prefab) {
+    if (m_runner.PlayScene()) {
+        LUMA_USER_WARN("Prefabs", "Stop play before placing prefabs");
+        return;
+    }
+    const auto file = PrefabFile(prefab);
+    std::string err;
+    const auto asset = file ? LoadPrefab(*file, &err) : std::nullopt;
+    if (!asset) {
+        LUMA_USER_ERROR("Prefabs", "Can't place '{}': {}", prefab, file ? err : std::string("file not found"));
+        return;
+    }
+    // The prefab's origin rests on the surface under the cursor (or the ground).
+    Editor::Panels::MeshPlacementInput in;
+    in.rayOrigin = origin;
+    in.rayDir = dir;
+    in.hit = PickSurface(origin, dir);
+    in.boundsMin = {0.0f, 0.0f, 0.0f};
+    in.boundsMax = {0.0f, 0.0f, 0.0f};
+    in.snap = m_gizmo.Snap().translate;
+    in.snapStep = m_gizmo.Snap().translateStep;
+    const Math::Vec3 position = Editor::Panels::ComputeMeshPlacement(in);
+    Scene& scene = ActiveScene();
+    // A unique name in the level (the prefab's other objects keep theirs).
+    std::string unique = Editor::Panels::AssetNameOf(prefab);
+    if (const SerialValue* n = asset->objects[0].components.Find("Name")) {
+        if (const SerialValue* s = n->Find("name"); s && s->IsString()) unique = s->AsString();
+    }
+    unique = UniqueEntityName(scene, unique);
+    const Entity root = InstantiatePrefab(scene, *asset, MakeAssetIdFromKey(prefab), prefab, position);
+    if (!scene.IsValid(root)) return;
+    auto& name = scene.Registry().get<NameComponent>(root).name;
+    name = unique;
+    // The root's name differs from the prefab's only to stay unique: not an override.
+    if (auto* link = scene.Registry().try_get<PrefabLinkComponent>(root)) {
+        if (link->baseline.Find("Name")) link->baseline["Name"]["name"] = name;
+    }
+    SelectOnly(root);
+    LUMA_USER_INFO("Level", "Placed '{}' (prefab '{}')", name, prefab);
+}
+
+void EditorScreen::PrefabAction(Entity entity, Editor::Panels::PanelContext::PrefabAction action) {
+    using Action = Editor::Panels::PanelContext::PrefabAction;
+    Scene& scene = ActiveScene();
+    if (m_runner.PlayScene()) {
+        LUMA_USER_WARN("Prefabs", "Stop play before changing prefab copies");
+        return;
+    }
+    const Entity root = PrefabInstanceRoot(scene, entity);
+    if (root == kNullEntity) return;
+    const std::string prefab = scene.Registry().get<PrefabLinkComponent>(root).prefabPath;
+    const std::string name = scene.Registry().get<NameComponent>(root).name;
+    if (action == Action::Unpack) {
+        UnpackPrefabInstance(scene, root);
+        LUMA_USER_INFO("Prefabs", "Unpacked '{}': it is no longer linked to '{}'", name, prefab);
+        return;
+    }
+    const auto file = PrefabFile(prefab);
+    std::string err;
+    auto asset = file ? LoadPrefab(*file, &err) : std::nullopt;
+    if (!asset) {
+        LUMA_USER_ERROR("Prefabs", "'{}' can't be read: {}", prefab, file ? err : std::string("file not found"));
+        return;
+    }
+    if (action == Action::Revert) {
+        RevertPrefabInstance(scene, root, *asset);
+        LUMA_USER_INFO("Prefabs", "Reverted '{}' to '{}'", name, prefab);
+        return;
+    }
+    ApplyPrefabInstance(scene, root, *asset);
+    if (!SavePrefab(*asset, *file, &err)) {
+        LUMA_USER_ERROR("Prefabs", "Could not save '{}': {}", prefab, err);
+        return;
+    }
+    const usize updated = SyncPrefabInstances(scene, MakeAssetIdFromKey(prefab), *asset);
+    LUMA_USER_INFO("Prefabs", "Applied '{}' to '{}' ({} other cop{} updated)", name, prefab, updated,
+                   updated == 1 ? "y" : "ies");
+}
+
+void EditorScreen::SyncPrefab(const std::string& prefab) {
+    Scene& scene = ActiveScene();
+    bool used = false;
+    for (auto [e, link] : scene.Registry().view<PrefabLinkComponent>().each()) {
+        if (link.root && link.prefabPath == prefab) {
+            used = true;
+            break;
+        }
+    }
+    if (!used) return;
+    const auto file = PrefabFile(prefab);
+    std::string err;
+    const auto asset = file ? LoadPrefab(*file, &err) : std::nullopt;
+    if (!asset) {
+        // The copies keep their last values (and their links, for when it is back).
+        if (m_missingPrefabs.insert(prefab).second) {
+            LUMA_USER_WARN("Prefabs", "Prefab '{}' {}: its copies in the level keep their last values", prefab,
+                           file ? "can't be read (" + err + ")" : std::string("is missing"));
+        }
+        return;
+    }
+    m_missingPrefabs.erase(prefab);
+    const usize changed = SyncPrefabInstances(scene, MakeAssetIdFromKey(prefab), *asset);
+    if (changed > 0) LUMA_LOG_INFO("Prefabs", "'{}' changed: updated {} cop{}", prefab, changed, changed == 1 ? "y" : "ies");
+}
+
+void EditorScreen::SyncScenePrefabs() {
+    std::set<std::string> prefabs;
+    for (auto [e, link] : ActiveScene().Registry().view<PrefabLinkComponent>().each()) {
+        if (link.root) prefabs.insert(link.prefabPath);
+    }
+    for (const std::string& prefab : prefabs) SyncPrefab(prefab);
+}
+
 void EditorScreen::DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir,
                                 const std::string& path) {
     const Entity e = PickEntity(origin, dir);
@@ -961,6 +1126,8 @@ void EditorScreen::OnAssetFileChanged(const std::filesystem::path& file) {
         // with a user warning.
         m_materials->Reload(*virtualPath);
         RefreshThumbnailsFor(*virtualPath);
+    } else if (ext == kPrefabExtension) {
+        SyncPrefab(*virtualPath);  // saved elsewhere, edited on disk, or removed
     } else if (ext == ".lmesh") {
         m_bridge.OnMeshFileChanged(*virtualPath);
         if (m_preview) m_preview->OnMeshFileChanged(*virtualPath);
@@ -1194,10 +1361,21 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onDropMesh = [this](const Math::Vec3& origin, const Math::Vec3& dir,
                             const std::string& mesh) { DropMesh(origin, dir, mesh); };
     ctx.onMeshDragEnd = [this] { m_bridge.ClearPlacementPreview(); };
+    ctx.onCreatePrefab = [this](Entity actor, const std::filesystem::path& folder) { CreatePrefab(actor, folder); };
+    ctx.onDropPrefab = [this](const Math::Vec3& origin, const Math::Vec3& dir, const std::string& prefab) {
+        DropPrefab(origin, dir, prefab);
+    };
+    ctx.onPrefabAction = [this](Entity entity, Editor::Panels::PanelContext::PrefabAction action) {
+        PrefabAction(entity, action);
+    };
+    ctx.onPrefabSaved = [this](const std::string& prefab) { SyncPrefab(prefab); };
+    ctx.prefabExists = [this](const std::string& prefab) { return PrefabFile(prefab).has_value(); };
     ctx.onAssetRenamed = [this](const std::string& oldPath, const std::string& newPath) {
         // Unreal leaves a redirector; Luma fixes the open scene up directly.
         // Scenes that are not open keep the old path (see GOAL.md 5.6).
-        const u32 changed = RetargetAssetReferences(ActiveScene(), oldPath, newPath);
+        const u32 changed = RetargetAssetReferences(ActiveScene(), oldPath, newPath) +
+                            static_cast<u32>(RetargetPrefabLinks(ActiveScene(), oldPath,
+                                                                 MakeAssetIdFromKey(newPath), newPath));
         m_bridge.OnMeshFileChanged(oldPath);
         if (m_preview) m_preview->OnMeshFileChanged(oldPath);
         if (changed > 0) {
@@ -1208,7 +1386,7 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
     ctx.onBrowseToAsset = [this](const std::string& path) {
         if (m_materials->IsInstance(path)) {
             if (auto file = m_assetPaths.ToFile(path, {"lmatinst"})) m_contentBrowser.BrowseTo(*file);
-        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "lmesh", "png", "jpg", "jpeg",
+        } else if (auto file = m_assetPaths.ToFile(path, {"lmat", "lmesh", "lprefab", "png", "jpg", "jpeg",
                                                           "tga", "bmp", "psd", "gif"})) {
             m_contentBrowser.BrowseTo(*file);
         }
@@ -2656,6 +2834,7 @@ void EditorScreen::DuplicateEntity(Entity e) {
         const std::string base = ActiveScene().Registry().get<NameComponent>(root).name;
         Entity copy = DuplicateSubtree(ActiveScene(), root);
         if (copy == kNullEntity) continue;
+        DetachDuplicatedPrefabObjects(ActiveScene(), copy);  // a copied part of a prefab copy is plain
         auto renameTree = [&](auto&& self, Entity entity) -> void {
             auto& name = ActiveScene().Registry().get<NameComponent>(entity).name;
             name = UniqueEntityName(ActiveScene(), name);
@@ -2736,6 +2915,7 @@ void EditorScreen::PasteEntities(Entity clicked, bool asChild) {
     const std::vector<Entity> ignore = m_clipboard.IsCut() ? m_clipboard.CutSources() : std::vector<Entity>{};
     const std::vector<Entity> created = m_clipboard.Paste(ActiveScene(), parent, ignore);
     if (created.empty()) return;
+    for (Entity e : created) DetachDuplicatedPrefabObjects(ActiveScene(), e);
     if (m_clipboard.IsCut()) {
         for (Entity source : m_clipboard.CutSources()) DestroySubtree(ActiveScene(), source);
         m_clipboard.Clear();

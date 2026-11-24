@@ -47,6 +47,7 @@ add_executable(LumaTests
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
     Scene/SceneSerializerTests.cpp
+    Scene/PrefabTests.cpp
     Scene/MeshRendererSerializationTests.cpp
     Scene/AssetReferencesTests.cpp
     Scene/CameraComponentTests.cpp
@@ -98,6 +99,7 @@ add_executable(LumaTests
     Editor/MaterialSceneBridgeTests.cpp
     Editor/MaterialEditorTests.cpp
     Editor/InspectorMaterialTests.cpp
+    Editor/PrefabAssetEditorTests.cpp
     Editor/InspectorRegistryTests.cpp
     Editor/OutlinerRegistryTests.cpp
     Editor/EditorFrameworkTests.cpp

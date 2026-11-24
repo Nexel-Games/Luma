@@ -66,16 +66,20 @@ TEST_CASE("Built-in components are registered in order with their scene keys",
           "[scene][components]") {
     ComponentRegistry reg;
     Luma::RegistrationSet builtins = Luma::RegisterBuiltinComponents(reg);
-    REQUIRE(builtins.Size() == 7);
+    REQUIRE(builtins.Size() == 8);
     REQUIRE(Ids(reg) == std::vector<std::string>{"Name", "Transform", "MeshRenderer", "Camera",
-                                                 "Light", "Environment", "PostProcess"});
+                                                 "Light", "Environment", "PostProcess", "PrefabLink"});
     for (const ComponentDesc* d : reg.All()) {
         INFO(d->id);
         REQUIRE(d->owner == "Engine");
         REQUIRE_FALSE(d->displayName.empty());
+        // The prefab link is bookkeeping (a serialized baseline, not editable
+        // fields): it reads and writes itself and has no reflection.
+        if (d->id == "PrefabLink") continue;
         REQUIRE(d->reflection != nullptr);
         REQUIRE(d->reflection->Name() == d->id);
     }
+    REQUIRE_FALSE(reg.Find("PrefabLink")->userAddable);
     // Name and Transform are structural: every scene object has them.
     REQUIRE_FALSE(reg.Find("Name")->userAddable);
     REQUIRE_FALSE(reg.Find("Transform")->userAddable);

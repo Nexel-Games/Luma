@@ -653,6 +653,14 @@ void ViewportPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelConte
             }
             m_meshPreviewing = false;
         }
+        // A prefab: a linked instance on the surface under the cursor.
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(body, "asset/prefab")) {
+            if (ctx.onDropPrefab) {
+                Math::Vec3 origin, dir;
+                rayThrough(ui.mouse(), origin, dir);
+                ctx.onDropPrefab(origin, dir, drop->data);
+            }
+        }
         const Slate::DragPayload* dragging = ui.ActiveDrag();
         if (dragging && dragging->type == "asset/mesh" && body.Contains(ui.mouse()) &&
             ctx.onMeshDragPreview) {

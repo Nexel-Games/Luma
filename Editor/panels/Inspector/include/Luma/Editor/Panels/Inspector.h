@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "Luma/Asset/AssetData.h"
 #include "Luma/Editor/InspectorDrawers.h"
+#include "Luma/Editor/Panels/PrefabAssetEditor.h"
 #include "Luma/Scene/ComponentRegistry.h"
 #include "Luma/Scene/Components.h"
 #include "PanelContext.h"
@@ -81,6 +83,9 @@ private:
     void DrawTextureAsset(InspectorRows& rows, const AssetData& asset);
     void DrawSoundAsset(InspectorRows& rows, const AssetData& asset);
     void DrawSceneAsset(InspectorRows& rows, const AssetData& asset);
+    // A prefab, edited in place: placement, its objects, the picked object's
+    // components. Edits save to the prefab (PanelContext::onPrefabSaved).
+    void DrawPrefabAsset(InspectorRows& rows, PanelContext& ctx, const AssetData& asset, const std::string& path);
 
     void DrawSectionHeader(Slate::Context& ui, PanelContext& ctx, const Slate::Rect& body,
                            f32& y, f32 x, f32 w, std::string_view title, u64 menuKey,
@@ -102,6 +107,9 @@ private:
     std::vector<Slate::Rect> m_slotRects;
     Slate::Rect m_meshRowRect{};
     std::vector<std::string> m_drawnSections;
+
+    std::unique_ptr<PrefabAssetEditor> m_prefabEdit;
+    std::string m_prefabSaveError;
 
     Entity m_pendingRemoveEntity = kNullEntity;
     std::string m_pendingRemoveId;

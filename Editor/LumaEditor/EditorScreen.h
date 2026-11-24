@@ -4,6 +4,7 @@
 #include <memory>
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -261,6 +262,19 @@ private:
                                                const std::string& mesh);
     void PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);
     void DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);
+
+    // Prefabs: an Outliner actor dropped on a Content Browser folder becomes a
+    // prefab there and links to it; a prefab dropped in the viewport places a
+    // linked copy; Apply / Revert / Unpack from the Inspector's prefab bar.
+    void CreatePrefab(Entity actor, const std::filesystem::path& folder);
+    void DropPrefab(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& prefab);
+    void PrefabAction(Entity entity, Editor::Panels::PanelContext::PrefabAction action);
+    // Brings the level's copies of `prefab` up to date with its file (when
+    // the file is missing they keep their last values, warned once).
+    void SyncPrefab(const std::string& prefab);
+    // Every prefab the level uses (after loading a level).
+    void SyncScenePrefabs();
+    std::optional<std::filesystem::path> PrefabFile(const std::string& prefab) const;
     // `desired` if no material asset uses it, else desired_1, desired_2, ...
     std::string UniqueMaterialPath(const std::string& desired);
     std::vector<std::string> ListAssets(bool materials) const;
@@ -391,6 +405,8 @@ private:
     // Content/Engine) and the bridge that makes the scene's materials, meshes
     // and textures resident in the renderer.
     AssetPathResolver m_assetPaths;
+    // Prefabs already reported missing (warned once until they are back).
+    std::set<std::string> m_missingPrefabs;
     std::unique_ptr<Material::MaterialLibrary> m_materials;
     std::unique_ptr<Import::ImportSession> m_importSession;
     struct PendingTranslate;

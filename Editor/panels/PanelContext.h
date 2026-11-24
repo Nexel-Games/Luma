@@ -163,6 +163,18 @@ struct PanelContext {
     // A user click picked an entity (Outliner / viewport): the Inspector goes
     // back to showing the selected entity, even if it was already selected.
     std::function<void()> onEntityPicked;
+    // Prefabs: an actor dropped on a Content Browser folder becomes a prefab
+    // there (and links to it); a prefab dropped in the viewport is placed as a
+    // linked instance; the Inspector's prefab bar runs Apply / Revert /
+    // Unpack (PrefabAction) on an instance; a prefab edited in the asset
+    // Inspector was saved (its instances update).
+    enum class PrefabAction : u8 { Apply, Revert, Unpack };
+    std::function<void(Entity actor, const std::filesystem::path& folder)> onCreatePrefab;
+    std::function<void(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& prefab)> onDropPrefab;
+    std::function<void(Entity entity, PrefabAction action)> onPrefabAction;
+    std::function<void(const std::string& prefab)> onPrefabSaved;
+    // Whether a prefab asset (virtual path) exists (Outliner "missing prefab").
+    std::function<bool(const std::string& prefab)> prefabExists;
     // Virtual asset path of a file under the project/engine content ("" if
     // outside both).
     std::function<std::string(const std::filesystem::path& file)> virtualPathOf;

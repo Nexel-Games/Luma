@@ -446,6 +446,9 @@ void ContentBrowserPanel::DrawToolbar(Slate::Context& ui,
         if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, r)) {
             MoveDropped(*drop, target, ctx);
         }
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(r, "actor")) {
+            CreatePrefabDropped(*drop, target, ctx);
+        }
         // Center the text baseline within the segment band (kSegH) and
         // left-align to the cursor (no implicit padding).
         f32 textY = yMid + (kSegH - f.LineHeight()) * 0.5f;
@@ -614,6 +617,9 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
             }
             if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, hitCard)) {
                 MoveDropped(*drop, a->packagePath, ctx);
+            }
+            if (const Slate::DragPayload* drop = ui.AcceptDrop(hitCard, "actor")) {
+                CreatePrefabDropped(*drop, a->packagePath, ctx);
             }
         }
 
@@ -817,6 +823,9 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
                                  : m_currentFolder;
         if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, rect)) {
             MoveDropped(*drop, m_importDropFolder, ctx);
+        }
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(rect, "actor")) {
+            CreatePrefabDropped(*drop, m_importDropFolder, ctx);
         }
     }
     // Click on empty grid space deselects. Selection otherwise persists until
@@ -1024,6 +1033,9 @@ void ContentBrowserPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         }
         if (const Slate::DragPayload* drop = AcceptAssetDrop(ui, row.row)) {
             MoveDropped(*drop, row.path, ctx);
+        }
+        if (const Slate::DragPayload* drop = ui.AcceptDrop(row.row, "actor")) {
+            CreatePrefabDropped(*drop, row.path, ctx);
         }
     }
     DrawGridPane(ui, gridPane, ctx);
@@ -1427,6 +1439,14 @@ const Slate::DragPayload* ContentBrowserPanel::AcceptAssetDrop(Slate::Context& u
         if (const Slate::DragPayload* drop = ui.AcceptDrop(target, type)) hit = drop;
     }
     return hit;
+}
+
+void ContentBrowserPanel::CreatePrefabDropped(const Slate::DragPayload& drop,
+                                              const std::filesystem::path& folder, PanelContext& ctx) {
+    if (!ctx.onCreatePrefab || folder.empty() || drop.data.empty()) return;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(folder, ec)) return;  // dropped on a file tile
+    ctx.onCreatePrefab(static_cast<Entity>(static_cast<u32>(std::stoul(drop.data))), folder);
 }
 
 void ContentBrowserPanel::MoveDropped(const Slate::DragPayload& drop,

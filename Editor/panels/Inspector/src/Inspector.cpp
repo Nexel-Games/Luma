@@ -13,6 +13,7 @@
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
 #include "Luma/Editor/Panels/SlotParameters.h"
+#include "Luma/Scene/Prefab.h"
 #include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Serialization/Json.h"
@@ -615,6 +616,11 @@ RegistrationSet RegisterBuiltinInspectorDrawers(InspectorDrawerRegistry& registr
     name.owner = "Engine";
     name.hidden = true;  // the Inspector header shows (and the Outliner edits) the name
     set.Add(registry.Register(std::move(name)));
+    InspectorDrawer prefabLink;
+    prefabLink.componentId = kPrefabLinkComponentId;
+    prefabLink.owner = "Engine";
+    prefabLink.hidden = true;  // the prefab bar under the header shows the link
+    set.Add(registry.Register(std::move(prefabLink)));
     set.Add(registry.Register(EngineDrawer("Transform", DrawTransform)));
     set.Add(registry.Register(EngineDrawer("MeshRenderer", DrawMeshRenderer)));
     set.Add(registry.Register(EngineDrawer("Camera", DrawCamera)));
@@ -816,11 +822,64 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelCont
     ui.Tooltip(addId ^ 0x71Full, addBtn,
                "Add Component\nAttach a new component to the selected actor. "
                "Right-click a component header to reset or remove it.");
+    // Prefab instance bar: which prefab, modified state, Select / Apply /
+    // Revert / Unpack.
+    f32 headerH = 46.0f;
+    std::vector<std::string> overriddenComponents;
+    if (const auto* link = reg.try_get<PrefabLinkComponent>(selected)) {
+        const Entity root = PrefabInstanceRoot(scene, selected);
+        const std::string prefabName = link->prefabPath.substr(link->prefabPath.find_last_of('/') + 1);
+        const bool missing = ctx.prefabExists && !ctx.prefabExists(link->prefabPath);
+        const bool modified = root != kNullEntity && PrefabInstanceModified(scene, root);
+        for (const PrefabOverride& o : PrefabOverrides(scene, selected)) {
+            if (std::find(overriddenComponents.begin(), overriddenComponents.end(), o.component) ==
+                overriddenComponents.end()) {
+                overriddenComponents.push_back(o.component);
+            }
+        }
+        const Rect bar{body.x, body.y + 40.0f, body.w, 30.0f};
+        ui.Panel(bar, t.surface2);
+        ui.Panel({bar.x, bar.y, 2.0f, bar.h}, missing ? t.warning : Slate::Color::RGB(98, 168, 255));
+        const std::string label = missing   ? "Prefab: " + prefabName + " (missing)"
+                                  : modified ? "Prefab: " + prefabName + "  - modified"
+                                             : "Prefab: " + prefabName;
+        ui.LabelIn({x, bar.y, w * 0.45f, bar.h}, label,
+                   missing ? t.warning : Slate::Color::RGB(98, 168, 255));
+        f32 bx = body.Right() - 12.0f;
+        auto action = [&](const char* text, const char* tip, f32 bw, bool enabled) {
+            bx -= bw;
+            const Rect r{bx, bar.y + 4.0f, bw, 22.0f};
+            bx -= 4.0f;
+            const bool clicked = ui.Button(RowId(std::string("insp.prefab.") + text, selected), r, text);
+            ui.Tooltip(RowId(std::string("insp.prefab.tip.") + text, selected), r, tip);
+            return clicked && enabled;
+        };
+        if (action("Unpack", "Unpack\nBreak the link: this instance becomes regular objects with its current values.",
+                   62.0f, true) &&
+            ctx.onPrefabAction) {
+            ctx.onPrefabAction(selected, PanelContext::PrefabAction::Unpack);
+        }
+        if (action("Revert", "Revert\nDiscard this instance's changes: it matches the prefab again.", 58.0f,
+                   !missing && modified) &&
+            ctx.onPrefabAction) {
+            ctx.onPrefabAction(selected, PanelContext::PrefabAction::Revert);
+        }
+        if (action("Apply", "Apply\nWrite this instance's changes into the prefab: every instance updates.", 54.0f,
+                   !missing && modified) &&
+            ctx.onPrefabAction) {
+            ctx.onPrefabAction(selected, PanelContext::PrefabAction::Apply);
+        }
+        if (action("Select", "Select Asset\nShow the prefab in the Content Browser.", 54.0f, !missing) &&
+            ctx.onBrowseToAsset) {
+            ctx.onBrowseToAsset(link->prefabPath);
+        }
+        headerH += 34.0f;
+    }
     // The header row stays pinned; the component content below it scrolls.
     // The content region is clipped so scrolled rows can't overlap the pinned
     // header, and the scrollbar is added once the content height is known.
-    const f32 contentTop = body.y + 46.0f;
-    Rect contentRegion{body.x, contentTop, body.w, body.h - 46.0f};
+    const f32 contentTop = body.y + headerH;
+    Rect contentRegion{body.x, contentTop, body.w, body.h - headerH};
     ui.PushClip(contentRegion);
     y = contentTop - m_scroll;
 
@@ -829,9 +888,14 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelCont
         const InspectorDrawer* drawer = InspectorDrawers().Find(desc->id);
         if (drawer && drawer->hidden) continue;
         m_drawnSections.push_back(desc->id);
-        DrawSectionHeader(ui, ctx, body, y, x, w, desc->displayName,
+        // A component that differs from the prefab: marked like Unity's bold rows.
+        const bool overridden = std::find(overriddenComponents.begin(), overriddenComponents.end(), desc->id) !=
+                                overriddenComponents.end();
+        DrawSectionHeader(ui, ctx, body, y, x, w,
+                          overridden ? desc->displayName + "   (overrides prefab)" : desc->displayName,
                           Slate::Context::ID("insp.section." + desc->id) ^ 0x5EC7ull,
-                          BuildComponentMenu(ctx.scene, selected, *desc), t.accent);
+                          BuildComponentMenu(ctx.scene, selected, *desc),
+                          overridden ? Slate::Color::RGB(98, 168, 255) : t.accent);
         InspectorRows rows(ui, ctx, scene, selected, x, y, w, m_pickers);
         rows.panelLeft = body.x;
         rows.panelRight = body.Right();

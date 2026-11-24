@@ -1,5 +1,6 @@
 #include <unordered_map>
 #include "Luma/Editor/Panels/WorldOutliner.h"
+#include "Luma/Scene/Prefab.h"
 
 #include <algorithm>
 #include <cctype>
@@ -195,7 +196,13 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 }
                 const std::string iconName = iconFor(e);
                 const bool hidden = ctx.isEntityHidden && ctx.isEntityHidden(e);
-                const Color iconColor = hidden ? t.textDisabled : (selected ? t.selectionText : t.text);
+                // Prefab instances read blue (orange when their prefab is missing).
+                Color textColor = t.text;
+                if (const auto* link = ctx.scene->Registry().try_get<PrefabLinkComponent>(e)) {
+                    const bool missing = ctx.prefabExists && !ctx.prefabExists(link->prefabPath);
+                    textColor = missing ? t.warning : Color::RGB(98, 168, 255);
+                }
+                const Color iconColor = hidden ? t.textDisabled : (selected ? t.selectionText : textColor);
                 const Rect iconR{row.x + indent + 14.0f, row.y + (row.h - kIconS) * 0.5f, kIconS, kIconS};
                 if (hasChildren) {
                     Slate::DrawIcon(ui, {chevron.x + 1.0f, chevron.y + 2.0f, 12.0f, 12.0f},
@@ -229,7 +236,16 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 } else {
                     ui.Label({textX,
                               row.y + (row.h - ui.font().LineHeight()) * 0.5f},
-                             name, hidden ? t.textDisabled : (selected ? t.selectionText : t.text));
+                             name, hidden ? t.textDisabled : (selected ? t.selectionText : textColor));
+                }
+                // Drag a row onto the Content Browser to make it a prefab.
+                {
+                    Slate::DragPayload payload;
+                    payload.type = "actor";
+                    payload.data = std::to_string(static_cast<u32>(e));
+                    payload.label = name;
+                    ui.BeginDrag(Slate::Context::ID("outliner.drag") ^ static_cast<u64>(static_cast<u32>(e)), row,
+                                 payload);
                 }
                 if (clicked) {
                     *ctx.selected = e;

@@ -4,6 +4,7 @@ add_library(LumaScene ${LUMA_LIBRARY_TYPE}
     src/Scene.cpp
     src/SceneSystems.cpp
     src/Hierarchy.cpp
+    src/Prefab.cpp
     src/ActorClipboard.cpp
     src/ComponentReflection.cpp
     src/ComponentRegistry.cpp

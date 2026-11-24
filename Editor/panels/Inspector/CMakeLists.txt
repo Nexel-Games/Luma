@@ -2,6 +2,7 @@ add_library(LumaPanelInspector ${LUMA_LIBRARY_TYPE}
     src/AssetInspector.cpp
     src/Inspector.cpp
     src/MaterialSlots.cpp
+    src/PrefabAssetEditor.cpp
     src/SlotParameters.cpp
     src/StaticMeshSlot.cpp)
 

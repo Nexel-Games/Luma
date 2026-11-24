@@ -2,6 +2,8 @@
 
 #include <ctime>
 #include <fstream>
+#include <functional>
+#include <utility>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -19,7 +21,11 @@
 #include "Luma/Serialization/Json.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/Panels/Inspector.h"
+#include "Luma/Editor/Panels/PrefabAssetEditor.h"
 #include "Luma/Editor/Panels/SlotParameters.h"
+#include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/Components.h"
+#include "Luma/Scene/Hierarchy.h"
 #include "Luma/Material/GraphAssets.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/MaterialEditors/InstanceParameters.h"
@@ -453,6 +459,124 @@ void InspectorPanel::DrawSceneAsset(InspectorRows& rows, const AssetData& asset)
     rows.Note("Open (above) loads this level in the editor.", rows.ui.theme().textDim);
 }
 
+void InspectorPanel::DrawPrefabAsset(InspectorRows& rows, PanelContext& ctx, const AssetData& asset,
+                                     const std::string& path) {
+    Slate::Context& ui = rows.ui;
+    const Slate::Theme& t = ui.theme();
+    if (!m_prefabEdit) m_prefabEdit = std::make_unique<PrefabAssetEditor>();
+    PrefabAssetEditor& edit = *m_prefabEdit;
+    const bool readable = edit.Open(asset.packagePath, path);
+    if (edit.TakeReloaded()) {
+        ClosePopups();  // pickers pointed into the previous edit scene
+        m_prefabSaveError.clear();
+    }
+    if (!readable) {
+        rows.SubHeading("Prefab");
+        rows.Note("This prefab can't be read: " + edit.Error(), t.warning);
+        return;
+    }
+    Scene& scene = edit.EditScene();
+    auto& reg = scene.Registry();
+    const Entity root = edit.Root();
+
+    // Placement: the root's rotation and scale. Copies land where they are
+    // dropped; their own transform is theirs to change afterwards.
+    rows.SubHeading("Placement");
+    auto& rootXf = reg.get<TransformComponent>(root);
+    rows.Vec3("Rotation", "prefab.rotation", rootXf.rotationEuler);
+    rows.Vec3("Scale", "prefab.scale", rootXf.scale);
+    rows.Note("New copies placed in the level get this rotation and scale.", t.textDim);
+
+    // The prefab's objects; the picked one's components follow.
+    rows.SubHeading("Objects");
+    Entity picked = edit.Picked();
+    const f32 left = rows.panelLeft + 10.0f;
+    const f32 width = rows.panelRight - rows.panelLeft - 20.0f;
+    std::function<void(Entity, int)> objectRow = [&](Entity e, int depth) {
+        const f32 indent = 14.0f * static_cast<f32>(depth);
+        const Slate::Rect r{left + indent, rows.y, width - indent, 22.0f};
+        const NameComponent* name = reg.try_get<NameComponent>(e);
+        if (ui.Selectable(rows.Id("prefab.object." + std::to_string(static_cast<u32>(e))), r,
+                          name ? name->name : std::string("Object"), e == picked,
+                          e == root ? Slate::Icon::Cube : Slate::Icon::Dot)) {
+            edit.Pick(e);
+        }
+        rows.y += 24.0f;
+        for (Entity child : ChildrenOf(scene, e)) objectRow(child, depth + 1);
+    };
+    objectRow(root, 0);
+    picked = edit.Picked();
+    {
+        f32 bx = left;
+        const f32 by = rows.y + 2.0f;
+        auto button = [&](const char* label, const char* tip, f32 bw) {
+            const Slate::Rect r{bx, by, bw, 22.0f};
+            bx += bw + 6.0f;
+            const bool clicked = ui.Button(rows.Id(std::string("prefab.button.") + label), r, label);
+            ui.Tooltip(rows.Id(std::string("prefab.button.tip.") + label), r, tip);
+            return std::pair{clicked, r};
+        };
+        if (button("Add Object", "Add an empty object under the selected one.", 92.0f).first) {
+            picked = edit.AddObject(picked);
+        }
+        if (picked != root &&
+            button("Remove", "Remove the selected object and its children from the prefab.", 70.0f).first) {
+            edit.RemoveObject(picked);
+            picked = edit.Picked();
+        }
+        const u64 addId = rows.Id("prefab.addcomponent");
+        const auto [addClicked, addRect] =
+            button("Add Component", "Attach a new component to the selected object.", 116.0f);
+        if (addClicked) {
+            Slate::MenuOptions opts;
+            opts.searchable = true;
+            opts.searchHint = "Search components";
+            opts.minWidth = 240.0f;
+            ui.OpenMenuBelow(addId, addRect, BuildAddComponentMenu(&scene, picked), opts);
+        }
+        rows.y = by + 32.0f;
+    }
+
+    // The picked object.
+    if (NameComponent* name = reg.try_get<NameComponent>(picked)) {
+        rows.SubHeading(picked == root ? "Root Object" : "Object");
+        rows.Text("Name", "prefab.name." + std::to_string(static_cast<u32>(picked)), name->name);
+    }
+    for (const ComponentDesc* desc : Components().All()) {
+        if (!scene.IsValid(picked) || !desc->has(scene, picked)) continue;
+        const InspectorDrawer* drawer = InspectorDrawers().Find(desc->id);
+        if (drawer && drawer->hidden) continue;
+        if (picked == root && desc->id == "Transform") continue;  // Placement, above
+        Slate::Rect band{rows.panelLeft, 0.0f, rows.panelRight - rows.panelLeft, 0.0f};
+        f32 y = rows.y + 4.0f;
+        DrawSectionHeader(ui, ctx, band, y, rows.x, rows.w, desc->displayName,
+                          rows.Id("prefab.section." + desc->id) ^ static_cast<u64>(static_cast<u32>(picked)),
+                          BuildComponentMenu(&scene, picked, *desc), t.accent);
+        InspectorRows section(ui, ctx, scene, picked, rows.x, y, rows.w, m_pickers);
+        section.panelLeft = rows.panelLeft;
+        section.panelRight = rows.panelRight;
+        if (drawer) {
+            drawer->draw(section);
+        } else {
+            DrawReflectedComponent(section, *desc);
+        }
+        rows.y = section.y + 8.0f;
+    }
+
+    // Save once an edit is finished (not on every frame of a drag).
+    if (!ui.isMouseDown(0) && !ui.textFieldFocused() && edit.Dirty()) {
+        std::string err;
+        if (edit.Commit(&err)) {
+            m_prefabSaveError.clear();
+            if (ctx.onPrefabSaved) ctx.onPrefabSaved(path);
+        } else if (!err.empty() && err != m_prefabSaveError) {
+            m_prefabSaveError = err;
+            LUMA_USER_ERROR("Prefabs", "Could not save '{}': {}", path, err);
+        }
+    }
+    if (!m_prefabSaveError.empty()) rows.Note("Not saved: " + m_prefabSaveError, t.warning);
+}
+
 void InspectorPanel::DrawAsset(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx,
                                const AssetData& asset) {
     const Slate::Theme& t = ui.theme();
@@ -529,6 +653,9 @@ void InspectorPanel::DrawAsset(Slate::Context& ui, const Slate::Rect& body, Pane
             break;
         case AssetType::Scene:
             DrawSceneAsset(rows, asset);
+            break;
+        case AssetType::Prefab:
+            DrawPrefabAsset(rows, ctx, asset, path);
             break;
         default:
             break;

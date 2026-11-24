@@ -1,4 +1,5 @@
 #include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/Prefab.h"
 
 #include <algorithm>
 
@@ -285,6 +286,9 @@ RegistrationSet RegisterBuiltinComponents(ComponentRegistry& registry) {
     set.Add(registry.Register<PostProcessComponent>(
         EngineComponent("PostProcess", "Post Process Volume", "Volumes", "Eye",
                         "Bloom, exposure, tone mapping and other camera effects.")));
+
+    // Prefab instance link (serialized with the scene; not user-addable).
+    set.Add(RegisterPrefabLinkComponent(registry));
 
     return set;
 }

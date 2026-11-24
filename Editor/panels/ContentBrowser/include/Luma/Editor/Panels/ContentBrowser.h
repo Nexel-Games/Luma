@@ -267,6 +267,8 @@ private:
     void DrawRenameField(Slate::Context& ui, const Slate::Rect& nameR, const AssetData& asset,
                          PanelContext& ctx);
     const Slate::DragPayload* AcceptAssetDrop(Slate::Context& ui, const Slate::Rect& target) const;
+    // An Outliner actor dropped on `folder`: becomes a prefab there.
+    void CreatePrefabDropped(const Slate::DragPayload& drop, const std::filesystem::path& folder, PanelContext& ctx);
     void MoveDropped(const Slate::DragPayload& drop, const std::filesystem::path& folder,
                      PanelContext& ctx);
     void FinishMutations(PanelContext& ctx);

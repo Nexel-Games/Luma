@@ -110,7 +110,10 @@ RegistrationSet RegisterBuiltinAssetTypes(AssetTypeRegistry& registry) {
     add(std::move(instance));
     add({"shader", "Shader", "Shader", "Engine", {"hlsl", "glsl", "frag", "vert", "lshader"}, AssetType::Shader, ".lshader"});
     add({"script", "Script", "Script", "Engine", {"lua", "py", "js", "cs"}, AssetType::Script});
-    add({"prefab", "Prefab", "Cube", "Engine", {"prefab", "lumapfb", "lasset"}, AssetType::Prefab});
+    AssetTypeDesc prefab{"prefab", "Prefab", "Cube", "Engine", {"lprefab", "prefab", "lumapfb"},
+                         AssetType::Prefab, ".lprefab"};
+    prefab.dragType = "asset/prefab";  // placed in the level as a linked instance
+    add(std::move(prefab));
     add({"scene", "Scene", "Scene", "Engine", {"luma", "scene", "lumascene", "lscene"}, AssetType::Scene});
     AssetTypeDesc sound{"sound", "Sound", "Sound", "Engine", {"wav", "ogg", "mp3", "flac", "laudio"},
                         AssetType::Sound, ".laudio", "Audio", "Sounds"};
