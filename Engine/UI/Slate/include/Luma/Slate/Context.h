@@ -336,7 +336,7 @@ public:
     // menu it opened is up). Returns true on click.
     bool IconTextButton(u64 id, const Rect& rect, Icon icon,
                         std::string_view label, Color iconColor,
-                        bool active = false);
+                        bool active = false, f32 iconSize = 14.0f);
     bool IsMenuOpen(u64 owner) const { return m_menus.IsOpen(owner); }
     bool AnyMenuOpen() const { return m_menus.IsOpen(); }
     void CloseMenus() { m_menus.Close(); }

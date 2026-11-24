@@ -308,7 +308,7 @@ int Context::Combo(u64 id, const Rect& rect,
 
 bool Context::IconTextButton(u64 id, const Rect& rect, Icon icon,
                              std::string_view label, Color iconColor,
-                             bool active) {
+                             bool active, f32 iconSize) {
     const bool hovered = rect.Contains(m_mouse);
     if (hovered) m_hot = id;
     if (hovered && m_mousePressed[0]) m_active = id;
@@ -324,7 +324,7 @@ bool Context::IconTextButton(u64 id, const Rect& rect, Icon icon,
                                 m_theme.radius.sm);
     m_draw.AddRectFilledRounded(rect.Inset(1.0f, 1.0f), fill,
                                 std::max(0.0f, m_theme.radius.sm - 1.0f));
-    const f32 is = 14.0f;
+    const f32 is = iconSize;
     const Vec2 ts = m_uiFont.Measure(label);
     const f32 total = is + (label.empty() ? 0.0f : 6.0f + ts.x);
     f32 x = rect.x + (rect.w - total) * 0.5f;

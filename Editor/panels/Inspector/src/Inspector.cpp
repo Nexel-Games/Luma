@@ -796,7 +796,7 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelCont
     ui.Heading({x, y, addBtn.x - x - 8.0f, 24}, name ? name->name : std::string("(unnamed)"),
                t.text);
     if (ui.IconTextButton(addId, addBtn, Slate::Icon::Plus, "Add", t.success,
-                          ui.IsMenuOpen(addId))) {
+                          ui.IsMenuOpen(addId), 19.0f)) {
         Slate::MenuOptions opts;
         opts.searchable = true;
         opts.searchHint = "Search components";

@@ -38,7 +38,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
     ui.Panel({header.x, header.Bottom() - 1.0f, header.w, 1.0f}, t.separator);
 
     // "+" add-gameobject button, icon only, left side of the header.
-    const f32 kBtn = 20.0f;
+    const f32 kBtn = 26.0f;
     const u64 btnId = Slate::Context::ID("outliner.add");
     Rect btn{header.x + 6.0f, header.y + (kHeaderH - kBtn) * 0.5f, kBtn,
              kBtn};
@@ -64,8 +64,8 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
             ui.drawList().AddRectOutline(btn, t.accent, t.border.hairline);
         }
         if (m_createButtonIcon) {
-            ui.Image(m_createButtonIcon, {btn.x + 1.0f, btn.y + 1.0f, 18.0f,
-                                          18.0f});
+            ui.Image(m_createButtonIcon, {btn.x + 2.0f, btn.y + 2.0f, 22.0f,
+                                          22.0f});
         } else {
             Slate::DrawIcon(ui, btn, Icon::Plus, menuOpen ? t.accent : t.textDim);
         }
