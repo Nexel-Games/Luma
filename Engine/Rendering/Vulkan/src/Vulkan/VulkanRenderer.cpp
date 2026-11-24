@@ -10,8 +10,15 @@
 #include "Vulkan/Profiling/VulkanGpuTimer.h"
 #include "Vulkan/VulkanMemory.h"
 
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
+#define STB_IMAGE_WRITE_STATIC  // the extern copy is luma_tinyexr's (one per program)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace Luma {
 namespace {
