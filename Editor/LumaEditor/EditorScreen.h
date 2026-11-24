@@ -334,6 +334,10 @@ private:
 
     Math::Mat4 m_view = Math::Mat4::Identity();
     f32 m_fovY = 0.9f;
+    // Seconds the level viewport has been running: drives the materials'
+    // Time / Panner / Rotator (accumulated in double so it never loses
+    // precision over a long session; materials wrap it with Time's Period).
+    f64 m_sceneTime = 0.0;
     f32 m_nearZ = 0.1f;
     f32 m_farZ = 500.0f;
     f32 m_gizmoScale = 1.0f;

@@ -439,10 +439,11 @@ bool EditorScreen::OpenGraphMaterialEditor(const std::string& assetPath, const s
     const bool isInstance = m_materials->GetGraphInstance(assetPath) != nullptr;
     const bool isMaterial = !isInstance && m_materials->GetGraphMaterial(assetPath) != nullptr;
     if (!isInstance && !isMaterial) return false;  // legacy asset: the Phase-1 panel
-    // Default (double-click) = the Instance Editor; "material" = the node graph.
-    // The node graph of an instance is its root material's.
+    // Default (double-click), as in Unreal: a Material opens its node graph, a
+    // Material Instance its Instance Editor. "Open With" forces either one
+    // ("material" on an instance edits the graph of its root material).
     std::string target = assetPath;
-    const bool graph = which == "material";
+    const bool graph = which == "material" || (isMaterial && which != "instance");
     if (graph && isInstance) {
         MaterialEditors::InstanceParameterModel model(assetPath, *m_materials);
         target = model.RootMaterial();
@@ -553,8 +554,13 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
 }
 
 std::string EditorScreen::UniqueMaterialPath(const std::string& desired) {
+    // Taken = any material or instance file at that path, in any format
+    // (MaterialLibrary::Exists only reads Phase-1 files).
+    auto taken = [this](const std::string& p) {
+        return m_assetPaths.ToFile(p, {"lmat", "lmatinst"}).has_value() || m_materials->Exists(p);
+    };
     std::string path = desired;
-    for (int n = 1; m_materials->Exists(path); ++n) path = desired + "_" + std::to_string(n);
+    for (int n = 1; taken(path); ++n) path = desired + "_" + std::to_string(n);
     return path;
 }
 
@@ -565,11 +571,13 @@ void EditorScreen::CreateMaterialAsset(const std::filesystem::path& folder) {
         return;
     }
     const std::string path = UniqueMaterialPath(*folderPath);
-    Material::Material material = Material::Material::MakeDefault();
+    // A graph material (current format): Material Output fed by the Default
+    // Material's Base Color / Roughness parameters, ready for nodes.
+    Material::GraphMaterial material = Material::GraphMaterial::MakeDefault();
     material.name = path.substr(path.find_last_of('/') + 1);
-    m_materials->SetMaterial(path, material);
+    m_materials->SetGraphMaterial(path, std::move(material));
     std::string err;
-    if (!m_materials->Save(path, &err)) {
+    if (!m_materials->SaveGraphAsset(path, &err)) {
         LUMA_USER_ERROR("Materials", "Could not create '{}': {}", path, err);
         m_materials->Revert(path);
         return;
@@ -1742,9 +1750,10 @@ Renderer2::DeferredSceneView EditorScreen::BuildDeferredSceneView(u32 width,
     deferredScene.fov = m_fovY;
     deferredScene.nearPlane = m_nearZ;
     deferredScene.farPlane = m_farZ;
-    deferredScene.time = 0.0f; // TODO: Pass actual time
-    // Clamp so a hitch (or a long first frame) doesn't jump adaptation.
+    // Clamp so a hitch (or a long first frame) doesn't jump adaptation or time.
     deferredScene.deltaTime = std::clamp(deltaSeconds, 0.0f, 0.25f);
+    m_sceneTime += deferredScene.deltaTime;
+    deferredScene.time = static_cast<f32>(m_sceneTime);
     
     // Set pointers to RHI scene data
     deferredScene.sceneData = &rhiScene;
@@ -1863,7 +1872,9 @@ bool EditorScreen::BuildCameraPreviewView(Renderer2::DeferredSceneView& out, u32
     out.fov = Radians(cam.fovYDegrees);
     out.nearPlane = cam.nearZ;
     out.farPlane = cam.farZ;
-    out.time = 0.0f;
+    // Same clock as the level viewport (it advanced it this frame), so animated
+    // materials move in step in the camera preview.
+    out.time = static_cast<f32>(m_sceneTime);
     out.deltaTime = 0.0f;
     out.sceneData = &m_cameraPreviewSceneSource;
     out.lightingParams = &m_cameraPreviewSceneSource.lighting;

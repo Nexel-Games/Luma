@@ -193,3 +193,33 @@ TEST_CASE("Inspector field ids differ per selected entity", "[inspector]") {
     CHECK(InspectorPanel::RowId("insp.lint", static_cast<Entity>(1)) ==
           InspectorPanel::RowId("insp.lint", static_cast<Entity>(1)));
 }
+
+// --- Material parameters under a slot ------------------------------------------
+
+#include "Luma/Editor/Panels/SlotParameters.h"
+#include "Luma/Material/GraphAssets.h"
+
+TEST_CASE("A slot's parameters edit its instance, its shared material, or nothing", "[inspector][material]") {
+    using Luma::Editor::Panels::SlotParameterMode;
+    using Luma::Editor::Panels::SlotParameterModeFor;
+    const fs::path root = fs::temp_directory_path() / "luma_slot_parameter_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "Assets");
+    AssetPathResolver paths;
+    paths.SetGameRoot(root / "Assets");
+    paths.SetEngineRoot(fs::path(LUMA_SOURCE_DIR) / "Content" / "Engine");
+    MaterialLibrary lib(paths);
+    lib.SetGraphMaterial("/Game/M_Water", Material::GraphMaterial::MakeDefault());
+    Material::GraphMaterialInstance mi;
+    mi.parent = "/Game/M_Water";
+    lib.SetGraphInstance("/Game/MI_Water", mi);
+
+    CHECK(SlotParameterModeFor("/Game/MI_Water", lib) == SlotParameterMode::Instance);
+    CHECK(SlotParameterModeFor("/Game/M_Water", lib) == SlotParameterMode::SharedMaterial);
+    // Engine content is never edited from a level object.
+    CHECK(SlotParameterModeFor(std::string(Material::kDefaultMaterialPath), lib) == SlotParameterMode::ReadOnly);
+    CHECK(SlotParameterModeFor("/Game/Missing", lib) == SlotParameterMode::None);
+    CHECK(SlotParameterModeFor("", lib) == SlotParameterMode::None);
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}

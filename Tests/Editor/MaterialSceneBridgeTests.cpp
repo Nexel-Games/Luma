@@ -9,6 +9,7 @@
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Asset/LumaMesh.h"
 #include "Luma/Editor/MaterialSceneBridge.h"
+#include "Luma/MaterialEditors/InstanceParameters.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Scene/Scene.h"
 
@@ -631,4 +632,93 @@ TEST_CASE("A broken edit keeps the last good material", "[bridge][compile]") {
     CHECK(f.renderer.materialUpdates == uploads);
     CHECK(f.bridge.HandleFor("/Game/Materials/M_Edit") == good);
     CHECK_FALSE(f.bridge.Errors("/Game/Materials/M_Edit").empty());
+}
+
+namespace {
+
+// BaseColor = Vector Parameter "Tint" (default red).
+GraphMaterial TintMaterial() {
+    GraphMaterial m;
+    const NodeId tint = m.graph.AddNode("VectorParameter", {0.0f, 0.0f});
+    m.graph.Find(tint)->properties["name"] = PropertyValue(std::string("Tint"));
+    m.graph.Find(tint)->properties["default"] = PropertyValue(Math::Vec4{1, 0, 0, 1});
+    std::string err;
+    REQUIRE(m.graph.Connect(PinRef{tint, 0}, PinRef{m.graph.OutputNode(), 0}, &err));
+    return m;
+}
+
+ParameterOverride Tint(Math::Vec4 c) {
+    ParameterOverride o;
+    o.name = "Tint";
+    o.kind = ParameterOverride::Kind::Vector;
+    o.vector = c;
+    return o;
+}
+
+bool AnyBlockHas(const RecordingRenderer& r, Math::Vec3 rgb) {
+    for (const auto& [handle, block] : r.parameterBlocks) {
+        for (const Math::Vec4& v : block.values) {
+            if (v.x == rgb.x && v.y == rgb.y && v.z == rgb.z) return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("Editing an instance's parameters in the Instance Editor updates the scene", "[bridge][instance]") {
+    BridgeFixture f;
+    MaterialLibrary lib(f.paths);
+    lib.SetGraphMaterial("/Game/Materials/M_Tint", TintMaterial());
+    GraphMaterialInstance mi;
+    mi.parent = "/Game/Materials/M_Tint";
+    lib.SetGraphInstance("/Game/Materials/MI_Tint", mi);
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/Materials/MI_Tint"};
+    f.Spawn(mr);
+    f.Build(lib);
+    const int compiles = f.renderer.materialUpdates;
+
+    // The Instance Editor: tick the override and pick green.
+    Luma::MaterialEditors::InstanceParameterModel instance("/Game/Materials/MI_Tint", lib);
+    instance.SetValue(Tint({0, 1, 0, 1}));
+    f.Build(lib);
+    CHECK(f.renderer.materialUpdates == compiles);  // parameters only: no recompile
+    CHECK(AnyBlockHas(f.renderer, {0, 1, 0}));
+
+    // The parent's own parameter view (base material defaults): an instance
+    // that doesn't override Tint follows it.
+    instance.SetOverride("Tint", false);
+    Luma::MaterialEditors::InstanceParameterModel parent("/Game/Materials/M_Tint", lib);
+    parent.SetValue(Tint({0, 0, 1, 1}));
+    f.Build(lib);
+    CHECK(AnyBlockHas(f.renderer, {0, 0, 1}));
+}
+
+TEST_CASE("An instance created by Create Material Instance follows Instance Editor edits", "[bridge][instance]") {
+    BridgeFixture f;
+    {
+        MaterialLibrary setup(f.paths);
+        setup.SetGraphMaterial("/Game/M_Tint", TintMaterial());
+        REQUIRE(setup.SaveGraphAsset("/Game/M_Tint"));
+        // Exactly what EditorScreen::CreateMaterialInstanceAsset writes.
+        Luma::Material::MaterialInstance legacy;
+        legacy.parent = "/Game/M_Tint";
+        const std::string path = setup.CreateInMemoryInstance("/Game/MI_Tint", legacy);
+        legacy.name = "MI_Tint";
+        setup.SetInstance(path, legacy);
+        REQUIRE(setup.Save(path));
+    }
+    MaterialLibrary lib(f.paths);
+    MeshRendererComponent mr;
+    mr.materials = {"/Game/MI_Tint"};
+    f.Spawn(mr);
+    f.Build(lib);
+    REQUIRE(lib.GetGraphInstance("/Game/MI_Tint") != nullptr);
+    CHECK(lib.GetGraphInstance("/Game/MI_Tint")->parent == "/Game/M_Tint");
+
+    Luma::MaterialEditors::InstanceParameterModel instance("/Game/MI_Tint", lib);
+    instance.SetValue(Tint({0, 1, 0, 1}));
+    f.Build(lib);
+    CHECK(AnyBlockHas(f.renderer, {0, 1, 0}));
 }

@@ -11,6 +11,7 @@
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
+#include "Luma/Editor/Panels/SlotParameters.h"
 #include "Luma/Editor/Panels/StaticMeshSlot.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Serialization/Json.h"
@@ -414,6 +415,8 @@ void DrawMaterialSlots(InspectorRows& rows, MeshRendererComponent& mr) {
         }
         rows.Grid(row.y - 3.0f, row.h + 6.0f, x + kLabelW - 6.0f);
         y += row.h + 6.0f;
+        // The slot material's parameters, editable here (no Material Editor trip).
+        if (!unused) DrawSlotParameters(rows, shown, slot);
     }
 }
 

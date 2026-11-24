@@ -1,6 +1,7 @@
 add_library(LumaPanelInspector STATIC
     src/Inspector.cpp
     src/MaterialSlots.cpp
+    src/SlotParameters.cpp
     src/StaticMeshSlot.cpp)
 
 add_library(Luma::PanelInspector ALIAS LumaPanelInspector)
@@ -13,6 +14,6 @@ target_include_directories(LumaPanelInspector
         ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 target_link_libraries(LumaPanelInspector
-    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::Material Luma::Asset Luma::EditorFramework)
+    PUBLIC Luma::Core Luma::Scene Luma::Slate Luma::Material Luma::Asset Luma::EditorFramework Luma::MaterialEditors)
 
 set_target_properties(LumaPanelInspector PROPERTIES FOLDER "Editor/Panels")
