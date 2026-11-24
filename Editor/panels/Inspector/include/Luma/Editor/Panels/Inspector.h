@@ -77,6 +77,10 @@ private:
     void DrawAsset(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx, const AssetData& asset);
     void DrawMaterialAsset(InspectorRows& rows, const std::string& path);
     void DrawInstanceAsset(InspectorRows& rows, const std::string& path);
+    void DrawMeshAsset(InspectorRows& rows, const AssetData& asset);
+    void DrawTextureAsset(InspectorRows& rows, const AssetData& asset);
+    void DrawSoundAsset(InspectorRows& rows, const AssetData& asset);
+    void DrawSceneAsset(InspectorRows& rows, const AssetData& asset);
 
     void DrawSectionHeader(Slate::Context& ui, PanelContext& ctx, const Slate::Rect& body,
                            f32& y, f32 x, f32 w, std::string_view title, u64 menuKey,

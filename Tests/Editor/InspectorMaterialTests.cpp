@@ -242,3 +242,54 @@ TEST_CASE("Asset info formats sizes and file times for the Inspector", "[inspect
     CHECK(text.rfind("2026-01-0", 0) == 0);
     CHECK(FormatAssetTime(0) == "Unknown");
 }
+
+#include "Luma/Asset/LumaMesh.h"
+#include "Luma/AssetImport/ImportMetadata.h"
+
+TEST_CASE("The asset Inspector writes mesh section materials and placement transforms", "[inspector][asset]") {
+    using Luma::Editor::Panels::SetAssetPlacement;
+    using Luma::Editor::Panels::SetMeshSectionMaterial;
+    const fs::path root = fs::temp_directory_path() / "luma_asset_inspector_write_test";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    const fs::path meshFile = root / "SM_Box.lmesh";
+    LumaMeshData mesh;
+    mesh.name = "SM_Box";
+    mesh.vertices.resize(3);
+    mesh.indices = {0, 1, 2};
+    LumaSubmesh a{0, 3, 0, 3, "/Game/M_Old", {}};
+    mesh.submeshes = {a, a};
+    REQUIRE(LumaMeshIO::WriteMesh(meshFile, mesh));
+
+    std::string error;
+    REQUIRE(SetMeshSectionMaterial(meshFile, 1, "/Game/M_New", &error));
+    const auto reread = LumaMeshIO::ReadMesh(meshFile);
+    REQUIRE(reread);
+    CHECK(reread->submeshes[0].materialName == "/Game/M_Old");
+    CHECK(reread->submeshes[1].materialName == "/Game/M_New");
+    CHECK(reread->indices.size() == 3);  // geometry untouched
+    CHECK_FALSE(SetMeshSectionMaterial(meshFile, 5, "/Game/M_New", &error));
+    CHECK_FALSE(error.empty());
+
+    // No .meta yet: one is created with the asset's id and type.
+    Import::PlacementTransform p;
+    p.rotation = {0.0f, 45.0f, 0.0f};
+    p.scale = {2.0f, 2.0f, 2.0f};
+    const AssetId id = MakeAssetIdFromKey("SM_Box");
+    REQUIRE(SetAssetPlacement(meshFile, id, AssetType::Mesh, p, &error));
+    auto meta = Import::ReadMetadata(meshFile);
+    REQUIRE(meta);
+    CHECK(meta->guid == id);
+    CHECK(meta->type == AssetType::Mesh);
+    CHECK(meta->placement.rotation.y == 45.0f);
+    // An existing .meta keeps its other fields.
+    meta->sourceFile = "C:/src/box.fbx";
+    REQUIRE(Import::WriteMetadata(meshFile, *meta, &error));
+    p.scale = {1.0f, 1.0f, 1.0f};
+    REQUIRE(SetAssetPlacement(meshFile, id, AssetType::Mesh, p, &error));
+    meta = Import::ReadMetadata(meshFile);
+    CHECK(meta->sourceFile == "C:/src/box.fbx");
+    CHECK(meta->placement.scale.x == 1.0f);
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}

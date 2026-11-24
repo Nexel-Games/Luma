@@ -7,9 +7,27 @@
 #include "Luma/Asset/AssetId.h"
 #include "Luma/Asset/AssetType.h"
 #include "Luma/Core/Types.h"
+#include "Luma/Math/Math.h"
 #include "Luma/Serialization/SerialValue.h"
 
 namespace Luma::Import {
+
+// How a placeable asset (mesh, prefab) lands in a level: applied on top of
+// the drop point (position offset, rotation in degrees, scale). Edited in the
+// asset Inspector; identity = placed as authored.
+struct PlacementTransform {
+    Math::Vec3 position{0.0f, 0.0f, 0.0f};
+    Math::Vec3 rotation{0.0f, 0.0f, 0.0f};
+    Math::Vec3 scale{1.0f, 1.0f, 1.0f};
+    bool IsIdentity() const {
+        return position.x == 0.0f && position.y == 0.0f && position.z == 0.0f && rotation.x == 0.0f &&
+               rotation.y == 0.0f && rotation.z == 0.0f && scale.x == 1.0f && scale.y == 1.0f && scale.z == 1.0f;
+    }
+};
+
+// "placement" object of a .meta (absent = identity).
+SerialValue WritePlacement(const PlacementTransform& placement);
+PlacementTransform ReadPlacement(const SerialValue* placement);
 
 struct ImportMetadata {
     AssetId guid;
@@ -23,6 +41,7 @@ struct ImportMetadata {
     u32 importerVersion = 1;
     std::string sourceNodeName;
     SerialValue settings;
+    PlacementTransform placement;  // kept across reimports
 };
 
 bool WriteMetadata(const std::filesystem::path& assetFile, const ImportMetadata& meta,

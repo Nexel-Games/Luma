@@ -76,3 +76,16 @@ TEST_CASE("Ray against a box reports the entry point and face normal", "[viewpor
     CHECK_FALSE(RayAabb({5, 5, 5}, {0, 1, 0}, lo, hi));
     CHECK_FALSE(RayAabb({0, 5, 0}, {0, 1, 0}, lo, hi));  // box behind the ray
 }
+
+TEST_CASE("Placed bounds follow the asset's placement rotation and scale", "[viewport][placement]") {
+    using Luma::Editor::Panels::PlacedBounds;
+    Math::Vec3 mn, mx;
+    PlacedBounds({-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}, {0, 0, 0}, {2, 2, 2}, mn, mx);
+    CHECK(mn.x == Catch::Approx(-1.0f));
+    CHECK(mx.y == Catch::Approx(1.0f));
+    // A 2 x 1 x 1 box turned 90 degrees about Y: its length now runs along Z.
+    PlacedBounds({0, 0, 0}, {2, 1, 1}, {0, 90, 0}, {1, 1, 1}, mn, mx);
+    CHECK(mx.x - mn.x == Catch::Approx(1.0f).margin(1e-4));
+    CHECK(mx.z - mn.z == Catch::Approx(2.0f).margin(1e-4));
+    CHECK(mx.y - mn.y == Catch::Approx(1.0f).margin(1e-4));
+}

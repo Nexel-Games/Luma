@@ -10,6 +10,27 @@ f32 SnapTo(f32 value, f32 step) { return step > 0.0f ? std::round(value / step) 
 
 }  // namespace
 
+void PlacedBounds(const Math::Vec3& boundsMin, const Math::Vec3& boundsMax, const Math::Vec3& rotationDegrees,
+                  const Math::Vec3& scale, Math::Vec3& outMin, Math::Vec3& outMax) {
+    using namespace Math;
+    // Same order as TransformComponent::Matrix (without the translation).
+    const Mat4 m = RotateY(Radians(rotationDegrees.y)) * RotateX(Radians(rotationDegrees.x)) *
+                   RotateZ(Radians(rotationDegrees.z)) * Scale(scale);
+    constexpr f32 kBig = 3.0e38f;
+    outMin = {kBig, kBig, kBig};
+    outMax = {-kBig, -kBig, -kBig};
+    for (int i = 0; i < 8; ++i) {
+        const Vec3 corner{(i & 1) ? boundsMax.x : boundsMin.x, (i & 2) ? boundsMax.y : boundsMin.y,
+                          (i & 4) ? boundsMax.z : boundsMin.z};
+        // Column-major: p = M * (corner, 1).
+        const Vec3 p{m.m[0] * corner.x + m.m[4] * corner.y + m.m[8] * corner.z + m.m[12],
+                     m.m[1] * corner.x + m.m[5] * corner.y + m.m[9] * corner.z + m.m[13],
+                     m.m[2] * corner.x + m.m[6] * corner.y + m.m[10] * corner.z + m.m[14]};
+        outMin = {std::min(outMin.x, p.x), std::min(outMin.y, p.y), std::min(outMin.z, p.z)};
+        outMax = {std::max(outMax.x, p.x), std::max(outMax.y, p.y), std::max(outMax.z, p.z)};
+    }
+}
+
 Math::Vec3 ComputeMeshPlacement(const MeshPlacementInput& in) {
     Math::Vec3 surface;
     if (in.hit) {

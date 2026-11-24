@@ -160,6 +160,7 @@ FactoryResult FinishAsset(const FactoryContext& context, const AssetRequest& req
         if (existing->guid.IsValid()) {
             meta.guid = existing->guid;
         }
+        meta.placement = existing->placement;  // the asset's placement survives a reimport
     }
     meta.type = request.type;
     meta.importer = std::move(importer);
@@ -191,6 +192,7 @@ FactoryResult FinishAsset(const FactoryContext& context, const AssetRequest& req
     root["importerVersion"] = static_cast<i64>(meta.importerVersion);
     root["sourceNodeName"] = meta.sourceNodeName;
     root["settings"] = meta.settings;
+    if (!meta.placement.IsIdentity()) root["placement"] = WritePlacement(meta.placement);
 
     const std::string json = WriteJson(root, true);
     std::string error;

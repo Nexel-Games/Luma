@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "Luma/AssetImport/ImportMetadata.h"
 #include "Luma/Scene/ActorClipboard.h"
 #include "Luma/Asset/AssetPath.h"
 #include "Luma/Asset/AssetRegistry.h"
@@ -247,6 +248,8 @@ private:
     void DropMaterial(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& path);
     // Static mesh drag and drop into the level: where it would land (bridge
     // preview), and the real placement on release.
+    // A placeable asset's placement transform (its .meta; identity when none).
+    Import::PlacementTransform PlacementOf(const std::string& assetPath) const;
     std::optional<Math::Vec3> MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
                                                const std::string& mesh);
     void PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& mesh);

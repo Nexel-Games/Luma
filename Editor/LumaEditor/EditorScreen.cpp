@@ -1,5 +1,7 @@
 #include "Luma/Asset/AssetTypeRegistry.h"
 #include "EditorScreen.h"
+
+#include "Luma/AssetImport/ImportMetadata.h"
 #include "Luma/Profiling/Profiler.h"
 
 #include <atomic>
@@ -705,6 +707,13 @@ std::optional<Editor::Panels::PlacementHit> EditorScreen::PickSurface(const Math
     return best;
 }
 
+Import::PlacementTransform EditorScreen::PlacementOf(const std::string& assetPath) const {
+    if (const auto file = m_assetPaths.ToFile(assetPath)) {
+        if (const auto meta = Import::ReadMetadata(*file)) return meta->placement;
+    }
+    return {};
+}
+
 std::optional<Math::Vec3> EditorScreen::MeshDropPosition(const Math::Vec3& origin, const Math::Vec3& dir,
                                                          const std::string& mesh) {
     if (SceneRenderer* sceneRenderer = m_renderer ? m_renderer->GetSceneRenderer() : nullptr) {
@@ -715,20 +724,27 @@ std::optional<Math::Vec3> EditorScreen::MeshDropPosition(const Math::Vec3& origi
     in.rayOrigin = origin;
     in.rayDir = dir;
     in.hit = PickSurface(origin, dir);
+    const Import::PlacementTransform placement = PlacementOf(mesh);
     if (bounds) {
-        in.boundsMin = bounds->min;
-        in.boundsMax = bounds->max;
+        // Rest the mesh as it will be placed (the asset's rotation and scale).
+        Editor::Panels::PlacedBounds(bounds->min, bounds->max, placement.rotation, placement.scale, in.boundsMin,
+                                     in.boundsMax);
     }
     in.snap = m_gizmo.Snap().translate;
     in.snapStep = m_gizmo.Snap().translateStep;
     if (!bounds) return std::nullopt;  // not loaded (or failed): nothing to rest
-    return Editor::Panels::ComputeMeshPlacement(in);
+    return Editor::Panels::ComputeMeshPlacement(in) + placement.position;
 }
 
 void EditorScreen::PreviewMeshDrop(const Math::Vec3& origin, const Math::Vec3& dir,
                                    const std::string& mesh) {
     if (const auto position = MeshDropPosition(origin, dir, mesh)) {
-        m_bridge.SetPlacementPreview(mesh, Math::Translate(*position));
+        TransformComponent xf;
+        const Import::PlacementTransform placement = PlacementOf(mesh);
+        xf.position = *position;
+        xf.rotationEuler = placement.rotation;
+        xf.scale = placement.scale;
+        m_bridge.SetPlacementPreview(mesh, xf.Matrix());
     } else {
         m_bridge.ClearPlacementPreview();
     }
@@ -752,7 +768,12 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
     }
     const std::string name = UniqueEntityName(ActiveScene(), Editor::Panels::AssetNameOf(mesh));
     const Entity e = ActiveScene().CreateEntity(name);
-    ActiveScene().Registry().get<TransformComponent>(e).position = position;
+    // The asset's placement transform: offset (in the drop position), rotation, scale.
+    const Import::PlacementTransform placement = PlacementOf(mesh);
+    auto& xf = ActiveScene().Registry().get<TransformComponent>(e);
+    xf.position = position;
+    xf.rotationEuler = placement.rotation;
+    xf.scale = placement.scale;
     auto& mr = ActiveScene().Registry().emplace<MeshRendererComponent>(e);
     Editor::Panels::AssignStaticMesh(mr, mesh);
     SelectOnly(e);

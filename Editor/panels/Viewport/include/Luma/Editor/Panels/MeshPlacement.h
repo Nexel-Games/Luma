@@ -35,6 +35,12 @@ inline constexpr f32 kDefaultDropDistance = 10.0f;
 // y so that the bounds' bottom rests on the surface.
 Math::Vec3 ComputeMeshPlacement(const MeshPlacementInput& in);
 
+// Local bounds of a mesh as an asset's placement transform rotates (degrees,
+// TransformComponent order) and scales it: the axis-aligned box around the
+// transformed corners, so a placed model rests on the surface correctly.
+void PlacedBounds(const Math::Vec3& boundsMin, const Math::Vec3& boundsMax, const Math::Vec3& rotationDegrees,
+                  const Math::Vec3& scale, Math::Vec3& outMin, Math::Vec3& outMax);
+
 // Ray vs axis-aligned box: the entry point and the face's outward normal
 // (the exit point when the origin is inside). Nothing when missed or behind.
 std::optional<PlacementHit> RayAabb(const Math::Vec3& origin, const Math::Vec3& dir,

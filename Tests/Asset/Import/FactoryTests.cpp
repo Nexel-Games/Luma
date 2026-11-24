@@ -130,8 +130,19 @@ TEST_CASE("Robot GLB import writes meshes, materials, and textures", "[import][f
 
     const AssetRequest* bodyRequest = FindFile(plan, "SM_Body.lmesh");
     REQUIRE(bodyRequest != nullptr);
-    const auto first = ReadMetadata(bodyRequest->destFile);
+    auto first = ReadMetadata(bodyRequest->destFile);
     REQUIRE(first);
+    CHECK(first->placement.IsIdentity());  // new imports place as-is
+    // The asset's placement transform (Inspector) survives a reimport.
+    first->placement.position = {0.0f, 1.5f, 0.0f};
+    first->placement.rotation = {0.0f, 90.0f, 0.0f};
+    first->placement.scale = {0.01f, 0.01f, 0.01f};
+    std::string metaError;
+    REQUIRE(WriteMetadata(bodyRequest->destFile, *first, &metaError));
+    const auto reread = ReadMetadata(bodyRequest->destFile);
+    REQUIRE(reread);
+    CHECK(reread->placement.rotation.y == Approx(90.0f));
+    CHECK(reread->placement.scale.x == Approx(0.01f));
     AssetRequest again = *bodyRequest;
     again.policy = ConflictPolicy::Overwrite;
     again.exists = true;
@@ -140,6 +151,9 @@ TEST_CASE("Robot GLB import writes meshes, materials, and textures", "[import][f
     const auto second = ReadMetadata(bodyRequest->destFile);
     REQUIRE(second);
     REQUIRE(second->guid == first->guid);
+    CHECK(second->placement.position.y == Approx(1.5f));
+    CHECK(second->placement.rotation.y == Approx(90.0f));
+    CHECK(second->placement.scale.z == Approx(0.01f));
 
     std::ofstream oldFile(project.assets / "SM_Arm.lmesh", std::ios::binary | std::ios::trunc);
     oldFile << "keep-me";

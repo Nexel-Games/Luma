@@ -1,12 +1,22 @@
 #include "Luma/Editor/Panels/AssetInspector.h"
 
 #include <ctime>
+#include <fstream>
+#include <map>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "Luma/Asset/AssetData.h"
 #include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Asset/AssetTypeRegistry.h"
+#include "Luma/Asset/ImageDecode.h"
+#include "Luma/Asset/LumaMesh.h"
+#include "Luma/AssetImport/Pipelines/ImportPlan.h"
+#include "Luma/Audio/AudioDecode.h"
+#include "Luma/Audio/AudioPreview.h"
+#include "Luma/Serialization/Json.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/Panels/Inspector.h"
 #include "Luma/Editor/Panels/SlotParameters.h"
@@ -46,7 +56,188 @@ std::string FormatAssetTime(i64 filetime) {
     return buf;
 }
 
+bool SetMeshSectionMaterial(const std::filesystem::path& meshFile, u32 section, const std::string& material,
+                            std::string* error) {
+    auto mesh = LumaMeshIO::ReadMesh(meshFile);
+    if (!mesh) {
+        if (error) *error = "could not read " + meshFile.generic_string();
+        return false;
+    }
+    if (section >= mesh->submeshes.size()) {
+        if (error) *error = "the mesh has no section " + std::to_string(section);
+        return false;
+    }
+    mesh->submeshes[section].materialName = material;
+    if (!LumaMeshIO::WriteMesh(meshFile, *mesh)) {
+        if (error) *error = "could not write " + meshFile.generic_string();
+        return false;
+    }
+    return true;
+}
+
+bool SetAssetPlacement(const std::filesystem::path& assetFile, const AssetId& id, AssetType type,
+                       const Import::PlacementTransform& placement, std::string* error) {
+    Import::ImportMetadata meta;
+    if (auto existing = Import::ReadMetadata(assetFile)) {
+        meta = std::move(*existing);
+    } else {
+        meta.guid = id;
+        meta.type = type;
+        meta.settings = SerialValue::MakeObject();
+    }
+    meta.placement = placement;
+    return Import::WriteMetadata(assetFile, meta, error);
+}
+
 namespace {
+
+// Per-asset facts read from disk once per (asset, modification time).
+template <typename T>
+struct FileCache {
+    AssetId id{};
+    i64 mtime = -1;
+    std::optional<T> value;
+    template <typename Load>
+    const std::optional<T>& Get(const AssetData& a, Load load) {
+        if (a.id != id || a.mtime != mtime) {
+            id = a.id;
+            mtime = a.mtime;
+            value = load(a.packagePath);
+        }
+        return value;
+    }
+};
+
+std::string FormatDuration(f64 seconds) {
+    char buf[32];
+    const int minutes = static_cast<int>(seconds / 60.0);
+    std::snprintf(buf, sizeof(buf), "%d:%05.2f", minutes, seconds - minutes * 60.0);
+    return buf;
+}
+
+std::string FormatVec3(const Math::Vec3& v) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.3g x %.3g x %.3g", v.x, v.y, v.z);
+    return buf;
+}
+
+// The import settings block of an asset kind, drawn from the importer's own
+// field descriptions (the same ones the Import window uses). True when a
+// value changed (the caller saves the .meta).
+bool DrawSettingsBlock(InspectorRows& rows, Import::SettingsBlock& block, const std::string& prefix) {
+    bool changed = false;
+    for (const Import::SettingField& f : block.Fields()) {
+        if (!block.IsVisible(f)) continue;
+        const std::string key = prefix + "." + f.key;
+        Slate::SpinBoxOptions o;
+        if (f.max > f.min) {
+            o.sliderMin = static_cast<f32>(f.min);
+            o.sliderMax = static_cast<f32>(f.max);
+        }
+        if (f.step > 0.0) o.speed = static_cast<f32>(f.step);
+        switch (f.type) {
+            case Import::FieldType::Bool: {
+                bool v = block.GetBool(f.key);
+                if (rows.Check(f.label, key, v)) {
+                    block.Set(f.key, SerialValue(v));
+                    changed = true;
+                }
+                break;
+            }
+            case Import::FieldType::Float: {
+                f32 v = static_cast<f32>(block.GetFloat(f.key));
+                if (rows.Float(f.label, key, v, o)) {
+                    block.Set(f.key, SerialValue(static_cast<f64>(v)));
+                    changed = true;
+                }
+                break;
+            }
+            case Import::FieldType::Int: {
+                i32 v = static_cast<i32>(block.GetInt(f.key));
+                if (rows.Int(f.label, key, v, o)) {
+                    block.Set(f.key, SerialValue(static_cast<i64>(v)));
+                    changed = true;
+                }
+                break;
+            }
+            case Import::FieldType::Enum: {
+                const std::string current = block.GetString(f.key);
+                int index = 0;
+                for (usize i = 0; i < f.enumValues.size(); ++i) {
+                    if (f.enumValues[i] == current) index = static_cast<int>(i);
+                }
+                if (rows.Combo(f.label, key, f.enumValues, index)) {
+                    block.Set(f.key, SerialValue(f.enumValues[static_cast<usize>(index)]));
+                    changed = true;
+                }
+                break;
+            }
+            case Import::FieldType::Vec3: {
+                Math::Vec3 v = block.GetVec3(f.key);
+                if (rows.Vec3(f.label, key, v)) {
+                    SerialValue a = SerialValue::MakeArray();
+                    a.PushBack(static_cast<f64>(v.x));
+                    a.PushBack(static_cast<f64>(v.y));
+                    a.PushBack(static_cast<f64>(v.z));
+                    block.Set(f.key, std::move(a));
+                    changed = true;
+                }
+                break;
+            }
+            case Import::FieldType::String: {
+                std::string v = block.GetString(f.key);
+                if (rows.Text(f.label, key, v)) {
+                    block.Set(f.key, SerialValue(v));
+                    changed = true;
+                }
+                break;
+            }
+        }
+    }
+    return changed;
+}
+
+// "Import Settings" for an imported asset: its .meta settings, edited in
+// place and saved; Reimport applies them.
+void DrawImportSettings(InspectorRows& rows, const AssetData& asset) {
+    auto meta = Import::ReadMetadata(asset.packagePath);
+    if (!meta) return;  // not imported (no source): nothing to re-run
+    Import::PipelineStack stack;
+    stack.FromJson(meta->settings);
+    Import::SettingsBlock* block = asset.type == AssetType::Mesh      ? &stack.Meshes()
+                                   : asset.type == AssetType::Texture ? &stack.Textures()
+                                   : asset.type == AssetType::Sound   ? &stack.Audio()
+                                                                      : nullptr;
+    if (!block) return;
+    rows.SubHeading("Import Settings");
+    if (!meta->sourceFile.empty()) rows.ReadOnly("Source File", meta->sourceFile);
+    if (DrawSettingsBlock(rows, *block, "asset.import")) {
+        meta->settings = stack.ToJson();
+        std::string error;
+        if (!Import::WriteMetadata(asset.packagePath, *meta, &error)) {
+            LUMA_USER_ERROR("Assets", "Could not save the import settings of '{}': {}", asset.assetName, error);
+        }
+    }
+    rows.Note("Changes are saved now and applied by Reimport.", rows.ui.theme().textDim);
+}
+
+// The placement transform of a placeable asset (meshes, prefabs).
+void DrawPlacement(InspectorRows& rows, const AssetData& asset) {
+    const auto meta = Import::ReadMetadata(asset.packagePath);
+    Import::PlacementTransform p = meta ? meta->placement : Import::PlacementTransform{};
+    rows.SubHeading("Transform");
+    bool changed = rows.Vec3("Location", "asset.place.pos", p.position);
+    changed = rows.Vec3("Rotation", "asset.place.rot", p.rotation) || changed;
+    changed = rows.Vec3("Scale", "asset.place.scale", p.scale) || changed;
+    if (changed) {
+        std::string error;
+        if (!SetAssetPlacement(asset.packagePath, asset.id, asset.type, p, &error)) {
+            LUMA_USER_ERROR("Assets", "Could not save the transform of '{}': {}", asset.assetName, error);
+        }
+    }
+    rows.Note("Applied when the asset is placed in a level (location is an offset from the drop point).",
+              rows.ui.theme().textDim);
+}
 
 const std::vector<std::string> kDomains{"Surface", "Post Process"};
 const std::vector<std::string> kBlendModes{"Opaque", "Masked", "Translucent", "Additive", "Modulate"};
@@ -141,6 +332,127 @@ void InspectorPanel::DrawInstanceAsset(InspectorRows& rows, const std::string& p
     DrawMaterialParameters(rows, path, "asset.mi.p");
 }
 
+void InspectorPanel::DrawMeshAsset(InspectorRows& rows, const AssetData& asset) {
+    static FileCache<LumaMeshData> cache;
+    const auto& mesh = cache.Get(asset, [](const std::filesystem::path& f) { return LumaMeshIO::ReadMesh(f); });
+    DrawPlacement(rows, asset);
+    rows.SubHeading("Mesh");
+    if (!mesh) {
+        rows.Note("This mesh file could not be read.", rows.ui.theme().error);
+        return;
+    }
+    rows.ReadOnly("Vertices", std::to_string(mesh->vertices.size()));
+    rows.ReadOnly("Triangles", std::to_string(mesh->indices.size() / 3));
+    rows.ReadOnly("Sections", std::to_string(mesh->submeshes.size()));
+    LumaBounds bounds;
+    if (!mesh->vertices.empty()) bounds.ComputeFromVertices(mesh->vertices.data(), mesh->vertices.size());
+    rows.ReadOnly("Size (m)", FormatVec3(bounds.max - bounds.min));
+    rows.ReadOnly("LODs", "Automatic (built in the background when first used)");
+
+    rows.SubHeading("Material Slots");
+    std::vector<std::string> materials{""};
+    if (rows.panel.listMaterials) {
+        for (std::string& m : rows.panel.listMaterials()) materials.push_back(std::move(m));
+    }
+    for (u32 s = 0; s < mesh->submeshes.size(); ++s) {
+        const std::string& current = mesh->submeshes[s].materialName;
+        const bool isAsset = !current.empty() && current.front() == '/';
+        std::vector<std::string> paths = materials;
+        int index = 0;
+        for (usize i = 0; i < paths.size(); ++i) {
+            if (isAsset && paths[i] == current) index = static_cast<int>(i);
+        }
+        if (isAsset && index == 0) {
+            paths.push_back(current);
+            index = static_cast<int>(paths.size() - 1);
+        }
+        std::vector<std::string> labels;
+        for (const std::string& p : paths) {
+            labels.push_back(p.empty() ? std::string("Default Material") : p.substr(p.find_last_of('/') + 1));
+        }
+        const std::string label = "Element " + std::to_string(s) +
+                                  (!isAsset && !current.empty() ? " (" + current + ")" : std::string());
+        if (rows.Combo(label, "asset.mesh.slot." + std::to_string(s), labels, index)) {
+            std::string error;
+            if (!SetMeshSectionMaterial(asset.packagePath, s, paths[static_cast<usize>(index)], &error)) {
+                LUMA_USER_ERROR("Assets", "Could not set the material of '{}': {}", asset.assetName, error);
+            } else {
+                cache.mtime = -1;  // re-read the new file
+            }
+        }
+    }
+    DrawImportSettings(rows, asset);
+}
+
+void InspectorPanel::DrawTextureAsset(InspectorRows& rows, const AssetData& asset) {
+    static FileCache<Import::DecodedImage> cache;
+    const auto& image = cache.Get(asset, [](const std::filesystem::path& f) {
+        std::string error;
+        return Import::DecodeImageFile(f, &error);
+    });
+    rows.SubHeading("Texture");
+    if (!image) {
+        rows.Note("This image could not be decoded.", rows.ui.theme().error);
+    } else {
+        rows.ReadOnly("Resolution", std::to_string(image->width) + " x " + std::to_string(image->height));
+        static const char* kChannels[] = {"", "Grayscale", "Grayscale + Alpha", "RGB", "RGBA"};
+        rows.ReadOnly("Format", std::string(kChannels[std::min(image->channels, 4u)]) +
+                                    (image->isFloat ? ", 32-bit float (HDR)" : ", 8-bit"));
+        u32 mips = 1;
+        for (u32 s = std::max(image->width, image->height); s > 1; s /= 2) ++mips;
+        rows.ReadOnly("Mip Levels", std::to_string(mips) + " (full chain on the GPU)");
+        const u64 bytes = static_cast<u64>(image->width) * image->height * 4 * (image->isFloat ? 2 : 1);
+        rows.ReadOnly("GPU Memory", "~" + FormatAssetSize(bytes + bytes / 3));
+    }
+    DrawImportSettings(rows, asset);
+}
+
+void InspectorPanel::DrawSoundAsset(InspectorRows& rows, const AssetData& asset) {
+    static FileCache<Audio::SoundInfo> cache;
+    const auto& info = cache.Get(asset, [](const std::filesystem::path& f) {
+        std::string error;
+        return Audio::ProbeSound(f, &error);
+    });
+    rows.SubHeading("Sound");
+    if (!info) {
+        rows.Note("This sound could not be read.", rows.ui.theme().error);
+    } else {
+        rows.ReadOnly("Duration", FormatDuration(info->seconds));
+        rows.ReadOnly("Channels", info->channels == 1 ? "Mono" : info->channels == 2 ? "Stereo"
+                                                               : std::to_string(info->channels));
+        rows.ReadOnly("Sample Rate", std::to_string(info->sampleRate) + " Hz");
+    }
+    if (Audio::AudioPreview* preview = rows.panel.audioPreview) {
+        const bool playing = preview->IsPlaying();
+        const Slate::Rect r{rows.x + rows.NameColumn(), rows.y, 90.0f, 22.0f};
+        if (rows.ui.Button(Slate::Context::ID("asset.sound.play"), r, playing ? "Stop" : "Play")) {
+            if (playing) {
+                preview->Stop();
+            } else {
+                preview->Play(asset.packagePath);
+            }
+        }
+        rows.y += 28.0f;
+    }
+    DrawImportSettings(rows, asset);
+}
+
+void InspectorPanel::DrawSceneAsset(InspectorRows& rows, const AssetData& asset) {
+    static FileCache<usize> cache;
+    const auto& count = cache.Get(asset, [](const std::filesystem::path& f) -> std::optional<usize> {
+        std::ifstream in(f, std::ios::binary);
+        std::stringstream text;
+        text << in.rdbuf();
+        const auto json = ParseJson(text.str());
+        const SerialValue* entities = json ? json->Find("entities") : nullptr;
+        if (!entities || !entities->IsArray()) return std::nullopt;
+        return entities->Size();
+    });
+    rows.SubHeading("Level");
+    rows.ReadOnly("Objects", count ? std::to_string(*count) : std::string("Unreadable level file"));
+    rows.Note("Open (above) loads this level in the editor.", rows.ui.theme().textDim);
+}
+
 void InspectorPanel::DrawAsset(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx,
                                const AssetData& asset) {
     const Slate::Theme& t = ui.theme();
@@ -205,6 +517,18 @@ void InspectorPanel::DrawAsset(Slate::Context& ui, const Slate::Rect& body, Pane
             break;
         case AssetType::MaterialInstance:
             DrawInstanceAsset(rows, path);
+            break;
+        case AssetType::Mesh:
+            DrawMeshAsset(rows, asset);
+            break;
+        case AssetType::Texture:
+            DrawTextureAsset(rows, asset);
+            break;
+        case AssetType::Sound:
+            DrawSoundAsset(rows, asset);
+            break;
+        case AssetType::Scene:
+            DrawSceneAsset(rows, asset);
             break;
         default:
             break;

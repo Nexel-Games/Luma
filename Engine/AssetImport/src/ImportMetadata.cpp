@@ -102,6 +102,41 @@ std::string HashFile(const std::filesystem::path& file) {
     return ToHex(hash);
 }
 
+namespace {
+
+SerialValue Vec3Value(const Math::Vec3& v) {
+    SerialValue a = SerialValue::MakeArray();
+    a.PushBack(static_cast<f64>(v.x));
+    a.PushBack(static_cast<f64>(v.y));
+    a.PushBack(static_cast<f64>(v.z));
+    return a;
+}
+
+Math::Vec3 ReadVec3(const SerialValue* v, Math::Vec3 fallback) {
+    if (!v || !v->IsArray() || v->Size() < 3) return fallback;
+    return {static_cast<f32>(v->At(0).AsFloat(fallback.x)), static_cast<f32>(v->At(1).AsFloat(fallback.y)),
+            static_cast<f32>(v->At(2).AsFloat(fallback.z))};
+}
+
+}  // namespace
+
+SerialValue WritePlacement(const PlacementTransform& placement) {
+    SerialValue o = SerialValue::MakeObject();
+    o["position"] = Vec3Value(placement.position);
+    o["rotation"] = Vec3Value(placement.rotation);
+    o["scale"] = Vec3Value(placement.scale);
+    return o;
+}
+
+PlacementTransform ReadPlacement(const SerialValue* placement) {
+    PlacementTransform p;
+    if (!placement || !placement->IsObject()) return p;
+    p.position = ReadVec3(placement->Find("position"), p.position);
+    p.rotation = ReadVec3(placement->Find("rotation"), p.rotation);
+    p.scale = ReadVec3(placement->Find("scale"), p.scale);
+    return p;
+}
+
 bool WriteMetadata(const std::filesystem::path& assetFile, const ImportMetadata& meta,
                    std::string* err) {
     SerialValue root = SerialValue::MakeObject();
@@ -116,6 +151,7 @@ bool WriteMetadata(const std::filesystem::path& assetFile, const ImportMetadata&
     root["importerVersion"] = meta.importerVersion;
     root["sourceNodeName"] = meta.sourceNodeName;
     root["settings"] = meta.settings;
+    if (!meta.placement.IsIdentity()) root["placement"] = WritePlacement(meta.placement);
 
     const auto path = MetadataPathFor(assetFile);
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -168,6 +204,7 @@ std::optional<ImportMetadata> ReadMetadata(const std::filesystem::path& assetFil
     if (const SerialValue* size = json->Find("sourceSize")) {
         meta.sourceSize = size->AsInt();
     }
+    meta.placement = ReadPlacement(json->Find("placement"));
     if (const SerialValue* importer = json->Find("importer")) {
         meta.importer = importer->AsString();
     }
