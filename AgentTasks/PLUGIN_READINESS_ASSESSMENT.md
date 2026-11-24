@@ -72,6 +72,14 @@ Also found, not a blocker but must be handled:
 
 ## 4. Decisions still needed from the owner (physics, T-0007)
 
+> **Resolved 2026-11-24** — see [T-0007](T-0007-physx-physics.md) §3:
+> - PhysX 5.13.0 is vendored in `ThirdParty/PhysX`, not added as a submodule.
+> - GPU features are on, using the owner's RTX 5060 with CUDA 12.8.
+> - Blast 5.0.6 ships in the same package and becomes the LumaBlast plugin, off by default.
+> - Units are metres and the up axis is Y.
+>
+> The original questions are kept below for history.
+
 1. **Backend:** NVIDIA PhysX 5 (open source, BSD-3, `github.com/NVIDIA-Omniverse/PhysX`) as the
    colleague's brief asks. (GOAL.md 3.4 suggested Jolt; the brief overrides it.) Confirm.
 2. **SDK provisioning (our side):** we add PhysX at a **pinned release tag** as a git submodule

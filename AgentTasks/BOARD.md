@@ -12,6 +12,14 @@ Material graph & compiler (Material Editor project 1 —
 `Editor/MaterialBridge/**`, `Editor/panels/MaterialEditor/**`,
 `Editor/LumaEditor/MaterialPreview.*`, `Tests/Material/**`, `Tests/Rendering/**`.
 
+Code Editor and editor chrome (2026-11-24): `Editor/CodeEditor/**`, `Editor/Plugins/**` (Plugins window),
+`Editor/AssetWindows/**`, and Slate dialogs (`Context::BeginModal` and friends in `Engine/UI/Slate`).
+
+## Third-party SDKs in the repo
+
+- `ThirdParty/PhysX/` — NVIDIA PhysX **5.13.0** (`physx/`), Blast **5.0.6** (`blast/`), Flow (`flow/`), USD `schemas/`.
+  Vendored as delivered, without the unused `ovphysx/` tool (BSD-3). Never edit it; T-0007 builds it with CMake.
+
 ## New engine services (FYI)
 
 - `Engine/Jobs` — **Luma Job System** (`Luma::Jobs::JobSystem`): worker threads, priorities, dependencies,
@@ -31,6 +39,6 @@ Material graph & compiler (Material Editor project 1 —
 | [T-0004](T-0004-static-mesh-assignment.md) | Static mesh assignment: drag into the level, Inspector Static Mesh row, mesh material slots, rename fix-up | Completed — done by the lead; waiting for the user's test | Scene, Inspector, Viewport, Content Browser |
 | [T-0005](T-0005-core-extensibility.md) | Core extensibility: registries instead of hard-coded lists (plugin prerequisite) | Done | Scene, Project, Asset, Editor framework |
 | [T-0006](T-0006-plugin-framework.md) | Luma Plugin Framework (production) | Approved | `Engine/Plugins`, `Plugins/`, Project Settings → Plugins |
-| T-0007 | NVIDIA PhysX physics plugin | Not written yet — after T-0006 is Accepted and the SDK decisions in [the assessment](PLUGIN_READINESS_ASSESSMENT.md) §4 are made | `Plugins/Luma.Physics.*` |
+| [T-0007](T-0007-physx-physics.md) | Luma Physics (PhysX 5.13: rigid bodies, colliders, joints, character controller, vehicles, GPU fluids/cloth/soft bodies, wind) + Blast destruction plugin (off by default) | Approved | `Engine/Physics`, `Plugins/LumaBlast`, `Plugins/LumaFlow` |
 
 Plugin work: read [PLUGIN_READINESS_ASSESSMENT.md](PLUGIN_READINESS_ASSESSMENT.md) first. Start with T-0000 (gate). T-0003 and T-0004 are done (lead). T-0001 and T-0002 become `Approved` when their plans are final.
