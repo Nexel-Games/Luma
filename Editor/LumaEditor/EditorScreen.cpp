@@ -1117,6 +1117,20 @@ Editor::Panels::PanelContext EditorScreen::BuildPanelContext() {
             m_contentBrowser.BrowseTo(*file);
         }
     };
+    ctx.inspectedAsset = [this]() -> AssetId {
+        // Whichever was picked last: an asset click or an entity selection change.
+        if (m_contentBrowser.AssetClicks() != m_seenAssetClicks) {
+            m_seenAssetClicks = m_contentBrowser.AssetClicks();
+            m_inspectAsset = true;
+            m_inspectedEntity = m_selected;
+        }
+        if (m_selected != m_inspectedEntity) {
+            m_inspectedEntity = m_selected;
+            m_inspectAsset = false;
+        }
+        return m_inspectAsset ? m_contentBrowser.Selected() : AssetId{};
+    };
+    ctx.onEntityPicked = [this] { m_inspectAsset = false; };
     ctx.selectedAsset = [this]() -> std::string {
         const AssetData* a = m_assetRegistry.Lookup(m_contentBrowser.Selected());
         if (!a) return {};
@@ -2500,6 +2514,7 @@ void EditorScreen::HandleShortcuts(Slate::Context& ui) {
 }
 
 void EditorScreen::SelectOnly(Entity entity) {
+    m_inspectAsset = false;  // a viewport pick shows the entity again
     m_selection.clear();
     m_selected = entity;
     if (ActiveScene().IsValid(entity)) m_selection.push_back(entity);

@@ -233,6 +233,7 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
                 }
                 if (clicked) {
                     *ctx.selected = e;
+                    if (ctx.onEntityPicked) ctx.onEntityPicked();
                     if (ctx.selection != nullptr) {
                         ctx.selection->clear();
                         ctx.selection->push_back(e);

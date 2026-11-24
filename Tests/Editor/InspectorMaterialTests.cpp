@@ -223,3 +223,22 @@ TEST_CASE("A slot's parameters edit its instance, its shared material, or nothin
     std::error_code ec;
     fs::remove_all(root, ec);
 }
+
+#include "Luma/Editor/Panels/AssetInspector.h"
+
+TEST_CASE("Asset info formats sizes and file times for the Inspector", "[inspector][asset]") {
+    using Luma::Editor::Panels::FormatAssetSize;
+    using Luma::Editor::Panels::FormatAssetTime;
+    CHECK(FormatAssetSize(0) == "0 bytes");
+    CHECK(FormatAssetSize(900) == "900 bytes");
+    CHECK(FormatAssetSize(1536) == "1.5 KB");
+    CHECK(FormatAssetSize(5u * 1024u * 1024u) == "5.0 MB");
+    CHECK(FormatAssetSize(3ull * 1024u * 1024u * 1024u) == "3.0 GB");
+    // 2026-01-02 03:04:05 UTC as a Windows FILETIME (100 ns since 1601).
+    const i64 unixSeconds = 1767323045;
+    const i64 filetime = (unixSeconds + 11644473600ll) * 10000000ll;
+    const std::string text = FormatAssetTime(filetime);
+    CHECK(text.size() == 16);  // "YYYY-MM-DD HH:MM" in local time
+    CHECK(text.rfind("2026-01-0", 0) == 0);
+    CHECK(FormatAssetTime(0) == "Unknown");
+}

@@ -32,4 +32,8 @@ SlotParameterMode SlotParameterModeFor(const std::string& materialPath, Material
 // the slot is empty).
 void DrawSlotParameters(InspectorRows& rows, const std::string& materialPath, u32 slot);
 
+// Just the parameter rows of `materialPath` (grouped, editable per its
+// SlotParameterMode); `keyPrefix` keeps widget ids unique per call site.
+void DrawMaterialParameters(InspectorRows& rows, const std::string& materialPath, const std::string& keyPrefix);
+
 }  // namespace Luma::Editor::Panels

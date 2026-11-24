@@ -338,6 +338,12 @@ private:
     // Time / Panner / Rotator (accumulated in double so it never loses
     // precision over a long session; materials wrap it with Time's Period).
     f64 m_sceneTime = 0.0;
+    // The Inspector shows the Content Browser's asset (true) or the selected
+    // entity (false): whichever the user picked last. Any entity selection
+    // change (pick, create, duplicate, delete) switches back to the entity.
+    bool m_inspectAsset = false;
+    u64 m_seenAssetClicks = 0;
+    Entity m_inspectedEntity = kNullEntity;
     f32 m_nearZ = 0.1f;
     f32 m_farZ = 500.0f;
     f32 m_gizmoScale = 1.0f;

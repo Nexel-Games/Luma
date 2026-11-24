@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "Luma/Asset/AssetId.h"
 #include "Luma/Math/Math.h"
 #include "Luma/Scene/Scene.h"
 #include "Luma/Slate/Context.h"
@@ -156,6 +157,12 @@ struct PanelContext {
     std::function<void(const std::string& assetPath)> onBrowseToAsset;
     // Virtual path of the Content Browser's selected asset ("" when none).
     std::function<std::string()> selectedAsset;
+    // The asset the Inspector shows instead of an entity: valid when the most
+    // recent click was on a Content Browser asset (Unity-style), else invalid.
+    std::function<AssetId()> inspectedAsset;
+    // A user click picked an entity (Outliner / viewport): the Inspector goes
+    // back to showing the selected entity, even if it was already selected.
+    std::function<void()> onEntityPicked;
     // Virtual asset path of a file under the project/engine content ("" if
     // outside both).
     std::function<std::string(const std::filesystem::path& file)> virtualPathOf;

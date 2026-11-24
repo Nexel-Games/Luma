@@ -568,6 +568,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         if (hover) ui.RequestCursor(Luma::CursorShape::Hand);
         if (hover && ui.mousePressed(1)) {
             m_contextTarget = a->id;
+            if (!a->IsFolder()) ++m_assetClicks;
             // Right-clicking a tile outside the current selection re-selects
             // just it; right-clicking within a multi-selection keeps the
             // selection so the menu can act on all of it.
@@ -616,6 +617,7 @@ void ContentBrowserPanel::DrawGridPane(Slate::Context& ui,
         const bool onPlay = soundTile && playR.Contains(ui.mouse());
         bool allowCard = !(selected && onNameRow);
         if (ui.Selectable(cardId, hitCard, "", false, Icon::None) && allowCard && !onPlay) {
+            if (!a->IsFolder()) ++m_assetClicks;
             // Single-click selects (assets and folders alike) and holds the
             // highlight. Folders OPEN on double-click, not here.
             if (ui.shiftDown() && m_selectAnchor.IsValid()) {

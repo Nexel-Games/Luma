@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "Luma/Asset/AssetData.h"
 #include "Luma/Editor/InspectorDrawers.h"
 #include "Luma/Scene/ComponentRegistry.h"
 #include "Luma/Scene/Components.h"
@@ -72,6 +73,11 @@ public:
     const std::string& PendingRemoveUnresolved() const { return m_pendingRemoveId; }
 
 private:
+    // The asset view (AssetInspector.cpp): `asset` is a Content Browser asset.
+    void DrawAsset(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx, const AssetData& asset);
+    void DrawMaterialAsset(InspectorRows& rows, const std::string& path);
+    void DrawInstanceAsset(InspectorRows& rows, const std::string& path);
+
     void DrawSectionHeader(Slate::Context& ui, PanelContext& ctx, const Slate::Rect& body,
                            f32& y, f32 x, f32 w, std::string_view title, u64 menuKey,
                            std::vector<Slate::MenuEntry> menu, Slate::Color tick);
@@ -85,6 +91,9 @@ private:
     // Vertical scroll offset of the component content (px). Reset to the top
     // when the selection changes so a new entity starts scrolled at zero.
     f32 m_scroll = 0.0f;
+    // The asset view's own scroll and the asset it last showed.
+    f32 m_assetScroll = 0.0f;
+    AssetId m_lastAsset{};
 
     std::vector<Slate::Rect> m_slotRects;
     Slate::Rect m_meshRowRect{};

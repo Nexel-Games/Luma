@@ -96,6 +96,10 @@ public:
     // The asset the user last activated (double-clicked). EditorScreen
     // reads this to drive the inspector / preview.
     AssetId Selected() const noexcept { return m_selected; }
+    // Increments on every user click (left or right) on an asset tile, so
+    // the editor can tell "the user just picked an asset" even when it was
+    // already selected (the Inspector then shows the asset).
+    u64 AssetClicks() const noexcept { return m_assetClicks; }
 
     // The full multi-selection (Ctrl / Shift-click). Always contains
     // Selected() when non-empty. Single-click leaves exactly one entry here.
@@ -138,7 +142,8 @@ private:
     std::filesystem::path m_currentFolder;  // empty = root of first root
     std::string m_nameFilter;
     std::string m_typeFilter;  // empty = all
-    AssetId m_selected{};  // primary / active selection (inspector, rename)
+    AssetId m_selected{};
+    u64 m_assetClicks = 0;  // primary / active selection (inspector, rename)
     // Full multi-selection. m_selected is always a member while non-empty.
     std::unordered_set<AssetId> m_selection;
     AssetId m_selectAnchor{};  // anchor tile for Shift-click range selection

@@ -1,4 +1,5 @@
 add_library(LumaPanelInspector STATIC
+    src/AssetInspector.cpp
     src/Inspector.cpp
     src/MaterialSlots.cpp
     src/SlotParameters.cpp

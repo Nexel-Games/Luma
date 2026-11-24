@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "Luma/Asset/AssetRegistry.h"
 #include "Luma/Core/Log.h"
 #include "Luma/Editor/EditorIcons.h"
 #include "Luma/Editor/Panels/MaterialSlots.h"
@@ -774,6 +775,12 @@ void InspectorPanel::Draw(Slate::Context& ui, const Slate::Rect& body, PanelCont
     m_drawnSections.clear();
     m_pickers.BeginFrame();
 
+    if (ctx.inspectedAsset && ctx.assetRegistry) {
+        if (const AssetData* asset = ctx.assetRegistry->Lookup(ctx.inspectedAsset()); asset && !asset->IsFolder()) {
+            DrawAsset(ui, body, ctx, *asset);
+            return;
+        }
+    }
     if (!ctx.scene->IsValid(*ctx.selected)) {
         ui.LabelIn({body.x, body.y + 8, body.w, 22}, "  No selection", t.textDim);
         return;

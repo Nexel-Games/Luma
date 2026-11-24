@@ -166,10 +166,22 @@ void DrawSlotParameters(InspectorRows& rows, const std::string& materialPath, u3
         rows.Note("Engine material (read-only). Use Create Instance (above) to customize it for this object.",
                   t.warning);
     }
+    DrawMaterialParameters(rows, materialPath, "insp.mat.p." + std::to_string(slot));
+}
+
+void DrawMaterialParameters(InspectorRows& rows, const std::string& materialPath, const std::string& keyPrefix) {
+    Material::MaterialLibrary* library = rows.panel.materials;
+    if (!library) return;
+    const SlotParameterMode mode = SlotParameterModeFor(materialPath, *library);
+    if (mode == SlotParameterMode::None) return;
+    InstanceParameterModel& model = ModelFor(*library, materialPath);
+    const std::vector<MaterialEditors::ParameterGroup> groups = model.Groups();
+    Slate::Context& ui = rows.ui;
+    const Slate::Theme& t = ui.theme();
     for (const auto& group : groups) {
         if (group.name != "None") rows.SubHeading(group.name);
         for (const InstanceParameter& p : group.parameters) {
-            const std::string key = "insp.mat.p." + std::to_string(slot) + "." + p.info.name;
+            const std::string key = keyPrefix + "." + p.info.name;
             if (mode == SlotParameterMode::ReadOnly) {
                 rows.ReadOnly(p.info.name, ValueText(p));
                 continue;
