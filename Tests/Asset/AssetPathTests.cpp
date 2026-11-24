@@ -69,6 +69,27 @@ TEST_CASE("AssetPath normalizes Windows separators", "[assetpath]") {
           std::optional<std::string>("/Game/Materials/M_Wood"));
 }
 
+TEST_CASE("Plugin mounts resolve /Name/ only while mounted", "[assetpath]") {
+    Roots r;
+    fs::path plugin = r.base / "Plugins" / "Pack" / "Content";
+    fs::create_directories(plugin / "Materials");
+    std::ofstream(plugin / "Materials" / "M_Pack.lmat") << "{}";
+    AssetPathResolver resolver;
+    resolver.SetGameRoot(r.game);
+    resolver.AddKnownPlugin("Pack");
+    CHECK(resolver.Classify("/Pack/Materials/M_Pack") ==
+          AssetPathResolver::Status::MissingPlugin);
+    CHECK_FALSE(resolver.ToFile("/Pack/Materials/M_Pack").has_value());
+    REQUIRE(resolver.MountPlugin("Pack", plugin));
+    auto file = resolver.ToFile("/Pack/Materials/M_Pack");
+    REQUIRE(file.has_value());
+    CHECK(*resolver.ToVirtual(*file) == "/Pack/Materials/M_Pack");
+    resolver.UnmountPlugin("Pack");
+    CHECK(resolver.Classify("/Pack/Materials/M_Pack") ==
+          AssetPathResolver::Status::MissingPlugin);
+    CHECK_FALSE(resolver.ToFile("/Pack/Materials/M_Pack").has_value());
+}
+
 TEST_CASE("Typed lookup disambiguates assets sharing a stem", "[assetpath]") {
     Roots r;
     std::ofstream(r.game / "Materials" / "M_Wood.png") << "png";  // same stem

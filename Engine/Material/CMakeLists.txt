@@ -4,7 +4,7 @@
 
 add_subdirectory(Graph)
 
-add_library(LumaMaterial STATIC
+add_library(LumaMaterial ${LUMA_LIBRARY_TYPE}
     src/MaterialTypes.cpp
     src/MaterialJson.cpp
     src/MaterialSerializer.cpp

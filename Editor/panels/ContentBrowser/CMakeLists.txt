@@ -1,4 +1,4 @@
-add_library(LumaPanelContentBrowser STATIC
+add_library(LumaPanelContentBrowser ${LUMA_LIBRARY_TYPE}
     src/ContentBrowser.cpp
     src/ThumbnailBudget.cpp)
 

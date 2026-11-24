@@ -1,7 +1,7 @@
 # Luma::Tasks - user-visible background operations (progress, status,
 # cancellation, failures). Thread-safe; UI reads snapshots. Depends only on Core.
 
-add_library(LumaTasks STATIC
+add_library(LumaTasks ${LUMA_LIBRARY_TYPE}
     src/TaskManager.cpp)
 
 add_library(Luma::Tasks ALIAS LumaTasks)

@@ -1,6 +1,6 @@
 # Luma::Scene - the ECS world (entities + components), backed by EnTT.
 
-add_library(LumaScene STATIC
+add_library(LumaScene ${LUMA_LIBRARY_TYPE}
     src/Scene.cpp
     src/SceneSystems.cpp
     src/Hierarchy.cpp

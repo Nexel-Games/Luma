@@ -1,4 +1,4 @@
-add_library(LumaPanelFileSystemTree STATIC
+add_library(LumaPanelFileSystemTree ${LUMA_LIBRARY_TYPE}
     src/FileSystemTree.cpp)
 
 add_library(Luma::PanelFileSystemTree ALIAS LumaPanelFileSystemTree)

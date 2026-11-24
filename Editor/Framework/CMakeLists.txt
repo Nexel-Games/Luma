@@ -2,7 +2,7 @@
 # menus, panels, Project Settings pages). Built-in editor features register
 # through these exactly like plugins do.
 
-add_library(LumaEditorFramework STATIC
+add_library(LumaEditorFramework ${LUMA_LIBRARY_TYPE}
     src/EditorIcons.cpp
     src/InspectorDrawers.cpp
     src/MenuRegistry.cpp

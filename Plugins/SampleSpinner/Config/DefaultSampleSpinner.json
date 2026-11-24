@@ -1,0 +1,7 @@
+{
+  "fileVersion": 1,
+  "Plugins.SampleSpinner": {
+    "defaultDegreesPerSecond": 90.0,
+    "showCountInPanel": true
+  }
+}

@@ -46,6 +46,13 @@ RegistrationToken SceneSystemRegistry::Register(std::unique_ptr<ISceneSystem> sy
     });
 }
 
+bool SceneSystemRegistry::Contains(std::string_view id) const {
+    for (const auto& item : m_entries) {
+        if (item->id == id) return true;
+    }
+    return false;
+}
+
 SceneSystemRegistry& SceneSystems() {
     static SceneSystemRegistry registry;
     return registry;

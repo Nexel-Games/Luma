@@ -1,10 +1,37 @@
-# Plugin manifest
+# Plugin descriptor
 
-Implemented. A manifest is JSON, parsed with `Luma::ParseJson`. The file path is `Plugins/<Id>/<Id>.lplugin`. The folder name, the file name, and the `id` field must be the same string.
+Implemented. A `.lplugin` file is JSON, parsed with `Luma::ParseJson` / `ParseDescriptor`. The path is `Plugins/<Name>/<Name>.lplugin`. The folder name, the file name (without extension), and the plugin name must be the same string.
 
-Unknown fields are errors. Duplicate JSON keys are not visible to the parser: `Luma::SerialValue` keeps the last value, which is existing JSON behavior and is not changed here.
+**FileVersion 1** is the current document (`PLUGIN_ARCHITECTURE.md`). Identity is the folder/file name; there is no `Name` field inside the JSON. Unknown top-level keys are **kept** on rewrite (`WriteDescriptor`). Duplicate JSON keys are not visible to the parser: `Luma::SerialValue` keeps the last value.
 
-## Fields
+**schema 1** documents (`id`, `displayName`, `kind`, …) still parse. The loader migrates them in memory (`PluginDescriptor::migratedFromSchema1`). Schema 1 unknown fields remain errors, matching the original parser. `ParseManifest` is that schema 1 parser; discovery now goes through `ParseDescriptor` and then `ToManifest` so the existing `PluginManager` still sees a `PluginManifest`.
+
+`ResolvePlugins` takes valid and invalid descriptors plus the project's plugin entries and returns a status for every name: `Disabled`, `Invalid`, `Unavailable`, or `Active`. Active plugins are listed first in dependency order (ties by name). Required plugin dependencies must be Active; optional ones only affect order. Cycles are reported as `A -> B -> C -> A`. A project entry whose plugin is not installed is `Unavailable` ("not installed").
+
+## FileVersion 1 fields
+
+| Field | Required | Type | Rule |
+|---|---|---|---|
+| `FileVersion` | yes | integer | Must be `1`. |
+| `Version` | yes | integer | Release counter, `>= 1`. |
+| `VersionName` | yes | string | Display semantic version. |
+| `FriendlyName` | yes | string | Non-empty after trimming. |
+| `Description` | no | string | Default empty. |
+| `Category` | yes | string | Non-empty. |
+| `CreatedBy` | yes | string | Non-empty. |
+| `CreatedByURL`, `DocsURL`, `SupportURL` | no | string | Default empty. |
+| `EngineVersion` | yes | string | Semver range checked against `Luma::EngineVersion()`. |
+| `EnabledByDefault` | no | bool | Default `false`. |
+| `CanContainContent`, `IsBetaVersion`, `IsExperimentalVersion`, `Installed` | no | bool | Default `false`. `CanContainContent` mounts `Content/` at `/<Name>/` while the plugin is active. |
+| `SupportedTargetPlatforms` | no | string array | If present, at least one of `Windows`, `Linux`, `macOS`. Omitted or empty means every platform. |
+| `Modules` | no | object array | Default empty. |
+| `Plugins` | no | object array | Plugin dependencies. Default empty. |
+
+A module object: `Name` (required), `Type` (`Runtime`, `Developer`, `Editor`, `UncookedOnly`), `LoadingPhase` (default `Default`), optional `PlatformAllowList`.
+
+A plugin-dependency object: `Name`, `Version` (range), optional `Enabled` (default true), `Optional` (default false). `Enabled: true` and `Optional: false` means the dependency must be Active first.
+
+## Schema 1 fields (migrated)
 
 | Field | Required | Type | Rule |
 |---|---|---|---|
@@ -21,7 +48,7 @@ Unknown fields are errors. Duplicate JSON keys are not visible to the parser: `L
 | `platforms` | yes | string array | At least one of `Windows`, `Linux`, `macOS`. |
 | `dependencies` | no | object array | Default empty. |
 | `capabilities` | no | string array | Declared extension points (`components`, `panels`, ...). Empty strings are errors. |
-| `enabledByDefault` | no | bool | Default `false`. Not applied until project enablement exists. |
+| `enabledByDefault` | no | bool | Default `false`. On for a project unless the id is in `.luma` `"plugins"."disabled"`. |
 
 A dependency object:
 

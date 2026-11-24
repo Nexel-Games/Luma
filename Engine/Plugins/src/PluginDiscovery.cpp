@@ -1,4 +1,5 @@
 #include "Luma/Plugins/PluginDiscovery.h"
+#include "Luma/Plugins/Module.h"
 
 #include <algorithm>
 #include <fstream>
@@ -50,7 +51,8 @@ std::optional<std::string> ReadFile(const fs::path& path, std::string* error) {
     return ss.str();
 }
 
-void ScanFolder(const fs::path& folder, const CompiledPluginTable* compiled,
+void ScanFolder(const fs::path& folder, const fs::path& searchRoot,
+                const CompiledPluginTable* compiled,
                 std::vector<DiscoveredPlugin>& found, DiscoveryResult& result) {
     const std::string folderName = folder.filename().string();
     const fs::path manifestPath = folder / (folderName + ".lplugin");
@@ -87,7 +89,7 @@ void ScanFolder(const fs::path& folder, const CompiledPluginTable* compiled,
     }
 
     const usize errorsBefore = result.errors.size();
-    auto manifest = ParseManifest(*text, manifestPath, result.errors);
+    auto descriptor = ParseDescriptor(*text, manifestPath, result.errors);
     for (usize i = errorsBefore; i < result.errors.size(); ++i) {
         const ManifestError& err = result.errors[i];
         std::string message = manifestPath.string();
@@ -99,18 +101,29 @@ void ScanFolder(const fs::path& folder, const CompiledPluginTable* compiled,
         message += err.message;
         LUMA_USER_ERROR("Plugins", "{}", message);
     }
-    if (!manifest) return;
+    if (!descriptor) return;
 
-    if (manifest->id != folderName) {
-        AddError(result, manifestPath, "id",
-                 "folder \"" + folderName + "\" declares id \"" + manifest->id +
-                     "\". The folder name, file name, and id must match.");
+    if (descriptor->name != folderName) {
+        AddError(result, manifestPath, "Name",
+                 "folder \"" + folderName + "\" declares name \"" + descriptor->name +
+                     "\". The folder name, file name, and plugin name must match.");
         return;
     }
 
     DiscoveredPlugin plugin;
-    plugin.manifest = std::move(*manifest);
-    plugin.compiledIn = compiled && compiled->IsCompiledIn(plugin.manifest.id);
+    plugin.descriptor = std::move(*descriptor);
+    plugin.searchRoot = searchRoot;
+    plugin.manifest = ToManifest(plugin.descriptor);
+    plugin.compiledIn = (compiled && compiled->IsCompiledIn(plugin.manifest.id));
+    if (!plugin.compiledIn) {
+        for (const ModuleDescriptor& module : plugin.descriptor.modules) {
+            if (StaticModuleBackend::Global().IsAvailable(module.name) ||
+                DllModuleBackend::Global().IsAvailable(module.name)) {
+                plugin.compiledIn = true;
+                break;
+            }
+        }
+    }
 
     std::string rangeError;
     plugin.engineCompatible =
@@ -125,6 +138,7 @@ void ScanFolder(const fs::path& folder, const CompiledPluginTable* compiled,
         LUMA_USER_WARN("Plugins", "{}", message);
     }
 
+    plugin.platformCompatible = plugin.manifest.platforms.empty();
     for (const std::string& platform : plugin.manifest.platforms) {
         if (platform == HostPlatform()) plugin.platformCompatible = true;
     }
@@ -142,8 +156,12 @@ void ScanFolder(const fs::path& folder, const CompiledPluginTable* compiled,
 
 }  // namespace
 
-bool CompiledPluginTable::Register(std::string id, std::function<void()> factory,
-                                   std::string* error) {
+CompiledPluginTable& CompiledPluginTable::Global() {
+    static CompiledPluginTable table;
+    return table;
+}
+
+bool CompiledPluginTable::Register(std::string id, Factory factory, std::string* error) {
     auto fail = [&](std::string message) {
         if (error) *error = std::move(message);
         return false;
@@ -161,15 +179,16 @@ bool CompiledPluginTable::IsCompiledIn(std::string_view id) const {
     return m_factories.find(id) != m_factories.end();
 }
 
-bool CompiledPluginTable::Instantiate(std::string_view id, std::string* error) {
+std::unique_ptr<IPlugin> CompiledPluginTable::Instantiate(std::string_view id,
+                                                         std::string* error) {
     auto it = m_factories.find(id);
     if (it == m_factories.end()) {
         if (error) *error = "no compiled plugin factory for \"" + std::string(id) + "\"";
-        return false;
+        return nullptr;
     }
-    it->second();
+    std::unique_ptr<IPlugin> plugin = it->second();
     ++m_instantiateCount;
-    return true;
+    return plugin;
 }
 
 DiscoveryResult DiscoverPlugins(std::span<const fs::path> roots,
@@ -194,7 +213,7 @@ DiscoveryResult DiscoverPlugins(std::span<const fs::path> roots,
         for (const fs::directory_entry& entry : it) {
             std::error_code entryEc;
             if (entry.is_directory(entryEc) && !entryEc) {
-                ScanFolder(entry.path(), compiled, found, result);
+                ScanFolder(entry.path(), root, compiled, found, result);
             } else if (entry.path().extension() == ".lplugin") {
                 AddError(result, entry.path(), "file",
                          "manifest \"" + entry.path().filename().string() +

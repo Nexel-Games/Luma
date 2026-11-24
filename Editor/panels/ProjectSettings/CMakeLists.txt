@@ -1,4 +1,4 @@
-add_library(LumaPanelProjectSettings STATIC
+add_library(LumaPanelProjectSettings ${LUMA_LIBRARY_TYPE}
     src/ProjectSettings.cpp
     src/SimulationPage.cpp
     src/ProjectSettingsStore.cpp)

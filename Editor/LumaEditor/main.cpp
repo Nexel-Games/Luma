@@ -448,7 +448,13 @@ int main(int argc, char** argv) {
     while (running && !window->ShouldClose()) {
         window->PollEvents();
         if (editor) {
-            if (editor->CloseConfirmed()) break;
+            if (editor->CloseConfirmed()) {
+                if (editor->WantsRelaunch() && !editor->ProjectFile().empty()) {
+                    LaunchDetached(ExecutablePath(),
+                                   {"--project", editor->ProjectFile().string()});
+                }
+                break;
+            }
             window->SetShouldClose(false);  // closing waits for the prompt
         }
         Timestep dt = clock.Tick();

@@ -1,6 +1,6 @@
 # Luma::Grid - editor ground-grid line geometry (renderer-agnostic).
 
-add_library(LumaGrid STATIC
+add_library(LumaGrid ${LUMA_LIBRARY_TYPE}
     src/Grid.cpp)
 
 add_library(Luma::Grid ALIAS LumaGrid)

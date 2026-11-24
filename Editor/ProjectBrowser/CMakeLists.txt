@@ -1,6 +1,6 @@
 # Luma::ProjectBrowser - the Cave-style project browser screen (Slate UI).
 
-add_library(LumaProjectBrowser STATIC
+add_library(LumaProjectBrowser ${LUMA_LIBRARY_TYPE}
     src/ProjectBrowser.cpp)
 
 add_library(Luma::ProjectBrowser ALIAS LumaProjectBrowser)

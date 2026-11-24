@@ -3,7 +3,7 @@
 # clipboard and a searchable action menu, driven by an abstract IGraphModel.
 # Knows nothing about materials; the material graph is one adapter.
 
-add_library(LumaGraphEditor STATIC
+add_library(LumaGraphEditor ${LUMA_LIBRARY_TYPE}
     src/GraphMath.cpp
     src/Selection.cpp
     src/GraphController.cpp

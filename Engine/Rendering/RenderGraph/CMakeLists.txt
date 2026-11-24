@@ -1,6 +1,6 @@
 # Luma::RenderGraph - Render graph system for managing render passes
 
-add_library(LumaRenderGraph STATIC
+add_library(LumaRenderGraph ${LUMA_LIBRARY_TYPE}
     src/RenderGraph.cpp
     src/RenderGraphBuilder.cpp
     src/RenderGraphResources.cpp)

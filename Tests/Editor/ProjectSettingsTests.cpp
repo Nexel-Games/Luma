@@ -166,6 +166,33 @@ TEST_CASE("Pages registered later are loaded when they appear", "[settings]") {
     REQUIRE(late.loads == 1);
 }
 
+TEST_CASE("Plugin settings load Default overlay then project Config", "[settings][plugins]") {
+    TempDir dir("luma_settings_plugin_layer");
+    SettingsPageRegistry reg;
+    IntPage page;
+    SettingsPageDesc desc = page.Desc("Plugins.Pack", "Pack.json");
+    desc.owner = "Pack";
+    RegistrationToken t = reg.Register(std::move(desc));
+    SerialValue defaults = SerialValue::MakeObject();
+    SerialValue section = SerialValue::MakeObject();
+    section["value"] = 3;
+    defaults["Plugins.Pack"] = section;
+    ProjectSettingsStore store(reg, dir.root / "Config");
+    store.SetPluginDefaultConfig("Pack", defaults);
+    REQUIRE(store.LoadAll());
+    REQUIRE(page.value == 3);
+    REQUIRE_FALSE(page.loadedNull);
+    page.value = 9;
+    store.MarkDirty("Plugins.Pack");
+    REQUIRE(store.SaveAll());
+    page.value = 0;
+    REQUIRE(store.LoadAll());
+    REQUIRE(page.value == 9);
+    const std::string saved = ReadFile(dir.root / "Config" / "Pack.json");
+    REQUIRE(saved.find("\"value\"") != std::string::npos);
+    REQUIRE(fs::exists(dir.root / "Config" / "Pack.json"));
+}
+
 TEST_CASE("The Project Settings window lists the registered pages only", "[settings]") {
     TempDir dir("luma_settings_window");
     SettingsPageRegistry reg;

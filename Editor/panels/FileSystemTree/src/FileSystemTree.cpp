@@ -67,13 +67,21 @@ void FileSystemTreePanel::Draw(Slate::Context& ui, const Slate::Rect& body) {
     // Keep the current selection's ancestors expanded
     EnsureRevealed(m_currentFolder);
     
-    for (const auto& root : m_registry->Roots()) {
-        // The registry root is the project's Assets/ folder at the project
-        // root (not a Content/ subdirectory).
-        std::string name = root.filename().string();
+    for (const auto& info : m_registry->ContentRoots()) {
+        if (info.kind == Luma::ContentRootKind::Plugin) continue;
+        std::string name = info.label.empty() ? info.path.filename().string() : info.label;
         if (name.empty() || name == "Assets") name = "Assets";
-        
-        DrawFolderBranch(ui, treeRect, name.c_str(), root, y, 0);
+        DrawFolderBranch(ui, treeRect, name.c_str(), info.path, y, 0);
+    }
+    if (m_showPluginContent) {
+        bool anyPlugin = false;
+        for (const auto& info : m_registry->ContentRoots()) {
+            if (info.kind == Luma::ContentRootKind::Plugin) anyPlugin = true;
+        }
+        if (anyPlugin) {
+            const auto& group = Luma::AssetRegistry::PluginBrowserGroupPath();
+            DrawFolderBranch(ui, treeRect, "Plugins", group, y, 0);
+        }
     }
     
     ui.PopClip();
@@ -97,12 +105,18 @@ void FileSystemTreePanel::DrawFolderBranch(Slate::Context& ui,
     DrawFolderRow(ui, panel, label, path, y, depth, selected, hasChildren, expanded);
     
     if (expanded && m_registry) {
-        // Get all entries under this path and filter for folders
-        auto allEntries = m_registry->Filter(std::nullopt, path, "");
-        for (const auto* child : allEntries) {
-            if (!child->IsFolder()) continue;
-            DrawFolderBranch(ui, panel, child->assetName.c_str(),
-                             child->packagePath, y, depth + 1);
+        if (path == Luma::AssetRegistry::PluginBrowserGroupPath()) {
+            for (const auto& info : m_registry->ContentRoots()) {
+                if (info.kind != Luma::ContentRootKind::Plugin) continue;
+                DrawFolderBranch(ui, panel, info.label.c_str(), info.path, y, depth + 1);
+            }
+        } else {
+            auto allEntries = m_registry->Filter(std::nullopt, path, "");
+            for (const auto* child : allEntries) {
+                if (!child->IsFolder()) continue;
+                DrawFolderBranch(ui, panel, child->assetName.c_str(),
+                                 child->packagePath, y, depth + 1);
+            }
         }
     }
 }
@@ -180,7 +194,10 @@ void FileSystemTreePanel::DrawFolderRow(Slate::Context& ui,
 void FileSystemTreePanel::EnsureRevealed(const std::filesystem::path& folder) {
     if (folder.empty() || !m_registry) return;
     auto f = folder.lexically_normal();
-    
+    if (m_registry->IsPluginPath(f)) {
+        m_expanded.insert(Luma::AssetRegistry::PluginBrowserGroupPath().string());
+    }
+
     for (const auto& root : m_registry->Roots()) {
         auto r = root.lexically_normal();
         auto rel = f.lexically_relative(r);
@@ -203,6 +220,12 @@ void FileSystemTreePanel::EnsureRevealed(const std::filesystem::path& folder) {
 
 bool FileSystemTreePanel::HasChildFolders(const std::filesystem::path& path) const {
     if (!m_registry) return false;
+    if (path == Luma::AssetRegistry::PluginBrowserGroupPath()) {
+        for (const auto& info : m_registry->ContentRoots()) {
+            if (info.kind == Luma::ContentRootKind::Plugin) return true;
+        }
+        return false;
+    }
     auto allEntries = m_registry->Filter(std::nullopt, path, "");
     for (const auto* entry : allEntries) {
         if (entry->IsFolder()) return true;

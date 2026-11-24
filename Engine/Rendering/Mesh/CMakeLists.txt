@@ -1,6 +1,6 @@
 # Luma::Mesh - built-in primitive mesh generation (renderer-agnostic geometry).
 
-add_library(LumaMesh STATIC
+add_library(LumaMesh ${LUMA_LIBRARY_TYPE}
     src/Mesh.cpp
     src/Tangents.cpp
     src/MeshConversion.cpp)

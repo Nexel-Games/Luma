@@ -238,7 +238,7 @@ _(engine agent)_
 
 ## Result
 
-P1 is **COMPLETE**. Manifest parsing, semver ranges, and discovery are in `Engine/Plugins`. Development `LumaTests.exe "[plugins]"` and Debug `LumaTests.exe "[plugins]"`: 187 assertions, 16 cases, all passed. Development `ctest`: 2/2 passed (`LumaPreferencesTests`, `LumaTests`). Report: `AgentTasks/Luma_Plugins_and_Physics_Agent_Tasks/outputs/P1_Manifests_and_Discovery.md`. P2 has not started.
+P1–P3 are **COMPLETE**. P4 is **COMPLETE**: `PluginContext` exposes T-0005 registries (`Editor()` null in the sandbox), `Luma.Sample.Runtime` and `Luma.Sample.Editor` are real plugins, tests cover register/serialize/disable-keep/re-enable and editor-without-runtime. Report: `outputs/P4_Extension_API_and_Samples.md`.
 
 ## Review
 

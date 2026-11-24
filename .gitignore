@@ -26,5 +26,8 @@ Saved/
 Intermediate/
 *.log
 
+# Plugin module binaries (LUMA_MODULAR)
+Plugins/**/Binaries/
+
 # Agent plan workspaces
 .superpowers/

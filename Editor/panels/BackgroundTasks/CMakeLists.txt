@@ -1,6 +1,6 @@
 # Background Tasks: the status-bar indicator and expandable task panel that
 # show Luma::Tasks::TaskManager operations (compiles, imports, ...).
-add_library(LumaPanelBackgroundTasks STATIC
+add_library(LumaPanelBackgroundTasks ${LUMA_LIBRARY_TYPE}
     src/BackgroundTasks.cpp)
 
 add_library(Luma::PanelBackgroundTasks ALIAS LumaPanelBackgroundTasks)

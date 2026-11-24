@@ -1,7 +1,9 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "Luma/Core/Application.h"
 #include "Luma/Core/Config.h"
@@ -13,6 +15,11 @@
 #include "Luma/Platform/Window.h"
 #include "Luma/RHI/Renderer.h"
 #include "Luma/RHI/VulkanRenderer.h"
+#include "Luma/Asset/AssetPath.h"
+#include "Luma/Plugins/ModuleManager.h"
+#include "Luma/Plugins/PluginManager.h"
+#include "Luma/Scene/ComponentRegistry.h"
+#include "Luma/Scene/SceneSystems.h"
 #include "Luma/VFS/Path.h"
 #include "Luma/VFS/VFS.h"
 
@@ -62,6 +69,38 @@ int main() {
     Log::AddSink(Log::MakeFileSink("Saved/Logs/Luma.log"));
 
     LUMA_LOG_INFO("Boot", "starting {}", EngineVersionString());
+
+    Plugins::PluginManager plugins(Plugins::CompiledPluginTable::Global());
+    Plugins::ModuleManager modules;
+    AssetPathResolver assetPaths;
+    {
+        std::vector<std::filesystem::path> roots;
+        if (vfs.IsMounted(VFS::Root::Engine)) {
+            roots.push_back(vfs.RootPath(VFS::Root::Engine).parent_path() / "Plugins");
+        }
+        plugins.Discover(roots);
+        std::vector<std::string> enabled;
+        for (const auto& status : plugins.Statuses()) {
+            if (status.manifest.enabledByDefault) enabled.push_back(status.manifest.id);
+        }
+        plugins.RestrictEnabled(enabled);
+        if (vfs.IsMounted(VFS::Root::Content)) {
+            if (auto real = vfs.TryResolve(VFS::Path(VFS::Root::Content, "Engine"))) {
+                assetPaths.SetEngineRoot(*real);
+            }
+        }
+        Plugins::PluginHostServices host;
+        host.components = &Components();
+        host.sceneSystems = &SceneSystems();
+        plugins.SetHostServices(host);
+        plugins.MountContentAndConfig(&assetPaths, nullptr);
+        plugins.StartAll(Plugins::PluginHostKind::Runtime);
+        modules.SetHostServices(host);
+        modules.SetTarget(Plugins::PluginTarget::Game);
+        modules.SetActivePlugins(plugins.LoadableDescriptors());
+        modules.LoadAllPhases();
+        plugins.ApplyModuleStatuses(modules);
+    }
 
     Config cfg = LoadEngineConfig();
 
@@ -129,6 +168,8 @@ int main() {
     }
 
     LUMA_LOG_INFO("Boot", "main loop exited; shutting down");
+    modules.ShutdownAll();
+    plugins.ShutdownAll();
     renderer->WaitIdle();
     renderer.reset();
     window.reset();

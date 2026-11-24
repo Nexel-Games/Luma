@@ -1,6 +1,6 @@
 # Luma::Shader - Shader system with dual language support (GLSL + HLSL)
 
-add_library(LumaShader STATIC
+add_library(LumaShader ${LUMA_LIBRARY_TYPE}
     src/Shader.cpp
     src/ShaderParameterStruct.cpp
     src/GlobalShader.cpp

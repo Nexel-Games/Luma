@@ -19,4 +19,7 @@ std::filesystem::path ExecutablePath();
 bool LaunchDetached(const std::filesystem::path& exe,
                     const std::vector<std::string>& args);
 
+// Opens a file, folder, or URL with the OS shell (https://..., a path, ...).
+bool OpenExternal(const std::string& target);
+
 }  // namespace Luma

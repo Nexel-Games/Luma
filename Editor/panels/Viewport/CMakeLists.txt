@@ -1,4 +1,4 @@
-add_library(LumaPanelViewport STATIC
+add_library(LumaPanelViewport ${LUMA_LIBRARY_TYPE}
     src/Viewport.cpp
     src/MeshPlacement.cpp)
 

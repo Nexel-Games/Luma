@@ -1,7 +1,7 @@
 # Luma::RenderVulkan - Vulkan 1.3 backend implementing Luma::RHI.
 # All Vulkan types are confined to this module (Vulkan linked PRIVATE).
 
-add_library(LumaRenderVulkan STATIC
+add_library(LumaRenderVulkan ${LUMA_LIBRARY_TYPE}
     src/VulkanRHI.cpp
     src/Vulkan/VulkanCommon.cpp
     src/Vulkan/VulkanInstance.cpp

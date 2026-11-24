@@ -3,7 +3,7 @@
 # permutations, errors and stats. Produces a backend-neutral CompiledMaterial;
 # knows nothing about Vulkan.
 
-add_library(LumaMaterialCompiler STATIC
+add_library(LumaMaterialCompiler ${LUMA_LIBRARY_TYPE}
     src/CodeChunk.cpp
     src/Translator.cpp
     src/PassAssembly.cpp

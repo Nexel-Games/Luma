@@ -2,7 +2,7 @@
 
 luma_require_miniaudio()
 
-add_library(LumaAudio STATIC
+add_library(LumaAudio ${LUMA_LIBRARY_TYPE}
     src/AudioDecode.cpp
     src/AudioPreview.cpp)
 

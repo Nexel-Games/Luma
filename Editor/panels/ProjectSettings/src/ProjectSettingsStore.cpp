@@ -17,6 +17,21 @@ bool Contains(const std::vector<std::string>& v, std::string_view s) {
     return std::find(v.begin(), v.end(), s) != v.end();
 }
 
+SerialValue OverlayObject(const SerialValue& base, const SerialValue& over) {
+    if (over.IsNull()) return base;
+    if (!over.IsObject() || !base.IsObject()) return over;
+    SerialValue out = base;
+    for (const auto& [key, value] : over.Members()) {
+        if (const SerialValue* existing = out.Find(key);
+            existing && existing->IsObject() && value.IsObject()) {
+            out[key] = OverlayObject(*existing, value);
+        } else {
+            out[key] = value;
+        }
+    }
+    return out;
+}
+
 bool Fail(std::string* error, std::string message) {
     LUMA_LOG_ERROR("ProjectSettings", "{}", message);
     if (error) *error = std::move(message);
@@ -54,8 +69,22 @@ bool ProjectSettingsStore::ReadDocument(const fs::path& file, SerialValue& doc,
     return true;
 }
 
+void ProjectSettingsStore::SetPluginDefaultConfig(std::string pluginName, SerialValue document) {
+    m_pluginDefaults[std::move(pluginName)] = std::move(document);
+}
+
+void ProjectSettingsStore::ClearPluginDefaultConfigs() { m_pluginDefaults.clear(); }
+
 void ProjectSettingsStore::LoadPage(const SettingsPageDesc& page,
                                     std::vector<std::string>* errors) {
+    SerialValue layered;
+    bool haveDefault = false;
+    if (auto it = m_pluginDefaults.find(page.owner); it != m_pluginDefaults.end()) {
+        if (const SerialValue* section = it->second.Find(page.id)) {
+            layered = *section;
+            haveDefault = true;
+        }
+    }
     const fs::path file = FileFor(page);
     SerialValue doc;
     std::string error;
@@ -64,11 +93,15 @@ void ProjectSettingsStore::LoadPage(const SettingsPageDesc& page,
             m_blockedFiles.push_back(file.string());
             if (errors) errors->push_back(error);
         }
-        page.load(SerialValue{});  // defaults; the file is left untouched
+        page.load(haveDefault ? layered : SerialValue{});
     } else {
         std::erase(m_blockedFiles, file.string());
         const SerialValue* section = doc.Find(page.id);
-        page.load(section ? *section : SerialValue{});
+        if (section) {
+            page.load(haveDefault ? OverlayObject(layered, *section) : *section);
+        } else {
+            page.load(haveDefault ? layered : SerialValue{});
+        }
     }
     if (!Contains(m_loaded, page.id)) m_loaded.push_back(page.id);
 }

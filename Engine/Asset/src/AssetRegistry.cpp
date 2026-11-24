@@ -57,11 +57,49 @@ AssetId AssetRegistry::MakeId(const std::filesystem::path& p) const {
     return MakeAssetIdFromKey(key);
 }
 
+const std::filesystem::path& AssetRegistry::PluginBrowserGroupPath() {
+    static const std::filesystem::path k("Luma.PluginContent");
+    return k;
+}
+
 void AssetRegistry::AddRoot(const std::filesystem::path& root) {
+    AddRoot(root, ContentRootKind::Project, {});
+}
+
+void AssetRegistry::AddRoot(const std::filesystem::path& root, ContentRootKind kind,
+                            std::string label) {
     auto norm = Normalize(root);
-    if (std::find(m_roots.begin(), m_roots.end(), norm) == m_roots.end()) {
-        m_roots.push_back(norm);
+    if (std::find(m_roots.begin(), m_roots.end(), norm) != m_roots.end()) return;
+    m_roots.push_back(norm);
+    ContentRoot info;
+    info.path = norm;
+    info.kind = kind;
+    info.label = std::move(label);
+    if (info.label.empty()) info.label = norm.filename().string();
+    m_rootInfos.push_back(std::move(info));
+}
+
+bool AssetRegistry::RemoveRoot(const std::filesystem::path& root) {
+    auto norm = Normalize(root);
+    auto it = std::find(m_roots.begin(), m_roots.end(), norm);
+    if (it == m_roots.end()) return false;
+    RemoveUnder(norm);
+    std::erase(m_roots, norm);
+    std::erase_if(m_rootInfos, [&](const ContentRoot& info) { return info.path == norm; });
+    return true;
+}
+
+bool AssetRegistry::IsPluginPath(const std::filesystem::path& path) const {
+    auto norm = Normalize(path);
+    if (norm == PluginBrowserGroupPath()) return true;
+    for (const ContentRoot& info : m_rootInfos) {
+        if (info.kind != ContentRootKind::Plugin) continue;
+        if (norm == info.path) return true;
+        auto rel = norm.lexically_relative(info.path);
+        auto relStr = rel.string();
+        if (!relStr.empty() && relStr.front() != '.') return true;
     }
+    return false;
 }
 
 void AssetRegistry::Scan() {
@@ -298,8 +336,8 @@ void AssetRegistry::RemoveUnder(const std::filesystem::path& dir) {
         std::filesystem::path p(path);
         auto rel = p.lexically_relative(normDir);
         auto relStr = rel.string();
-        if (!relStr.empty() && relStr.front() != '.' &&
-            relStr.find("..") == std::string::npos) {
+        if (p == normDir || (!relStr.empty() && relStr.front() != '.' &&
+                             relStr.find("..") == std::string::npos)) {
             pathsToDrop.push_back(path);
         }
     }
@@ -318,19 +356,18 @@ std::string AssetRegistry::DisplayPathFor(
         std::replace(s.begin(), s.end(), '\\', '/');
         return s;
     };
-    // Walk every root; the first one that contains `norm` wins. Strip the
-    // root and prefix the result with "Assets/" (the registry roots are
-    // conventionally the project's Assets/ directory at the project root).
-    for (const auto& root : m_roots) {
-        auto r = Normalize(root);
-        if (norm == r) return "Assets/";
+    for (const ContentRoot& info : m_rootInfos) {
+        auto r = Normalize(info.path);
+        const std::string prefix =
+            info.kind == ContentRootKind::Plugin ? ("Plugins/" + info.label + "/") : "Assets/";
+        if (norm == r) return prefix;
         auto rel = norm.lexically_relative(r);
         auto relStr = normalizeSeparators(rel.string());
         if (relStr.empty() || relStr.front() == '.' ||
             relStr.find("..") != std::string::npos) {
             continue;
         }
-        return "Assets/" + relStr;
+        return prefix + relStr;
     }
     return normalizeSeparators(norm.string());
 }

@@ -1,4 +1,4 @@
-add_library(LumaPanelWorldOutliner STATIC
+add_library(LumaPanelWorldOutliner ${LUMA_LIBRARY_TYPE}
     src/WorldOutliner.cpp)
 
 add_library(Luma::PanelWorldOutliner ALIAS LumaPanelWorldOutliner)

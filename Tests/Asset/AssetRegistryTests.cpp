@@ -10,6 +10,7 @@
 #include "Luma/Asset/AssetRegistry.h"
 
 using namespace Luma;
+using Luma::ContentRootKind;
 namespace fs = std::filesystem;
 
 namespace {
@@ -245,6 +246,17 @@ TEST_CASE("DisplayPathFor falls back to the absolute path when no root matches",
     // Display paths always use forward slashes (mirrors Unreal/Unity
     // conventions) even on Windows, where the OS path uses '\\'.
     REQUIRE(display.find("C:/elsewhere/x.png") != std::string::npos);
+}
+
+TEST_CASE("DisplayPathFor prefixes plugin roots with Plugins/Name/",
+          "[asset][registry][display]") {
+    TempDir dir;
+    dir.Touch("Materials/M_Pack.lmat");
+    AssetRegistry r;
+    r.AddRoot(dir.Path(), ContentRootKind::Plugin, "Pack");
+    r.Scan();
+    REQUIRE(r.DisplayPathFor(dir.Path() / "Materials" / "M_Pack.lmat") ==
+            "Plugins/Pack/Materials/M_Pack.lmat");
 }
 
 TEST_CASE("DisplayPathFor handles the root itself", "[asset][registry][display]") {

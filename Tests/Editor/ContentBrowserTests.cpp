@@ -13,6 +13,7 @@
 #include "Luma/Slate/Context.h"
 
 using namespace Luma;
+using Luma::ContentRootKind;
 using Luma::Editor::Panels::ContentBrowserPanel;
 using Luma::Editor::Panels::PanelContext;
 using Luma::Slate::Context;
@@ -61,6 +62,35 @@ TEST_CASE("SetRegistry wires a registry; ResetNavigation clears state",
     p.SetRegistry(&r);
     REQUIRE(p.Registry() == &r);
     p.ResetNavigation();
+    REQUIRE(p.CurrentFolder().empty());
+}
+
+TEST_CASE("Show Plugin Content hides plugin roots until enabled", "[contentbrowser][plugins]") {
+    TempDir project;
+    TempDir plugin;
+    project.Touch("hero.png");
+    plugin.Touch("Materials/M_Pack.lmat", "{}");
+    AssetRegistry r;
+    r.AddRoot(project.Path());
+    r.AddRoot(plugin.Path(), ContentRootKind::Plugin, "Pack");
+    r.Scan();
+    ContentBrowserPanel p;
+    p.SetRegistry(&r);
+    REQUIRE_FALSE(p.ShowPluginContent());
+    auto hidden = p.CurrentEntries();
+    for (const AssetData* a : hidden) {
+        REQUIRE_FALSE(r.IsPluginPath(a->packagePath));
+    }
+    p.SetShowPluginContent(true);
+    REQUIRE(p.ShowPluginContent());
+    p.BrowseTo(plugin.Path() / "Materials" / "M_Pack.lmat");
+    auto shown = p.CurrentEntries();
+    bool saw = false;
+    for (const AssetData* a : shown) {
+        if (a->assetName == "M_Pack") saw = true;
+    }
+    REQUIRE(saw);
+    p.SetShowPluginContent(false);
     REQUIRE(p.CurrentFolder().empty());
 }
 

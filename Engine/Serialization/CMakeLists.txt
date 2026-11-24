@@ -2,7 +2,7 @@
 # formats (JSON now; binary later). Depends only on Luma::Core. It is the shared
 # foundation for scene/asset/project persistence and reflection-driven save/load.
 
-add_library(LumaSerialization STATIC
+add_library(LumaSerialization ${LUMA_LIBRARY_TYPE}
     src/SerialValue.cpp
     src/Json.cpp
     src/Reflection.cpp)

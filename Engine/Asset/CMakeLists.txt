@@ -14,7 +14,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(stb_image)
 
-add_library(LumaAsset STATIC
+add_library(LumaAsset ${LUMA_LIBRARY_TYPE}
     src/AssetId.cpp
     src/AssetType.cpp
     src/AssetTypeRegistry.cpp

@@ -3,7 +3,7 @@
 # previews and compile status come in through MaterialEditorServices so the
 # module does not depend on the editor executable.
 
-add_library(LumaMaterialEditors STATIC
+add_library(LumaMaterialEditors ${LUMA_LIBRARY_TYPE}
     src/InstanceParameters.cpp
     src/EditorIcons.cpp
     src/MaterialInstanceEditor.cpp

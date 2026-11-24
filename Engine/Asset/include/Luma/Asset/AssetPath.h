@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Unreal-style virtual asset paths, the form every asset reference is stored
 // in on disk (materials -> textures, instances -> parents, scene slots ->
@@ -24,6 +25,27 @@ public:
     void SetEngineRoot(const std::filesystem::path& root);
     const std::filesystem::path& GameRoot() const { return m_game; }
     const std::filesystem::path& EngineRoot() const { return m_engine; }
+
+    // Plugin content mounts: `/<Name>/...` → `<plugin>/Content/...`.
+    // `Game` and `Engine` are reserved. Known names that are not mounted
+    // (disabled / not active) resolve as a missing plugin, never as `/Game`.
+    bool MountPlugin(std::string_view name, const std::filesystem::path& contentRoot);
+    void UnmountPlugin(std::string_view name);
+    void UnmountAllPlugins();
+    void AddKnownPlugin(std::string_view name);
+    void ClearKnownPlugins();
+    bool IsPluginMounted(std::string_view name) const;
+    bool IsKnownPlugin(std::string_view name) const;
+
+    enum class Status {
+        Ok,
+        UnknownRoot,
+        MissingPlugin,
+        NotFound,
+        Ambiguous,
+    };
+    Status Classify(std::string_view virtualPath) const;
+    std::optional<std::string> PluginNameOf(std::string_view virtualPath) const;
 
     // Resolves a virtual path to the asset file. The extension is found by
     // looking for exactly one file with that stem in the target folder.
@@ -60,8 +82,15 @@ public:
     static constexpr std::string_view kEnginePrefix = "/Engine/";
 
 private:
+    struct PluginMount {
+        std::string name;
+        std::filesystem::path root;
+    };
+
     std::filesystem::path m_game;
     std::filesystem::path m_engine;
+    std::vector<PluginMount> m_plugins;
+    std::vector<std::string> m_knownPlugins;
 };
 
 }  // namespace Luma

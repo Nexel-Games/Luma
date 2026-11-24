@@ -33,6 +33,16 @@ add_executable(LumaTests
     Project/ProjectFileTests.cpp
     Plugins/ManifestTests.cpp
     Plugins/DiscoveryTests.cpp
+    Plugins/LifecycleTests.cpp
+    Plugins/PersistenceTests.cpp
+    Plugins/DescriptorTests.cpp
+    Plugins/ResolutionTests.cpp
+    Plugins/ModuleTests.cpp
+    Plugins/SamplePluginTests.cpp
+    Plugins/ContentMountTests.cpp
+    Plugins/DllModuleTests.cpp
+    Plugins/WizardTests.cpp
+    Plugins/PackagingTests.cpp
     Serialization/SerialValueTests.cpp
     Serialization/JsonTests.cpp
     Serialization/ReflectionTests.cpp
@@ -91,6 +101,7 @@ add_executable(LumaTests
     Editor/OutlinerRegistryTests.cpp
     Editor/EditorFrameworkTests.cpp
     Editor/ProjectSettingsTests.cpp
+    Editor/PluginsWindowTests.cpp
     Editor/StaticMeshSlotTests.cpp
     Editor/MeshPlacementTests.cpp
     Editor/TransformGizmoTests.cpp
@@ -116,7 +127,7 @@ add_executable(LumaTests
     Rendering/VulkanMaterialSystemTests.cpp
     Fixtures/GenerateMaterialShowcase.cpp)
 
-target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Plugins Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::MaterialCompiler Luma::ShaderCompiler Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelProjectSettings Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Luma::MaterialEditors Luma::GraphEditor Luma::AssetWindows Catch2::Catch2WithMain)
+target_link_libraries(LumaTests PRIVATE Luma::Core Luma::Jobs Luma::Tasks Luma::Project Luma::Plugins Luma::EditorPlugins Luma::Serialization Luma::Scene Luma::Slate Luma::Asset Luma::Audio Luma::VFS Luma::Material Luma::MaterialCompiler Luma::ShaderCompiler Luma::AssetImport Luma::PanelContentBrowserForTest Luma::PanelConsole Luma::Gizmo Luma::Mesh Luma::MaterialBridge Luma::PanelMaterialEditor Luma::PanelInspector Luma::PanelWorldOutliner Luma::PanelProjectSettings Luma::PanelBackgroundTasks Luma::PanelImportDialog Luma::PanelViewport Luma::RenderVulkan Luma::MaterialEditors Luma::GraphEditor Luma::AssetWindows Catch2::Catch2WithMain)
 
 set_target_properties(LumaTests PROPERTIES FOLDER "Tests")
 
@@ -130,7 +141,98 @@ add_test(NAME LumaPreferencesTests COMMAND LumaPreferencesTests)
 # failure). Fine-grained catch_discover_tests can be adopted later.
 add_test(NAME LumaTests COMMAND LumaTests)
 
+set(LUMA_DLL_FIXTURE_ROOT "${CMAKE_BINARY_DIR}/DllPluginFixtures")
+add_library(DllProbeDll SHARED Plugins/Fixtures/DllProbeModule.cpp)
+target_include_directories(DllProbeDll PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Plugins/Fixtures)
+target_link_libraries(DllProbeDll PRIVATE Luma::Plugins Luma::Scene)
+target_compile_definitions(DllProbeDll PRIVATE LUMA_MODULE_DLL=1)
+set_target_properties(DllProbeDll PROPERTIES
+    FOLDER "Tests/Fixtures"
+    OUTPUT_NAME "LumaEditor-DllProbe"
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    RUNTIME_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbe/Binaries/Win64/$<CONFIG>"
+    LIBRARY_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbe/Binaries/Win64/$<CONFIG>"
+    ARCHIVE_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbe/Binaries/Win64/$<CONFIG>")
+
+add_library(DllProbeBadApiDll SHARED Plugins/Fixtures/DllProbeBadApi.cpp)
+target_link_libraries(DllProbeBadApiDll PRIVATE Luma::Plugins)
+target_compile_definitions(DllProbeBadApiDll PRIVATE LUMA_MODULE_DLL=1)
+set_target_properties(DllProbeBadApiDll PROPERTIES
+    FOLDER "Tests/Fixtures"
+    OUTPUT_NAME "LumaEditor-DllProbeBadApi"
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    RUNTIME_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbeBadApi/Binaries/Win64/$<CONFIG>"
+    LIBRARY_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbeBadApi/Binaries/Win64/$<CONFIG>"
+    ARCHIVE_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbeBadApi/Binaries/Win64/$<CONFIG>")
+add_library(DllProbeNoExportDll SHARED Plugins/Fixtures/DllProbeNoExport.cpp)
+set_target_properties(DllProbeNoExportDll PROPERTIES
+    FOLDER "Tests/Fixtures"
+    OUTPUT_NAME "LumaEditor-DllProbeNoExport"
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    RUNTIME_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbeNoExport/Binaries/Win64/$<CONFIG>"
+    LIBRARY_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbeNoExport/Binaries/Win64/$<CONFIG>"
+    ARCHIVE_OUTPUT_DIRECTORY "${LUMA_DLL_FIXTURE_ROOT}/DllProbeNoExport/Binaries/Win64/$<CONFIG>")
+add_dependencies(LumaTests DllProbeDll DllProbeBadApiDll DllProbeNoExportDll)
+
+set(LUMA_WIZARD_FIXTURE_ROOT "${CMAKE_BINARY_DIR}/WizardFixtures")
+set(_wizard_engine_range ">=${PROJECT_VERSION} <1.0.0")
+
+function(luma_wizard_fixture_dll pluginName moduleName source)
+    cmake_parse_arguments(WF "" "" "INCLUDES;LIBS" ${ARGN})
+    add_library(${pluginName}Dll SHARED ${source})
+    if(WF_INCLUDES)
+        target_include_directories(${pluginName}Dll PRIVATE ${WF_INCLUDES})
+    endif()
+    target_link_libraries(${pluginName}Dll PRIVATE ${WF_LIBS})
+    target_compile_definitions(${pluginName}Dll PRIVATE LUMA_MODULE_DLL=1)
+    set_target_properties(${pluginName}Dll PROPERTIES
+        FOLDER "Tests/Fixtures"
+        OUTPUT_NAME "LumaEditor-${moduleName}"
+        WINDOWS_EXPORT_ALL_SYMBOLS ON
+        RUNTIME_OUTPUT_DIRECTORY "${LUMA_WIZARD_FIXTURE_ROOT}/${pluginName}/Binaries/Win64/$<CONFIG>"
+        LIBRARY_OUTPUT_DIRECTORY "${LUMA_WIZARD_FIXTURE_ROOT}/${pluginName}/Binaries/Win64/$<CONFIG>"
+        ARCHIVE_OUTPUT_DIRECTORY "${LUMA_WIZARD_FIXTURE_ROOT}/${pluginName}/Binaries/Win64/$<CONFIG>")
+    add_dependencies(LumaTests ${pluginName}Dll)
+endfunction()
+
+luma_scaffold_plugin(Blank "${LUMA_WIZARD_FIXTURE_ROOT}/WizardBlank" WizardBlank
+    FRIENDLY "Wizard Blank" AUTHOR "Luma" DESCRIPTION "Blank fixture" CATEGORY "Tests"
+    ENGINE_VERSION "${_wizard_engine_range}")
+luma_wizard_fixture_dll(WizardBlank WizardBlank
+    "${LUMA_WIZARD_FIXTURE_ROOT}/WizardBlank/Source/WizardBlank/Private/WizardBlankModule.cpp"
+    LIBS Luma::Plugins)
+
+luma_scaffold_plugin(ContentOnly "${LUMA_WIZARD_FIXTURE_ROOT}/WizardContent" WizardContent
+    FRIENDLY "Wizard Content" AUTHOR "Luma" DESCRIPTION "Content fixture" CATEGORY "Tests"
+    ENGINE_VERSION "${_wizard_engine_range}")
+
+luma_scaffold_plugin(EditorToolbarButton "${LUMA_WIZARD_FIXTURE_ROOT}/WizardToolbar" WizardToolbar
+    FRIENDLY "Wizard Toolbar" AUTHOR "Luma" DESCRIPTION "Toolbar fixture" CATEGORY "Tests"
+    ENGINE_VERSION "${_wizard_engine_range}")
+luma_wizard_fixture_dll(WizardToolbar WizardToolbarEditor
+    "${LUMA_WIZARD_FIXTURE_ROOT}/WizardToolbar/Source/WizardToolbarEditor/Private/WizardToolbarEditorModule.cpp"
+    LIBS Luma::Plugins Luma::EditorFramework Luma::Slate)
+
+luma_scaffold_plugin(EditorStandaloneWindow "${LUMA_WIZARD_FIXTURE_ROOT}/WizardWindow" WizardWindow
+    FRIENDLY "Wizard Window" AUTHOR "Luma" DESCRIPTION "Window fixture" CATEGORY "Tests"
+    ENGINE_VERSION "${_wizard_engine_range}")
+luma_wizard_fixture_dll(WizardWindow WizardWindowEditor
+    "${LUMA_WIZARD_FIXTURE_ROOT}/WizardWindow/Source/WizardWindowEditor/Private/WizardWindowEditorModule.cpp"
+    LIBS Luma::Plugins Luma::EditorFramework Luma::Slate)
+
+luma_scaffold_plugin(RuntimeComponent "${LUMA_WIZARD_FIXTURE_ROOT}/WizardComp" WizardComp
+    FRIENDLY "Wizard Comp" AUTHOR "Luma" DESCRIPTION "Component fixture" CATEGORY "Tests"
+    ENGINE_VERSION "${_wizard_engine_range}")
+luma_wizard_fixture_dll(WizardComp WizardComp
+    "${LUMA_WIZARD_FIXTURE_ROOT}/WizardComp/Source/WizardComp/Private/WizardCompModule.cpp"
+    INCLUDES "${LUMA_WIZARD_FIXTURE_ROOT}/WizardComp/Source/WizardComp/Public"
+    LIBS Luma::Plugins Luma::Scene)
+
+target_compile_definitions(LumaTests PRIVATE
+    LUMA_ENGINE_LINK_DUMP="${CMAKE_BINARY_DIR}/generated/LumaEngineLinkLibraries.txt")
 target_compile_definitions(LumaTests PRIVATE LUMA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(LumaTests PRIVATE LUMA_DLL_FIXTURE_ROOT="${LUMA_DLL_FIXTURE_ROOT}")
+target_compile_definitions(LumaTests PRIVATE LUMA_WIZARD_FIXTURE_ROOT="${LUMA_WIZARD_FIXTURE_ROOT}")
 target_compile_definitions(LumaTests PRIVATE
     LUMA_SHADER_DIR="${CMAKE_BINARY_DIR}/shaders"
     LUMA_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/Engine/Rendering/Vulkan/shaders")

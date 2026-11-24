@@ -1,7 +1,7 @@
 # Luma::VFS - virtual file system, well-known roots, and file watcher.
 # Depends on Core (for types/log). No engine subsystems above it.
 
-add_library(LumaVFS STATIC
+add_library(LumaVFS ${LUMA_LIBRARY_TYPE}
     src/Path.cpp
     src/VFS.cpp
     src/FileWatcher.cpp)

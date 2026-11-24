@@ -5,7 +5,8 @@ add_executable(LumaEngine
     main.cpp)
 
 target_link_libraries(LumaEngine
-    PRIVATE Luma::Core Luma::Platform Luma::RenderVulkan Luma::VFS)
+    PRIVATE Luma::Core Luma::Platform Luma::RenderVulkan Luma::VFS Luma::Plugins Luma::Scene
+            Luma::Project)
 
 set_target_properties(LumaEngine PROPERTIES
     OUTPUT_NAME "LumaEngine"

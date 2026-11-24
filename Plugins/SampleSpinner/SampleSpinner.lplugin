@@ -1,0 +1,23 @@
+{
+  "FileVersion": 1,
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "FriendlyName": "Sample Spinner",
+  "Description": "Adds a Spinner component that rotates actors during Play, plus editor stats and settings.",
+  "Category": "Simulation",
+  "CreatedBy": "Luma",
+  "CreatedByURL": "",
+  "DocsURL": "",
+  "SupportURL": "",
+  "EngineVersion": ">=0.1.0 <1.0.0",
+  "EnabledByDefault": true,
+  "CanContainContent": true,
+  "IsBetaVersion": false,
+  "IsExperimentalVersion": false,
+  "Installed": false,
+  "SupportedTargetPlatforms": ["Windows", "Linux", "macOS"],
+  "Modules": [
+    { "Name": "SampleSpinner", "Type": "Runtime", "LoadingPhase": "Default" },
+    { "Name": "SampleSpinnerEditor", "Type": "Editor", "LoadingPhase": "PostEngineInit" }
+  ]
+}

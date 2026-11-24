@@ -91,8 +91,20 @@ TEST_CASE("DiscoverPlugins reads both roots and does not execute factories",
     int calls = 0;
     CompiledPluginTable table;
     std::string regError;
-    REQUIRE(table.Register("Luma.Alpha", [&] { ++calls; }, &regError));
-    REQUIRE(table.Register("Luma.Beta", [&] { ++calls; }, &regError));
+    REQUIRE(table.Register(
+        "Luma.Alpha",
+        [&] {
+            ++calls;
+            return std::unique_ptr<Luma::Plugins::IPlugin>{};
+        },
+        &regError));
+    REQUIRE(table.Register(
+        "Luma.Beta",
+        [&] {
+            ++calls;
+            return std::unique_ptr<Luma::Plugins::IPlugin>{};
+        },
+        &regError));
     REQUIRE(table.InstantiateCount() == 0);
 
     const fs::path roots[] = {engine.root, project.root};
@@ -108,7 +120,7 @@ TEST_CASE("DiscoverPlugins reads both roots and does not execute factories",
     REQUIRE(calls == 0);
     REQUIRE(table.InstantiateCount() == 0);
 
-    REQUIRE(table.Instantiate("Luma.Alpha"));
+    table.Instantiate("Luma.Alpha");
     REQUIRE(calls == 1);
     REQUIRE(table.InstantiateCount() == 1);
 
@@ -217,13 +229,51 @@ TEST_CASE("DiscoverPlugins skips a missing root and rejects a manifest dropped i
     REQUIRE(HasMessage(found.errors, "Plugins/<Id>/<Id>.lplugin"));
 }
 
+TEST_CASE("DiscoverPlugins reads FileVersion 1 descriptors without running factories",
+          "[plugins][discovery]") {
+    TempDir root("luma_plugins_fileversion1");
+    const std::string json = std::format(
+        "{{\n"
+        "  \"FileVersion\": 1,\n"
+        "  \"Version\": 1,\n"
+        "  \"VersionName\": \"1.0.0\",\n"
+        "  \"FriendlyName\": \"Alpha\",\n"
+        "  \"Category\": \"Tools\",\n"
+        "  \"CreatedBy\": \"Luma\",\n"
+        "  \"EngineVersion\": \"{}\",\n"
+        "  \"SupportedTargetPlatforms\": [\"{}\"],\n"
+        "  \"Modules\": [ {{ \"Name\": \"AlphaRuntime\", \"Type\": \"Runtime\" }} ]\n"
+        "}}\n",
+        CompatibleRange(), HostPlatform());
+    WritePlugin(root.root, "Luma.Alpha", json);
+    int calls = 0;
+    CompiledPluginTable table;
+    REQUIRE(table.Register("Luma.Alpha", [&] {
+        ++calls;
+        return std::unique_ptr<Luma::Plugins::IPlugin>{};
+    }));
+    const fs::path roots[] = {root.root};
+    const auto found = DiscoverPlugins(roots, &table);
+    REQUIRE(found.errors.empty());
+    REQUIRE(found.plugins.size() == 1);
+    REQUIRE(found.plugins[0].manifest.id == "Luma.Alpha");
+    REQUIRE(found.plugins[0].manifest.displayName == "Alpha");
+    REQUIRE(found.plugins[0].compiledIn);
+    REQUIRE(found.plugins[0].engineCompatible);
+    REQUIRE(found.plugins[0].platformCompatible);
+    REQUIRE(calls == 0);
+}
+
 TEST_CASE("DiscoverPlugins reports invalid JSON without instantiating a factory",
           "[plugins][discovery]") {
     TempDir root("luma_plugins_badjson");
     WritePlugin(root.root, "Luma.Bad", "{ not json");
     int calls = 0;
     CompiledPluginTable table;
-    REQUIRE(table.Register("Luma.Bad", [&] { ++calls; }));
+    REQUIRE(table.Register("Luma.Bad", [&] {
+        ++calls;
+        return std::unique_ptr<Luma::Plugins::IPlugin>{};
+    }));
     const fs::path roots[] = {root.root};
     const auto found = DiscoverPlugins(roots, &table);
     REQUIRE(found.plugins.empty());
