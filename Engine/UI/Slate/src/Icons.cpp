@@ -1,6 +1,7 @@
 #include "Luma/Slate/Icons.h"
 
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <unordered_set>
 #include <iterator>
@@ -88,4 +89,16 @@ void DrawIcon(Context& ctx, const Rect& box, Icon icon, Color color, f32 rotatio
     ctx.ImageUV(ctx.IconAtlas(), {box.x + (box.w - side) * 0.5f, box.y + (box.h - side) * 0.5f, side, side},
                 uv, color);
 }
+void DrawAddGlyph(Context& ctx, const Rect& box, Color color) {
+    const f32 size = std::min(box.w, box.h);
+    const f32 arm = std::round(size * 0.86f);
+    const f32 bar = std::max(2.0f, std::round(size * 0.22f));
+    const f32 cx = box.x + box.w * 0.5f;
+    const f32 cy = box.y + box.h * 0.5f;
+    auto& draw = ctx.drawList();
+    const f32 r = bar * 0.5f;
+    draw.AddRectFilledRounded({std::round(cx - arm * 0.5f), std::round(cy - bar * 0.5f), arm, bar}, color, r);
+    draw.AddRectFilledRounded({std::round(cx - bar * 0.5f), std::round(cy - arm * 0.5f), bar, arm}, color, r);
+}
+
 }  // namespace Luma::Slate

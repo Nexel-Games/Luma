@@ -189,7 +189,7 @@ void AssetWindowManager::DrawRow(Context& ui, const Rect& row) {
         const Window* w = Find(id);
         if (!w) continue;
         const std::string title = Title(id);
-        const f32 tw = std::min(ui.uiFont().Measure(title).x + 58.0f, 280.0f);
+        const f32 tw = std::min(ui.uiFont().Measure(title).x + 64.0f, 290.0f);
         const Rect tab{x, y, tw, h};
         const bool active = m_active == id;
         const bool minimized = w->state == AssetWindowState::Minimized;
@@ -197,11 +197,14 @@ void AssetWindowManager::DrawRow(Context& ui, const Rect& row) {
         ui.PanelRounded(tab, active ? t.surface3 : (hover ? t.surface2 : t.surface1), 4.0f);
         if (active) ui.drawList().AddRectOutlineRounded(tab, t.accent, 1.5f, 4.0f);
         f32 tx = tab.x + 8.0f;
+        constexpr f32 kTabIcon = 22.0f;
         if (w->desc.icon) {
-            ui.Image(w->desc.icon, {tx, tab.y + (tab.h - 18.0f) * 0.5f, 18.0f, 18.0f});
-            tx += 23.0f;
+            ui.Image(w->desc.icon, {tx, tab.y + (tab.h - kTabIcon) * 0.5f, kTabIcon, kTabIcon});
+            tx += kTabIcon + 6.0f;
         }
-        ui.LabelIn({tx, tab.y, tab.Right() - tx - 22.0f, tab.h}, title, minimized ? t.textDim : t.text);
+        // LabelIn pads its rect by space.lg on the left: start that much earlier.
+        const f32 lx = tx - t.space.lg;
+        ui.LabelIn({lx, tab.y, tab.Right() - lx - 22.0f, tab.h}, title, minimized ? t.textDim : t.text);
         const Rect close{tab.Right() - 20.0f, tab.y + (tab.h - 16.0f) * 0.5f, 16.0f, 16.0f};
         if (hover || active) {
             const bool overClose = close.Contains(ui.mouse());
@@ -240,14 +243,72 @@ bool AssetWindowManager::DrawDocked(Context& ui, const Rect& area) {
 }
 
 bool AssetWindowManager::CapturesPointer(Vec2 p) const {
-    for (const auto& w : m_windows)
-        if (w.state == AssetWindowState::Floating && w.rect.Contains(p)) return true;
+    if (!m_resizing.empty()) return true;
+    for (const auto& w : m_windows) {
+        if (w.state != AssetWindowState::Floating) continue;
+        // The resize band reaches a little outside the frame.
+        const Rect grab = w.maximized ? w.rect : w.rect.Inset(-kResizeGrip, -kResizeGrip);
+        if (grab.Contains(p)) return true;
+    }
     return false;
+}
+
+u8 AssetWindowManager::EdgesAt(const Rect& r, Vec2 p) {
+    const Rect outer = r.Inset(-kResizeGrip, -kResizeGrip);
+    if (!outer.Contains(p)) return 0;
+    u8 edges = 0;
+    if (p.x < r.x + kResizeGrip) edges |= kLeft;
+    else if (p.x > r.Right() - kResizeGrip) edges |= kRight;
+    if (p.y < r.y + kResizeGrip * 0.5f) edges |= kTop;  // thin on top: the title bar drags
+    else if (p.y > r.Bottom() - kResizeGrip) edges |= kBottom;
+    // Corners are easier to catch: a larger square at each.
+    constexpr f32 kCorner = 14.0f;
+    const bool nearL = p.x < r.x + kCorner, nearR = p.x > r.Right() - kCorner;
+    const bool nearT = p.y < r.y + kCorner, nearB = p.y > r.Bottom() - kCorner;
+    if (edges & (kLeft | kRight)) {
+        if (nearT) edges |= kTop;
+        if (nearB) edges |= kBottom;
+    }
+    if (edges & (kTop | kBottom)) {
+        if (nearL) edges |= kLeft;
+        if (nearR) edges |= kRight;
+    }
+    return edges;
+}
+
+void AssetWindowManager::RequestResizeCursor(Context& ui, u8 edges) {
+    const bool h = edges & (kLeft | kRight), v = edges & (kTop | kBottom);
+    if (h && v) {
+        const bool nwse = ((edges & kLeft) && (edges & kTop)) || ((edges & kRight) && (edges & kBottom));
+        ui.RequestCursor(nwse ? CursorShape::ResizeNWSE : CursorShape::ResizeNESW);
+    } else if (h) {
+        ui.RequestCursor(CursorShape::ResizeEW);
+    } else if (v) {
+        ui.RequestCursor(CursorShape::ResizeNS);
+    }
 }
 
 void AssetWindowManager::DrawFloating(Context& ui, const Rect& work) {
     const Slate::Theme& t = ui.theme();
     const Vec2 mouse = ui.mouse();
+
+    // Edge / corner resize in progress.
+    if (!m_resizing.empty()) {
+        Window* w = Find(m_resizing);
+        if (!w || !ui.isMouseDown(0) || w->maximized || w->state != AssetWindowState::Floating) {
+            m_resizing.clear();
+        } else {
+            const f32 dx = mouse.x - m_pressAt.x, dy = mouse.y - m_pressAt.y;
+            const Rect s = m_resizeStart;
+            f32 left = s.x, top = s.y, right = s.Right(), bottom = s.Bottom();
+            if (m_resizeEdges & kLeft) left = std::min(s.x + dx, right - kMinW);
+            if (m_resizeEdges & kRight) right = std::max(s.Right() + dx, left + kMinW);
+            if (m_resizeEdges & kTop) top = std::clamp(s.y + dy, work.y, bottom - kMinH);
+            if (m_resizeEdges & kBottom) bottom = std::max(s.Bottom() + dy, top + kMinH);
+            w->rect = {left, top, right - left, bottom - top};
+            RequestResizeCursor(ui, m_resizeEdges);
+        }
+    }
 
     // Title-bar / tab drag.
     if (!m_dragging.empty()) {
@@ -299,7 +360,21 @@ void AssetWindowManager::DrawFloating(Context& ui, const Rect& work) {
         bool covered = false;
         for (usize j = i + 1; j < ids.size(); ++j)
             if (const Window* above = Find(ids[j]); above && above->rect.Contains(mouse)) covered = true;
-        PointerHider hide(ui, covered);
+        // Resize from the edges (not while maximized, not under another window).
+        const u8 edges = (!covered && !w->maximized && m_dragging.empty() && m_resizing.empty())
+                             ? EdgesAt(r, mouse)
+                             : 0;
+        if (edges) {
+            RequestResizeCursor(ui, edges);
+            if (ui.mousePressed(0) && !ui.inputBlocked()) {
+                m_resizing = w->desc.id;
+                m_resizeEdges = edges;
+                m_resizeStart = r;
+                m_pressAt = mouse;
+                raise = w->desc.id;
+            }
+        }
+        PointerHider hide(ui, covered || edges != 0 || !m_resizing.empty());
         const Vec2 m = ui.mouse();
 
         ui.drawList().AddRectShadow(r, 8.0f, 0.9f);
@@ -309,11 +384,13 @@ void AssetWindowManager::DrawFloating(Context& ui, const Rect& work) {
         ui.Panel({title.x, title.Bottom() - 6.0f, title.w, 6.0f}, t.surface2);  // square bottom corners
         ui.Panel({title.x, title.Bottom() - 1.0f, title.w, 1.0f}, Color::RGB(8, 8, 8));
         f32 tx = title.x + 10.0f;
+        constexpr f32 kTitleIcon = 22.0f;
         if (w->desc.icon) {
-            ui.Image(w->desc.icon, {tx, title.y + (title.h - 16.0f) * 0.5f, 16.0f, 16.0f});
-            tx += 22.0f;
+            ui.Image(w->desc.icon, {tx, title.y + (title.h - kTitleIcon) * 0.5f, kTitleIcon, kTitleIcon});
+            tx += kTitleIcon + 6.0f;
         }
-        ui.LabelIn({tx, title.y, title.w - (tx - title.x) - 3.0f * kButtonW, title.h}, Title(w->desc.id), t.text);
+        const f32 lx = tx - t.space.lg;  // LabelIn's own left padding
+        ui.LabelIn({lx, title.y, title.w - (lx - title.x) - 3.0f * kButtonW, title.h}, Title(w->desc.id), t.text);
 
         // Minimize / maximize / close.
         const Rect bClose{title.Right() - kButtonW, title.y, kButtonW, title.h};

@@ -82,6 +82,10 @@ struct Typography {
     std::string uiMedium;      // Inter-Medium.ttf
     std::string uiSemiBold;    // Inter-SemiBold.ttf
     std::string uiBold;        // Inter-Bold.ttf
+    // Optional real weights for the subtitle (semibold) and headline (bold)
+    // fonts; empty = uiSemiBold / uiBold.
+    std::string subtitleFont;
+    std::string headlineFont;
     std::string mono;          // Consolas / JetBrains Mono etc.
 
     // Pixel sizes per role.
@@ -89,6 +93,8 @@ struct Typography {
     f32 bodySize = 14.0f;      // default UI text, buttons, menus
     f32 bodyStrongSize = 14.0f; // emphasized body (still body-size, heavier weight)
     f32 headingSize = 14.0f;   // panel headers, section titles
+    f32 subtitleSize = 16.0f;  // semibold: secondary emphasis (versions, authors)
+    f32 headlineSize = 19.0f;  // bold: card / item titles
     f32 titleSize = 22.0f;     // window / big headers
     f32 displaySize = 32.0f;   // splash, marketing surfaces
 

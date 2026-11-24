@@ -173,6 +173,8 @@ public:
     void Heading(const Rect& rect, std::string_view text, Color color,
                  Align align = Align::Left);
     bool Button(u64 id, const Rect& rect, std::string_view label);
+    // Accent-filled call-to-action button (dialog OK, primary actions).
+    bool PrimaryButton(u64 id, const Rect& rect, std::string_view label);
     // A flat menu-bar item: text only, with a rounded highlight on hover/press.
     bool MenuButton(u64 id, const Rect& rect, std::string_view label);
     // Section header inside popup menus (Unreal-style): muted text with a
@@ -293,7 +295,41 @@ public:
     // dims the rest of the UI; returns the content rect. EndModal closes.
     // ModalButtonRow lays out OK / Cancel at the bottom (returns true for OK).
     struct ModalResult { bool ok = false; bool cancel = false; bool open = true; };
-    Rect BeginModal(u64 id, std::string_view title, const Vec2& size);
+    // `icon` shows in the header (the Luma mark when none is given). The
+    // header/footer chrome is added on top of `size`, so the content rect
+    // keeps the size callers asked for.
+    //
+    // A dialog is modal in the OS sense: while it is open nothing behind it
+    // gets the pointer or keys, it draws above every panel, and a click
+    // outside it flashes the frame and counts as a blocked click (the app
+    // plays the system alert, see TakeBlockedClick). Call BeginModal and
+    // EndModal every frame the dialog is up; it closes when OK / Cancel /
+    // the X / Escape are used (ModalButtonRow, ModalDismissed), on
+    // CloseModal, or when the caller stops drawing it. `closable` = false
+    // hides the X and ignores Escape (busy / progress dialogs).
+    Rect BeginModal(u64 id, std::string_view title, const Vec2& size, TextureHandle icon = {},
+                    bool closable = true);
+    // True once when the open dialog `id` was dismissed with its X button or
+    // Escape. ModalButtonRow reports it as Cancel; dialogs with their own
+    // buttons treat it the same way.
+    bool ModalDismissed(u64 id);
+    // Dialog chrome sizes (for dialogs that lay out their own footer buttons).
+    static constexpr f32 kModalHeaderH = 46.0f;
+    static constexpr f32 kModalFooterH = 48.0f;
+    static constexpr f32 kModalButtonH = 30.0f;
+    void CloseModal() { m_openModal = 0; }
+    bool AnyModalOpen() const { return m_openModal != 0; }
+    // A non-closable progress dialog for work the user must wait on
+    // (loading, compiling). Draw it every frame while busy; stop drawing it
+    // when done. `progress` < 0 shows an indeterminate bar.
+    void BusyModal(u64 id, std::string_view title, std::string_view status, f32 progress = -1.0f,
+                   TextureHandle icon = {});
+    // Clicks that hit something a modal dialog (or busy state) blocks, since
+    // the last call. The app answers each with the system alert sound.
+    int TakeBlockedClicks() { const int n = m_blockedClicks; m_blockedClicks = 0; return n; }
+    // App-level busy state with no dialog of its own (e.g. a splash): every
+    // click is blocked and reported.
+    void SetInputLocked(bool locked) { m_inputLocked = locked; }
     void EndModal();
     ModalResult ModalButtonRow(u64 id, const Rect& content,
                                std::string_view okLabel = "OK",
@@ -368,6 +404,9 @@ public:
     Font& titleFont() { return m_titleFont; }
     Font& uiFont() { return m_uiFont; }
     Font& mediumFont() { return m_mediumFont; }
+    // Semibold at Typography::subtitleSize / bold at Typography::headlineSize.
+    Font& subtitleFont() { return m_subtitleFont; }
+    Font& headlineFont() { return m_headlineFont; }
     Font& monoFont() { return m_monoFont; }
     // Small muted label font (menu section headers, captions).
     Font& smallFont() { return m_smallFont; }
@@ -497,6 +536,8 @@ private:
     Font m_titleFont;
     Font m_uiFont;
     Font m_mediumFont;
+    Font m_subtitleFont;
+    Font m_headlineFont;
     Font m_monoFont;
     Font m_smallFont;
     Theme m_theme = DarkTheme();
@@ -570,6 +611,17 @@ private:
     // outside-clicks dismiss cleanly.
     u64 m_openPopup = 0;       // id of the open MenuPopup / Dropdown
     u64 m_openModal = 0;       // id of the open BeginModal
+    u64 m_modalFrame = 0;      // last frame BeginModal drew it
+    Rect m_modalRect{};        // the open dialog's frame (last drawn)
+    bool m_modalClosable = true;
+    bool m_modalDrawing = false;  // between BeginModal and EndModal this frame
+    bool m_modalLift = false;     // lift [m_modalCmdBegin, m_modalCmdEnd) on top at EndFrame
+    usize m_modalCmdBegin = 0;
+    usize m_modalCmdEnd = 0;
+    u64 m_modalDismissed = 0;     // id whose X / Escape was used this frame
+    f32 m_modalFlashTime = -100.0f;
+    int m_blockedClicks = 0;
+    bool m_inputLocked = false;
     // Tooltip: this frame's hovered candidate, and the one being timed.
     u64 m_tipCandidate = 0;
     std::string m_tipCandidateText;

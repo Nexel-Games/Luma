@@ -144,8 +144,7 @@ public:
     // (flipping above when it doesn't fit); otherwise it opens at the
     // anchor's top-left (a cursor-positioned context menu).
     void Open(u64 owner, const Rect& anchor, bool below,
-              std::vector<MenuEntry> entries, const MenuOptions& options,
-              bool rightButtonHeld);
+              std::vector<MenuEntry> entries, const MenuOptions& options);
     void Close();
 
     bool IsOpen() const { return m_open; }
@@ -213,7 +212,6 @@ private:
     int m_activeLevel = 0;      // keyboard focus level
     bool m_justOpened = false;  // ignore the opening frame's clicks
     bool m_pressInside = false; // left press began inside the menu
-    bool m_rightHeld = false;   // opened by a still-held right press
     // Hover intent: a submenu switches only after the pointer rests on a
     // new row briefly, so diagonal moves toward an open submenu don't
     // collapse it.

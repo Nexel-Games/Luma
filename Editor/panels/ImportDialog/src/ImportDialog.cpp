@@ -18,8 +18,8 @@ constexpr f32 kIndent = 16.0f;
 constexpr f32 kCatH = 24.0f;
 constexpr f32 kFieldH = 26.0f;
 constexpr f32 kLabelW = 160.0f;
-constexpr f32 kButtonW = 84.0f;
-constexpr f32 kButtonH = 26.0f;
+constexpr f32 kButtonW = 96.0f;
+constexpr f32 kButtonH = Slate::Context::kModalButtonH;
 
 std::string LowerExt(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
@@ -282,8 +282,14 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
     const f32 modalH = std::min(620.0f, screenH * 0.9f);
     const Slate::Rect content = ui.BeginModal(Slate::Context::ID("import.dialog"), title, {modalW, modalH});
 
+    if (ui.ModalDismissed(Slate::Context::ID("import.dialog"))) {  // X / Escape
+        ui.EndModal();
+        Close();
+        return Action::Cancel;
+    }
     if (!ui.textFieldFocused()) {
         if (ui.keyEscape()) {
+            ui.CloseModal();
             ui.EndModal();
             Close();
             return Action::Cancel;
@@ -533,7 +539,7 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
     }
     ui.drawList().PopClip();
 
-    const f32 footerY = content.Bottom() + theme.space.lg;
+    const f32 footerY = content.Bottom() + theme.space.lg + (Slate::Context::kModalFooterH - kButtonH) * 0.5f;
     if (ui.IconTextButton(Slate::Context::ID("import.reset"), {content.x, footerY, 150.0f, kButtonH},
                           Slate::Icon::Reset, "Reset to Defaults", Slate::Color::RGB(255, 255, 255))) {
         for (Import::SettingsBlock* block : m_session->Settings().Blocks()) block->ResetToDefaults();
@@ -563,12 +569,14 @@ ImportDialog::Action ImportDialog::Draw(Slate::Context& ui, f32 screenW, f32 scr
         }
         x -= theme.space.md + kButtonW;
     }
-    if (ui.Button(Slate::Context::ID("import.go"), {x, footerY, kButtonW, kButtonH}, "Import")) {
+    if (ui.PrimaryButton(Slate::Context::ID("import.go"), {x, footerY, kButtonW, kButtonH}, "Import")) {
         RememberLast();
+        ui.CloseModal();
         ui.EndModal();
         Close();
         return Action::Import;
     }
+    ui.EndModal();
     return Action::None;
 }
 

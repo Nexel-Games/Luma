@@ -9,20 +9,18 @@
 #include "Luma/Core/Registration.h"
 #include "Luma/Core/Version.h"
 #include "Luma/Editor/MenuRegistry.h"
-#include "Luma/Editor/PanelRegistry.h"
 #include "Luma/EditorPlugins/PluginsWindow.h"
 #include "Luma/Plugins/PluginDiscovery.h"
 #include "Luma/Plugins/PluginManager.h"
 
 using Luma::EngineVersion;
 using Luma::Editor::MenuRegistry;
-using Luma::Editor::PanelRegistry;
 using Luma::EditorPlugins::PluginCategory;
 using Luma::EditorPlugins::PluginMatchesQuery;
 using Luma::EditorPlugins::PluginStatusLine;
 using Luma::EditorPlugins::PluginsWindow;
 using Luma::EditorPlugins::RegisterPluginsWindow;
-using Luma::EditorPlugins::kPluginsPanelId;
+using Luma::EditorPlugins::kPluginsWindowId;
 using Luma::Plugins::CompiledPluginTable;
 using Luma::Plugins::PluginManager;
 using Luma::Plugins::PluginOrigin;
@@ -143,21 +141,17 @@ TEST_CASE("Discover tags Built-In vs Project plugin folders", "[plugins][browser
     REQUIRE(mgr.Find("GameTool")->origin == PluginOrigin::Project);
 }
 
-TEST_CASE("RegisterPluginsWindow adds Edit → Plugins and a dockable panel",
+TEST_CASE("RegisterPluginsWindow adds Edit → Plugins, which opens the Plugins window",
           "[plugins][browser]") {
     MenuRegistry menus;
-    PanelRegistry panels;
     RegistrationSet set;
     set.Add(menus.RegisterMenu({"Edit", "Edit", 100, "Engine"}));
-    PluginsWindow window;
-    CompiledPluginTable table;
-    PluginManager mgr(table);
     bool opened = false;
-    RegisterPluginsWindow(set, menus, panels, window, mgr, [] { return nullptr; },
-                          [] { return nullptr; }, [&opened] { opened = true; });
-    REQUIRE(panels.Find(kPluginsPanelId));
+    RegisterPluginsWindow(set, menus, [&opened] { opened = true; });
     REQUIRE(menus.Execute("Edit.Plugins"));
     REQUIRE(opened);
+    // A window (like the asset editors), not a dock panel.
+    REQUIRE(std::string(kPluginsWindowId) == "plugins");
 }
 
 TEST_CASE("PlanEnable records beta and experimental flags", "[plugins][browser]") {

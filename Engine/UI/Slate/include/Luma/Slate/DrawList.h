@@ -65,6 +65,17 @@ public:
                         const Rect& uv = Rect{0.0f, 0.0f, 1.0f, 1.0f});
     void AddText(const Font& font, Vec2 pos, std::string_view text, Color color);
 
+    // Layering: commands are independent ranges, so a block of them can be
+    // lifted above everything recorded later (modal dialogs draw on top of
+    // panels drawn after them). BreakBatch makes the next draw start a new
+    // command so ranges never share one.
+    usize CommandCount() const { return m_commands.size(); }
+    void BreakBatch() { m_breakBatch = true; }
+    // A clip that ignores the enclosing one (screen-wide overlays drawn from
+    // inside a panel). Pop with PopClip.
+    void PushClipAbsolute(Rect clip) { m_clipStack.push_back(clip); }
+    void MoveCommandsToBack(usize begin, usize end);
+
     // Finalizes and returns draw data valid until the next Begin().
     const UIDrawData& Build();
 
@@ -84,6 +95,7 @@ private:
     std::vector<u32> m_indices;
     std::vector<UIDrawCommand> m_commands;
     std::vector<Rect> m_clipStack;
+    bool m_breakBatch = false;
 
     bool m_antiAliased = false;
     f32 m_displayWidth = 0.0f;

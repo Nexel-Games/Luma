@@ -47,6 +47,9 @@ bool Context::Init(Renderer& renderer, const std::string& fontPath,
     ok = m_monoFont.LoadFromFile(renderer, monoPath, monoSize * s) && ok;
     // Small muted label font (menu section headers) — 12px, regular weight.
     ok = m_smallFont.LoadFromFile(renderer, fontPath, 12.0f * s) && ok;
+    const Typography scale{};
+    ok = m_subtitleFont.LoadFromFile(renderer, uiPath, scale.subtitleSize * s) && ok;
+    ok = m_headlineFont.LoadFromFile(renderer, titlePath, scale.headlineSize * s) && ok;
     return ok;
 }
 
@@ -72,6 +75,10 @@ bool Context::Init(Renderer& renderer, const Typography& type, f32 dpiScale) {
     ok = m_mediumFont.LoadFromFile(renderer, med, type.captionSize * s) && ok;
     ok = m_uiFont.LoadFromFile(renderer, sb, type.headingSize * s) && ok;
     ok = m_titleFont.LoadFromFile(renderer, bd, type.titleSize * s) && ok;
+    ok = m_subtitleFont.LoadFromFile(renderer, type.subtitleFont.empty() ? sb : type.subtitleFont,
+                                     type.subtitleSize * s) && ok;
+    ok = m_headlineFont.LoadFromFile(renderer, type.headlineFont.empty() ? bd : type.headlineFont,
+                                     type.headlineSize * s) && ok;
     ok = m_monoFont.LoadFromFile(renderer, mono, type.captionSize * s) && ok;
     // Small muted label font (menu section headers) — 12px, regular weight.
     ok = m_smallFont.LoadFromFile(renderer, reg, 12.0f * s) && ok;
@@ -192,10 +199,25 @@ void Context::BeginFrame(f32 displayWidth, f32 displayHeight, f32 dt) {
     // the widgets underneath. EndFrame restores the real input for the menu.
     // An open modal dialog does the same for everything drawn before it;
     // BeginModal hands the real input back to the dialog's own widgets.
-    if (m_menus.IsOpen() || m_openModal != 0) BlockInput();
+    // A dialog its owner stopped drawing is closed.
+    if (m_openModal != 0 && m_modalFrame + 1 < m_frame) m_openModal = 0;
+    m_modalDrawing = false;
+    m_modalLift = false;
+    m_modalDismissed = 0;
+    // Clicks a dialog (or a busy lock) blocks: anywhere outside the dialog.
+    // Each one flashes the dialog and is reported for the alert sound.
+    if ((m_openModal != 0 && !m_menus.IsOpen()) || m_inputLocked) {
+        const bool pressed = m_mousePressed[0] || m_mousePressed[1] || m_mousePressed[2];
+        if (pressed && (m_inputLocked || !m_modalRect.Contains(m_mouse))) {
+            ++m_blockedClicks;
+            m_modalFlashTime = m_time;
+        }
+    }
+    if (m_menus.IsOpen() || m_openModal != 0 || m_inputLocked) BlockInput();
 }
 
 void Context::BlockInput() {
+    if (m_inputBlocked) return;  // the stash already holds the real input
     InputStash& s = m_stash;
     s.mouse = m_mouse;
     s.mouseDelta = m_mouseDelta;
@@ -252,7 +274,7 @@ void Context::RestoreInput() {
 void Context::OpenMenu(u64 owner, Vec2 pos, std::vector<MenuEntry> entries,
                        const MenuOptions& options) {
     m_menus.Open(owner, Rect{pos.x, pos.y, 0.0f, 0.0f}, false,
-                 std::move(entries), options, isMouseDown(1));
+                 std::move(entries), options);
 }
 
 int Context::Combo(u64 id, const Rect& rect,
@@ -328,7 +350,12 @@ bool Context::IconTextButton(u64 id, const Rect& rect, Icon icon,
     const Vec2 ts = m_uiFont.Measure(label);
     const f32 total = is + (label.empty() ? 0.0f : 6.0f + ts.x);
     f32 x = rect.x + (rect.w - total) * 0.5f;
-    DrawIcon(*this, {x, rect.y + (rect.h - is) * 0.5f, is, is}, icon, iconColor);
+    const Rect iconBox{x, rect.y + (rect.h - is) * 0.5f, is, is};
+    if (icon == Icon::Plus) {
+        DrawAddGlyph(*this, iconBox, iconColor);  // Add buttons: a bold, legible "+"
+    } else {
+        DrawIcon(*this, iconBox, icon, iconColor);
+    }
     if (!label.empty()) {
         m_draw.AddText(m_uiFont,
                        {x + is + 6.0f, rect.y + (rect.h - m_uiFont.LineHeight()) * 0.5f},
@@ -340,10 +367,16 @@ bool Context::IconTextButton(u64 id, const Rect& rect, Icon icon,
 void Context::OpenMenuBelow(u64 owner, const Rect& anchor,
                             std::vector<MenuEntry> entries,
                             const MenuOptions& options) {
-    m_menus.Open(owner, anchor, true, std::move(entries), options, false);
+    m_menus.Open(owner, anchor, true, std::move(entries), options);
 }
 
 const UIDrawData& Context::EndFrame() {
+    // A dialog whose caller never reached EndModal ends here.
+    if (m_modalDrawing) EndModal();
+    if (m_modalLift) {
+        m_draw.MoveCommandsToBack(m_modalCmdBegin, m_modalCmdEnd);
+        m_modalLift = false;
+    }
     // Overlay pass: the open menu draws last (on top of every panel, with
     // the clip stack unwound) using the real input hidden from widgets.
     RestoreInput();
@@ -1909,73 +1942,219 @@ void Context::DrawTooltip() {
     }
 }
 
-Rect Context::BeginModal(u64 id, std::string_view title, const Vec2& size) {
-    // First call with this id opens the modal; subsequent calls return the
-    // existing content rect so the caller can lay out content. Caller closes
-    // via EndModal() (or implicitly on next frame after cancel/OK).
+Rect Context::BeginModal(u64 id, std::string_view title, const Vec2& size, TextureHandle icon,
+                         bool closable) {
     if (m_openModal != id) {
         m_openModal = id;
         m_modalOk[id] = false;
         m_modalCancel[id] = false;
+        m_modalFlashTime = -100.0f;
     }
+    m_modalFrame = m_frame;
+    m_modalClosable = closable;
+    // Everything this dialog draws until EndModal is one layer, lifted above
+    // the panels drawn after it at EndFrame.
+    m_draw.BreakBatch();
+    m_modalCmdBegin = m_draw.CommandCount();
+    m_modalDrawing = true;
     // Panels drawn before the dialog were input-blocked (see BeginFrame);
     // the dialog's widgets get the real input. A menu opened from the
     // dialog keeps owning it.
-    if (!m_menus.IsOpen()) RestoreInput();
-    // Scrim.
-    m_draw.AddRectFilled({0, 0, m_displayW, m_displayH},
-                         Color::RGBA(0, 0, 0, 160));
-    // Centered panel.
-    Vec2 sz = size;
-    f32 x = (m_displayW - sz.x) * 0.5f;
-    f32 y = (m_displayH - sz.y) * 0.5f;
-    Rect panel{x, y, sz.x, sz.y};
-    m_draw.AddRectShadow(panel, m_theme.radius.lg, 0.55f, 18.0f);
-    m_draw.AddRectFilledRounded(panel, m_theme.surface1, m_theme.radius.lg);
-    m_draw.AddRectOutline(panel, m_theme.outline, m_theme.border.hairline);
-    // Title bar.
-    f32 titleH = 32.0f;
-    m_draw.AddRectFilled({panel.x, panel.y, panel.w, titleH}, m_theme.header);
-    m_draw.AddRectFilled(
-        {panel.x, panel.y + titleH, panel.w, 1.0f}, m_theme.separator);
-    m_draw.AddText(m_uiFont,
-                   {panel.x + m_theme.space.lg,
-                    panel.y + (titleH - m_uiFont.LineHeight()) * 0.5f},
-                   title, m_theme.text);
-    // Content rect excludes title bar and a bottom padding row for buttons.
-    f32 buttonRowH = 36.0f;
-    return Rect{panel.x + m_theme.space.lg,
-                panel.y + titleH + m_theme.space.lg,
-                panel.w - m_theme.space.lg * 2.0f,
-                panel.h - titleH - buttonRowH - m_theme.space.lg * 2.0f};
+    if (!m_menus.IsOpen() && !m_inputLocked) RestoreInput();
+    // The clip stack belongs to whoever called us; the dialog is screen-wide.
+    m_draw.PushClipAbsolute({0, 0, m_displayW, m_displayH});
+    const Color white = Color::RGBA(255, 255, 255, 255);
+    m_draw.AddRectFilled({0, 0, m_displayW, m_displayH}, Color::RGBA(4, 5, 8, 185));
+    constexpr f32 kHeaderH = kModalHeaderH;
+    constexpr f32 kFooterH = kModalFooterH;
+    // Callers sized for the old chrome (32 + 36); grow by the difference so
+    // their content rect is unchanged.
+    const Vec2 sz{size.x, size.y + (kHeaderH - 32.0f) + (kFooterH - 36.0f)};
+    const f32 x = std::floor((m_displayW - sz.x) * 0.5f);
+    const f32 y = std::floor((m_displayH - sz.y) * 0.5f);
+    const Rect panel{x, y, sz.x, sz.y};
+    m_modalRect = panel;
+    const f32 r = m_theme.radius.lg;
+    // Blocked click: the frame pulses (Windows flashes a modal's caption).
+    const f32 since = m_time - m_modalFlashTime;
+    const f32 flash = since >= 0.0f && since < 0.6f
+                          ? 0.5f + 0.5f * std::cos(since * 6.2831853f * 2.5f)
+                          : 0.0f;
+    if (flash > 0.0f) {
+        m_draw.AddRectOutlineRounded(panel.Inset(-3.0f, -3.0f),
+                                     m_theme.accent.WithAlpha(static_cast<u8>(220 * flash)), 2.0f, r + 3.0f);
+    }
+    m_draw.AddRectFilledRounded(panel, m_theme.surface1, r);
+    // Header: brand-tinted wash fading right, accent rule on top.
+    const Rect header{panel.x, panel.y, panel.w, kHeaderH};
+    m_draw.AddRectFilledGradient({header.x + 1, header.y + 3, header.w - 2, header.h - 3},
+                                 Mix(m_theme.surface1, m_theme.accent, 0.10f + 0.12f * flash), m_theme.surface1);
+    m_draw.AddRectFilledGradientH({header.x + 1, header.y + 3, header.w * 0.6f, header.h - 3},
+                                  m_theme.accent.WithAlpha(40), m_theme.accent.WithAlpha(0));
+    m_draw.AddRectFilledRounded({panel.x, panel.y, panel.w, 4.0f},
+                                Mix(m_theme.accent, white, 0.35f * flash), 2.0f);
+    m_draw.AddRectFilledGradientH({panel.x, header.Bottom() - 1.0f, panel.w, 1.0f},
+                                  m_theme.accent.WithAlpha(150), m_theme.separator);
+    // Icon tile + title.
+    const f32 tile = 30.0f;
+    const Rect iconTile{panel.x + 12.0f, header.y + 3.0f + (kHeaderH - 3.0f - tile) * 0.5f, tile, tile};
+    m_draw.AddRectFilledRounded(iconTile, Color::RGBA(0, 0, 0, 70), m_theme.radius.md);
+    m_draw.AddRectOutlineRounded(iconTile, m_theme.accent.WithAlpha(90), 1.0f, m_theme.radius.md);
+    if (icon) {
+        Image(icon, iconTile.Inset(4.0f, 4.0f));
+    } else {
+        LogoMark({iconTile.x + tile * 0.5f, iconTile.y + tile * 0.5f}, tile * 0.5f - 6.0f);
+    }
+    Font& tf = m_subtitleFont.LineHeight() > 0 ? m_subtitleFont : m_uiFont;
+    m_draw.AddText(tf, {iconTile.Right() + 10.0f, iconTile.y + (tile - tf.LineHeight()) * 0.5f}, title, white);
+    // Close (X) on the right, brand tag beside it.
+    f32 tagRight = header.Right() - 18.0f;
+    if (closable) {
+        const Rect xr{header.Right() - 38.0f, iconTile.y + (tile - 26.0f) * 0.5f, 26.0f, 26.0f};
+        const u64 xid = id ^ 0x0C105Eull;
+        const bool hover = xr.Contains(m_mouse);
+        if (hover) {
+            m_hot = xid;
+            m_requestedCursor = CursorShape::Hand;
+        }
+        if (hover && m_mousePressed[0]) m_active = xid;
+        bool clicked = false;
+        if (m_active == xid && m_mouseReleased[0]) {
+            clicked = hover;
+            m_active = 0;
+        }
+        const f32 ht = Animate(xid, hover, m_theme.motion.hover);
+        if (ht > 0.01f) {
+            m_draw.AddRectFilledRounded(xr, Color::RGBA(232, 17, 35, static_cast<u8>(210 * ht)),
+                                        m_theme.radius.md);
+        }
+        const Vec2 c{xr.x + xr.w * 0.5f, xr.y + xr.h * 0.5f};
+        const f32 k = 5.0f;
+        const Color xc = Mix(m_theme.textDim, white, std::max(ht, 0.55f));
+        m_draw.AddLine({c.x - k, c.y - k}, {c.x + k, c.y + k}, xc, 2.0f);
+        m_draw.AddLine({c.x - k, c.y + k}, {c.x + k, c.y - k}, xc, 2.0f);
+        if (clicked || (m_keyEscape && !m_menus.IsOpen())) {
+            m_modalDismissed = id;
+            m_keyEscape = false;
+        }
+        tagRight = xr.x - 12.0f;
+    }
+    const std::string_view tag = "LUMA ENGINE";
+    const Vec2 tagSz = m_uiFont.Measure(tag);
+    m_draw.AddText(m_uiFont, {tagRight - tagSz.x, iconTile.y + (tile - m_uiFont.LineHeight()) * 0.5f}, tag,
+                   m_theme.accent.WithAlpha(150));
+    // Footer band for the buttons.
+    const Rect footer{panel.x, panel.Bottom() - kFooterH, panel.w, kFooterH};
+    const Color footerBg = Darken(m_theme.surface1, 0.22f);
+    m_draw.AddRectFilledRounded(footer, footerBg, r);
+    m_draw.AddRectFilled({footer.x, footer.y, footer.w, r}, footerBg);
+    m_draw.AddRectFilled({footer.x, footer.y, footer.w, 1.0f}, m_theme.separator);
+    // Frame on top of everything.
+    m_draw.AddRectOutlineRounded(panel, Mix(m_theme.outline, m_theme.accent, 0.25f + 0.6f * flash),
+                                 m_theme.border.hairline, r);
+    const f32 pad = m_theme.space.lg + 4.0f;
+    return Rect{panel.x + pad, header.Bottom() + m_theme.space.lg + 2.0f, panel.w - pad * 2.0f,
+                footer.y - header.Bottom() - m_theme.space.lg * 2.0f - 2.0f};
 }
 
 void Context::EndModal() {
+    if (!m_modalDrawing) return;
+    m_draw.PopClip();
+    m_modalCmdEnd = m_draw.CommandCount();
+    m_draw.BreakBatch();
+    m_modalDrawing = false;
+    m_modalLift = true;
+    // Widgets drawn after the dialog this frame sit behind it: no input.
+    BlockInput();
+}
+
+bool Context::ModalDismissed(u64 id) {
+    if (m_modalDismissed != id || m_openModal != id) return false;
+    m_modalDismissed = 0;
     m_openModal = 0;
+    return true;
+}
+
+void Context::BusyModal(u64 id, std::string_view title, std::string_view status, f32 progress,
+                        TextureHandle icon) {
+    const Rect content = BeginModal(id, title, {460.0f, 120.0f}, icon, false);
+    m_draw.AddText(m_font, {content.x, content.y + 4.0f}, status, Color::RGBA(255, 255, 255, 255));
+    const Rect bar{content.x, content.y + 44.0f, content.w, 10.0f};
+    m_draw.AddRectFilledRounded(bar, Color::RGBA(0, 0, 0, 90), 5.0f);
+    if (progress >= 0.0f) {
+        const f32 p = std::clamp(progress, 0.0f, 1.0f);
+        if (p > 0.0f) m_draw.AddRectFilledRounded({bar.x, bar.y, bar.w * p, bar.h}, m_theme.accent, 5.0f);
+    } else {
+        // Indeterminate: a segment sweeping across.
+        const f32 seg = bar.w * 0.28f;
+        const f32 t = std::fmod(m_time * 0.8f, 1.0f);
+        const f32 sx = bar.x - seg + (bar.w + seg) * t;
+        const f32 x0 = std::max(sx, bar.x);
+        const f32 x1 = std::min(sx + seg, bar.Right());
+        if (x1 > x0) m_draw.AddRectFilledRounded({x0, bar.y, x1 - x0, bar.h}, m_theme.accent, 5.0f);
+    }
+    m_draw.AddText(m_uiFont, {content.x, content.Bottom() + m_theme.space.lg + 18.0f},
+                   "Please wait...", m_theme.textDim);
+    EndModal();
 }
 
 Context::ModalResult Context::ModalButtonRow(u64 id, const Rect& content,
                                             std::string_view okLabel,
                                             std::string_view cancelLabel) {
     ModalResult r;
+    if (ModalDismissed(id)) {  // X / Escape = Cancel
+        r.cancel = true;
+        return r;
+    }
     r.open = (m_openModal == id);
-    // Buttons live just below `content`.
-    f32 bw = 90.0f;
-    f32 bh = 26.0f;
-    f32 gap = m_theme.space.md;
-    Rect okRect{content.Right() - bw, content.Bottom() + gap, bw, bh};
-    Rect cancelRect{okRect.x - bw - gap, content.Bottom() + gap, bw, bh};
+    // Buttons centred in the footer band just below `content`.
+    const f32 bh = kModalButtonH;
+    const f32 gap = m_theme.space.md;
+    auto widthFor = [&](std::string_view label) {
+        return std::max(92.0f, m_uiFont.Measure(label).x + 32.0f);
+    };
+    const f32 by = content.Bottom() + m_theme.space.lg + (kModalFooterH - bh) * 0.5f;
+    const f32 okW = widthFor(okLabel);
+    const Rect okRect{content.Right() - okW, by, okW, bh};
+    const f32 cw = widthFor(cancelLabel);
+    const Rect cancelRect{okRect.x - cw - gap, by, cw, bh};
     if (r.open) {
-        if (Button(id ^ 0xCAFEF00Dull, okRect, okLabel)) {
+        if (PrimaryButton(id ^ 0xCAFEF00Dull, okRect, okLabel)) {
             r.ok = true;
             m_openModal = 0;
         }
-        if (Button(id ^ 0xBADF00Dull, cancelRect, cancelLabel)) {
+        if (!cancelLabel.empty() && Button(id ^ 0xBADF00Dull, cancelRect, cancelLabel)) {
             r.cancel = true;
             m_openModal = 0;
         }
     }
     return r;
+}
+
+bool Context::PrimaryButton(u64 id, const Rect& rect, std::string_view label) {
+    bool hovered = rect.Contains(m_mouse);
+    if (hovered) {
+        m_hot = id;
+        m_requestedCursor = CursorShape::Hand;
+    }
+    if (hovered && m_mousePressed[0]) m_active = id;
+    bool clicked = false;
+    if (m_active == id && m_mouseReleased[0]) {
+        if (hovered) clicked = true;
+        m_active = 0;
+    }
+    const f32 hoverT = Animate(id ^ 0xBEEFCAFEull, hovered, m_theme.motion.hover);
+    Color bg = Mix(m_theme.accent, m_theme.accentHover, hoverT);
+    if (m_active == id) bg = m_theme.accentActive;
+    if (hoverT > 0.01f) m_draw.AddRectShadow(rect, m_theme.rounding, 0.35f * hoverT, 10.0f);
+    m_draw.AddRectFilledRounded(rect, bg, m_theme.rounding);
+    m_draw.AddRectFilledGradient({rect.x + 1, rect.y + 1, rect.w - 2, rect.h * 0.5f},
+                                 Color::RGBA(255, 255, 255, 28), Color::RGBA(255, 255, 255, 0));
+    Font& f = m_subtitleFont.LineHeight() > 0 ? m_subtitleFont : m_uiFont;
+    const Vec2 size = f.Measure(label);
+    m_draw.AddText(f, {rect.x + (rect.w - size.x) * 0.5f, rect.y + (rect.h - f.LineHeight()) * 0.5f}, label,
+                   Color::RGBA(255, 255, 255, 255));
+    return clicked;
 }
 
 void Context::ProgressBar(const Rect& rect, f32 fraction, std::string_view text) {

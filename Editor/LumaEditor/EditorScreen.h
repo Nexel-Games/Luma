@@ -41,6 +41,7 @@
 #include "Luma/Gizmo/TransformGizmo.h"
 #include "Luma/Material/MaterialLibrary.h"
 #include "Luma/Math/Math.h"
+#include "Luma/CodeEditor/CodeEditorWindow.h"
 #include "Luma/EditorPlugins/PluginsWindow.h"
 #include "Luma/Plugins/PluginManager.h"
 #include "Luma/Project/Project.h"
@@ -124,7 +125,7 @@ public:
     // tabs, the main toolbar, the Output Log badges and the viewport toolbar.
     struct IconSet {
         TextureHandle tabOutliner = 0, tabDetails = 0, tabViewport = 0;
-        TextureHandle tabContent = 0, tabOutputLog = 0;
+        TextureHandle tabContent = 0, tabOutputLog = 0, tabPlugins = 0, pluginCard = 0, brandLogo = 0, tabCode = 0;
         TextureHandle save = 0, error = 0, warning = 0;
         Editor::Panels::ViewportIcons viewport;
     };
@@ -267,6 +268,11 @@ private:
     // prefab there and links to it; a prefab dropped in the viewport places a
     // linked copy; Apply / Revert / Unpack from the Inspector's prefab bar.
     void CreatePrefab(Entity actor, const std::filesystem::path& folder);
+    // Edit → Plugins: the plugin browser in its own window (docks into the window row).
+    void OpenPluginsWindow();
+    void OpenCodeEditor();
+    // The Rubik Iso branding face ("LUMA PLUGINS", "LUMA CODE"), loaded once.
+    const Slate::Font* BrandFont();
     void DropPrefab(const Math::Vec3& origin, const Math::Vec3& dir, const std::string& prefab);
     void PrefabAction(Entity entity, Editor::Panels::PanelContext::PrefabAction action);
     // Brings the level's copies of `prefab` up to date with its file (when
@@ -333,6 +339,7 @@ private:
     Plugins::ModuleManager m_modules;
 #endif
     EditorPlugins::PluginsWindow m_pluginsWindow;
+    CodeEditor::CodeEditorWindow m_codeEditor;
     std::string m_title;
 
     Scene m_authoringScene;
@@ -407,6 +414,8 @@ private:
     AssetPathResolver m_assetPaths;
     // Prefabs already reported missing (warned once until they are back).
     std::set<std::string> m_missingPrefabs;
+    // "LUMA PLUGINS" branding face (Rubik Iso), loaded when the Plugins window first opens.
+    std::unique_ptr<Slate::Font> m_pluginsBrandFont;
     std::unique_ptr<Material::MaterialLibrary> m_materials;
     std::unique_ptr<Import::ImportSession> m_importSession;
     struct PendingTranslate;

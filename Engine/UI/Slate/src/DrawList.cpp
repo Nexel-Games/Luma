@@ -14,6 +14,7 @@ void DrawList::Begin(f32 displayWidth, f32 displayHeight) {
     m_indices.clear();
     m_commands.clear();
     m_clipStack.clear();
+    m_breakBatch = false;
     m_displayWidth = displayWidth;
     m_displayHeight = displayHeight;
 }
@@ -43,7 +44,8 @@ void DrawList::PopClip() {
 
 void DrawList::EnsureCommand(TextureHandle texture) {
     Rect clip = CurrentClip();
-    bool needNew = m_commands.empty();
+    bool needNew = m_commands.empty() || m_breakBatch;
+    m_breakBatch = false;
     if (!needNew) {
         const UIDrawCommand& last = m_commands.back();
         needNew = last.texture != texture || last.clipX != clip.x ||
@@ -359,6 +361,14 @@ void DrawList::AddText(const Font& font, Vec2 pos, std::string_view text,
     font.Layout(pos, text, [&](const Rect& dst, const Rect& uv) {
         AddQuad(atlas, dst, uv, color);
     });
+}
+
+void DrawList::MoveCommandsToBack(usize begin, usize end) {
+    end = std::min(end, m_commands.size());
+    if (begin >= end || end == m_commands.size()) return;
+    std::rotate(m_commands.begin() + static_cast<std::ptrdiff_t>(begin),
+                m_commands.begin() + static_cast<std::ptrdiff_t>(end), m_commands.end());
+    m_breakBatch = true;  // later draws must not extend the lifted block
 }
 
 const UIDrawData& DrawList::Build() {

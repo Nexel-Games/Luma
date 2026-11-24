@@ -970,7 +970,7 @@ void InspectorPanel::DrawFloatingPickers(Slate::Context& ui, PanelContext& ctx) 
         // from an earlier frame (the entity or its data went away).
         if (!m_pendingRemoveId.empty()) CancelRemoveUnresolved();
         if (m_removeDialogOpen) {
-            ui.EndModal();
+            ui.CloseModal();
             m_removeDialogOpen = false;
         }
         return;
@@ -994,6 +994,7 @@ void InspectorPanel::DrawFloatingPickers(Slate::Context& ui, PanelContext& ctx) 
         m_removeDialogOpen = false;
         CancelRemoveUnresolved();
     }
+    ui.EndModal();
 }
 
 }  // namespace Luma::Editor::Panels

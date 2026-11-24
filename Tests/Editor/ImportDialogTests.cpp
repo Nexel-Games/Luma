@@ -1,3 +1,4 @@
+#include <cmath>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
@@ -58,11 +59,15 @@ Hit UniformScale() {
 }
 
 Hit ImportButton() {
-    const f32 contentRight = (1400.0f - 960.0f) * 0.5f + 12.0f + 936.0f;
-    const f32 contentBottom = (900.0f - 620.0f) * 0.5f + 32.0f + 12.0f + 528.0f;
-    const f32 cancelX = contentRight - 84.0f;
-    const f32 importX = cancelX - 8.0f - 84.0f;
-    return {importX + 42.0f, contentBottom + 12.0f + 13.0f};
+    using Luma::Slate::Context;
+    const f32 panelH = 620.0f + (Context::kModalHeaderH - 32.0f) + (Context::kModalFooterH - 36.0f);
+    const f32 panelY = std::floor((900.0f - panelH) * 0.5f);
+    const f32 contentRight = (1400.0f - 960.0f) * 0.5f + 16.0f + 928.0f;
+    const f32 contentBottom = panelY + panelH - Context::kModalFooterH - 12.0f;
+    const f32 cancelX = contentRight - 96.0f;
+    const f32 importX = cancelX - 8.0f - 96.0f;
+    return {importX + 48.0f,
+            contentBottom + 12.0f + (Context::kModalFooterH - Context::kModalButtonH) * 0.5f + 15.0f};
 }
 
 class DialogHarness {

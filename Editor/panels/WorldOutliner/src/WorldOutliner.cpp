@@ -64,12 +64,8 @@ void WorldOutlinerPanel::Draw(Slate::Context& ui, const Slate::Rect& body,
         if (menuOpen) {
             ui.drawList().AddRectOutline(btn, t.accent, t.border.hairline);
         }
-        if (m_createButtonIcon) {
-            ui.Image(m_createButtonIcon, {btn.x + 2.0f, btn.y + 2.0f, 22.0f,
-                                          22.0f});
-        } else {
-            Slate::DrawIcon(ui, btn, Icon::Plus, menuOpen ? t.accent : t.textDim);
-        }
+        // A bold vector "+" (the 12px create image blurred when scaled up).
+        Slate::DrawAddGlyph(ui, btn.Inset(5.0f, 5.0f), menuOpen ? t.accent : t.success);
         if (clicked) {
             Slate::MenuOptions mo;
             mo.searchable = true;

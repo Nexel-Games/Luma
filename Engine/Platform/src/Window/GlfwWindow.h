@@ -57,7 +57,7 @@ private:
     bool m_pointerLocked = false;
     WindowData m_data;
 
-    GLFWcursor* m_cursors[5] = {};  // indexed by CursorShape
+    GLFWcursor* m_cursors[static_cast<int>(CursorShape::Count)] = {};  // indexed by CursorShape
     CursorShape m_currentCursor = CursorShape::Arrow;
 };
 

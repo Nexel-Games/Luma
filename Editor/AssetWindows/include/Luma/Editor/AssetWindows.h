@@ -39,6 +39,9 @@ class AssetWindowManager {
 public:
     static constexpr f32 kRowH = 28.0f;    // the window row
     static constexpr f32 kTitleH = 30.0f;  // floating window title bar
+    static constexpr f32 kResizeGrip = 6.0f;  // edge band that resizes a floating window
+    static constexpr f32 kMinW = 420.0f;      // smallest floating window
+    static constexpr f32 kMinH = 260.0f;
 
     // Opens a floating window centred in `workArea` (~80% of it). An id that
     // is already open is focused instead; returns false in that case.
@@ -101,6 +104,13 @@ private:
     Slate::Vec2 m_dragOffset{0, 0};
     Slate::Vec2 m_pressAt{0, 0};
     Slate::Rect m_rowRect{};  // last row rect (drop target)
+    // Edge / corner resize of a floating window.
+    enum Edge : u8 { kLeft = 1, kRight = 2, kTop = 4, kBottom = 8 };
+    static u8 EdgesAt(const Slate::Rect& r, Slate::Vec2 p);
+    static void RequestResizeCursor(Slate::Context& ui, u8 edges);
+    std::string m_resizing;
+    u8 m_resizeEdges = 0;
+    Slate::Rect m_resizeStart{};
 };
 
 }  // namespace Luma::Editor

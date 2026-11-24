@@ -4,7 +4,8 @@ luma_require_glfw()
 
 add_library(LumaPlatform ${LUMA_LIBRARY_TYPE}
     src/Window/GlfwWindow.cpp
-    src/Process/Process.cpp)
+    src/Process/Process.cpp
+    src/Sound/Sound.cpp)
 
 add_library(Luma::Platform ALIAS LumaPlatform)
 
@@ -18,7 +19,7 @@ target_link_libraries(LumaPlatform
     PUBLIC Luma::Core
     PRIVATE glfw Vulkan::Vulkan)
 if(WIN32)
-    target_link_libraries(LumaPlatform PRIVATE shell32)
+    target_link_libraries(LumaPlatform PRIVATE shell32 user32)
 endif()
 
 set_target_properties(LumaPlatform PROPERTIES FOLDER "Engine")

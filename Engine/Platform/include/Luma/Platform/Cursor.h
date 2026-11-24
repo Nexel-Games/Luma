@@ -9,6 +9,9 @@ enum class CursorShape {
     ResizeNS,  // vertical resize (horizontal splitter)
     Hand,      // clickable
     IBeam,     // text field
+    ResizeNWSE,  // diagonal resize (top-left / bottom-right corner)
+    ResizeNESW,  // diagonal resize (top-right / bottom-left corner)
+    Count
 };
 
 }  // namespace Luma

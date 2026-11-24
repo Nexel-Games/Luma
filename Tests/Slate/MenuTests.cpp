@@ -165,6 +165,33 @@ TEST_CASE("Clicking a menu entry runs its action and closes the menu",
     CHECK_FALSE(f.ui.AnyMenuOpen());
 }
 
+TEST_CASE("Releasing the right-click that opened a context menu does not select an item",
+          "[slate][menu]") {
+    Fixture f;
+    int fired = 0;
+    MenuBuilder b;
+    b.AddEntry("Create", {}, [&] { ++fired; });
+
+    f.ui.OnMouseMove(100, 100);
+    f.ui.OnMouseButton(1, true);
+    f.Frame([&] { f.ui.OpenMenu(42, {100, 100}, b.Build()); });
+    REQUIRE(f.ui.IsMenuOpen(42));
+
+    const Rect row = f.ui.menus().EntryRect(0, "Create");
+    REQUIRE(row.w > 0.0f);
+    const auto center = Center(row);
+    f.Move(center.x, center.y);
+    f.ui.OnMouseButton(1, false);
+    f.Frame();
+
+    CHECK(fired == 0);
+    CHECK(f.ui.IsMenuOpen(42));
+
+    f.Click(center.x, center.y);
+    CHECK(fired == 1);
+    CHECK_FALSE(f.ui.AnyMenuOpen());
+}
+
 TEST_CASE("An open menu blocks input to widgets and an outside click dismisses it",
           "[slate][menu]") {
     Fixture f;

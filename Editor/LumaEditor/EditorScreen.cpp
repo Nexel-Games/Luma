@@ -57,7 +57,14 @@
 #include "Luma/VFS/VFS.h"
 #include "Luma/Renderer/DeferredSceneView.h"
 #include "Luma/Rendering/Vulkan/VulkanDeferredRenderer.h"
+#pragma push_macro("RGB")
+#undef RGB  // windows.h macro: Icons.h uses Color::RGB
+#include "Luma/Slate/Icons.h"
+#pragma pop_macro("RGB")
 #include "Luma/Slate/Image.h"
+#ifdef LoadImage
+#undef LoadImage  // windows.h macro (LoadImageA/W) would rename Slate::LoadImage
+#endif
 
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -363,7 +370,7 @@ void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
     const f32 height = 150.0f + lineH * static_cast<f32>(listed + (unsaved.size() > kListed));
     const Rect content = ui.BeginModal(id, "Unsaved Changes", {520.0f, height});
     f32 y = content.y;
-    ui.Label({content.x, y}, "These assets have unsaved changes:", t.text);
+    ui.Label({content.x, y}, "These assets have unsaved changes:", Color::RGBA(255, 255, 255, 255));
     y += lineH + 6.0f;
     for (usize i = 0; i < listed; ++i) {
         ui.Label({content.x + 12.0f, y}, unsaved[i], t.textDim);
@@ -373,25 +380,26 @@ void EditorScreen::DrawClosePrompt(Slate::Context& ui) {
         ui.Label({content.x + 12.0f, y},
                  "and " + std::to_string(unsaved.size() - kListed) + " more", t.textDim);
     }
-    const f32 bw = 110.0f, bh = 26.0f, gap = 8.0f;
-    const f32 by = content.Bottom() + gap;
+    const f32 bw = 104.0f, bh = Slate::Context::kModalButtonH, gap = 8.0f;
+    const f32 by = content.Bottom() + t.space.lg + (Slate::Context::kModalFooterH - bh) * 0.5f;
     const Rect saveRect{content.Right() - bw, by, bw, bh};
     const Rect discardRect{saveRect.x - bw - gap, by, bw, bh};
     const Rect cancelRect{discardRect.x - bw - gap, by, bw, bh};
-    if (ui.Button(id ^ 0x5A5Eull, saveRect, "Save All")) {
+    if (ui.PrimaryButton(id ^ 0x5A5Eull, saveRect, "Save All")) {
         m_closeRequested = false;
         // Stay open when something failed to save (the errors are logged).
         m_closeConfirmed = SaveMaterialAssets();
-        ui.EndModal();
+        ui.CloseModal();
     } else if (ui.Button(id ^ 0xD15Cull, discardRect, "Don't Save")) {
         m_closeRequested = false;
         m_closeConfirmed = true;
-        ui.EndModal();
-    } else if (ui.Button(id ^ 0xCA9Cull, cancelRect, "Cancel")) {
+        ui.CloseModal();
+    } else if (ui.Button(id ^ 0xCA9Cull, cancelRect, "Cancel") || ui.ModalDismissed(id)) {
         m_closeRequested = false;
         m_relaunch = false;
-        ui.EndModal();
+        ui.CloseModal();
     }
+    ui.EndModal();
 }
 
 void EditorScreen::OpenMaterialEditor(const std::string& assetPath) {
@@ -587,9 +595,9 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
     Slate::Theme& t = ui.theme();
     const Rect content = ui.BeginModal(id, "Save Changes?", {460.0f, 150.0f});
     ui.LabelIn({content.x, content.y, content.w, 22.0f},
-               "'" + m_closingEditor + "' has unsaved changes.", t.text);
-    const f32 bw = 110.0f, bh = 26.0f, gap = 8.0f;
-    const f32 by = content.Bottom() + gap;
+               "'" + m_closingEditor + "' has unsaved changes.", Color::RGBA(255, 255, 255, 255));
+    const f32 bw = 104.0f, bh = Slate::Context::kModalButtonH, gap = 8.0f;
+    const f32 by = content.Bottom() + t.space.lg + (Slate::Context::kModalFooterH - bh) * 0.5f;
     const Rect save{content.Right() - bw, by, bw, bh};
     const Rect discard{save.x - bw - gap, by, bw, bh};
     const Rect cancel{discard.x - bw - gap, by, bw, bh};
@@ -607,7 +615,7 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
         m_closingEditor.clear();
         m_closingWindow.clear();
     };
-    if (ui.Button(id ^ 0x5A5Eull, save, "Save")) {
+    if (ui.PrimaryButton(id ^ 0x5A5Eull, save, "Save")) {
         std::string err;
         const bool saved = IsGraphEditor(m_closingEditor) ? SaveGraphEditor(m_closingEditor, &err)
                                                           : m_materials->Save(m_closingEditor, &err);
@@ -619,17 +627,18 @@ void EditorScreen::DrawMaterialEditorClosePrompt(Slate::Context& ui) {
             m_closingEditor.clear();
             m_closingWindow.clear();
         }
-        ui.EndModal();
+        ui.CloseModal();
     } else if (ui.Button(id ^ 0xD15Cull, discard, "Don't Save")) {
         // Drop the in-memory edits: reload the asset from disk.
         m_materials->Revert(m_closingEditor);
         close();
-        ui.EndModal();
-    } else if (ui.Button(id ^ 0xCA9Cull, cancel, "Cancel")) {
+        ui.CloseModal();
+    } else if (ui.Button(id ^ 0xCA9Cull, cancel, "Cancel") || ui.ModalDismissed(id)) {
         m_closingEditor.clear();
         m_closingWindow.clear();
-        ui.EndModal();
+        ui.CloseModal();
     }
+    ui.EndModal();
 }
 
 std::string EditorScreen::UniqueMaterialPath(const std::string& desired) {
@@ -855,6 +864,74 @@ void EditorScreen::DropMesh(const Math::Vec3& origin, const Math::Vec3& dir, con
     Editor::Panels::AssignStaticMesh(mr, mesh);
     SelectOnly(e);
     LUMA_USER_INFO("Level", "Placed '{}'", name);
+}
+
+void EditorScreen::OpenPluginsWindow() {
+    const std::string id = EditorPlugins::kPluginsWindowId;
+    if (m_windows.Has(id)) {
+        m_windows.Focus(id);
+        return;
+    }
+    // Artwork and the Window menu's actions.
+    m_pluginsWindow.brandFont = BrandFont();
+    m_pluginsWindow.logo = m_icons.brandLogo;
+    m_pluginsWindow.defaultPluginIcon = m_icons.pluginCard ? m_icons.pluginCard : m_icons.tabPlugins;
+    m_pluginsWindow.loadImage = [this](const std::filesystem::path& file) -> TextureHandle {
+        if (!m_renderer) return 0;
+        const TextureHandle texture = Slate::LoadImage(*m_renderer, file.string()).texture;
+        if (texture) Slate::MarkFullColorTexture(texture);  // plugin artwork keeps its colours
+        return texture;
+    };
+    m_pluginsWindow.onDock = [this, id] { m_windows.Dock(id); };
+    m_pluginsWindow.onFloat = [this, id] { m_windows.Float(id); };
+    m_pluginsWindow.onMinimize = [this, id] { m_windows.Minimize(id); };
+    m_pluginsWindow.onClose = [this, id] { m_windows.RequestClose(id); };
+    Editor::AssetWindowDesc desc;
+    desc.id = id;
+    desc.title = "Plugins";
+    desc.icon = m_icons.tabPlugins;
+    desc.draw = [this](Slate::Context& ui, const Rect& area) {
+        m_pluginsWindow.Draw(ui, area, m_plugins, m_project ? &*m_project : nullptr, &m_authoringScene);
+    };
+    desc.requestClose = [] { return true; };
+    m_windows.Open(std::move(desc), m_windowWorkArea);
+}
+
+const Slate::Font* EditorScreen::BrandFont() {
+    if (!m_pluginsBrandFont && m_renderer) {
+        // The branding face the Material Editor uses ("LUMA MATERIAL"), a little smaller.
+        std::filesystem::path editorRoot =
+            std::filesystem::path(m_uiFontPath).parent_path().parent_path().parent_path();
+        std::error_code ec;
+        if (!std::filesystem::exists(editorRoot / "Fonts/RubikIso", ec)) editorRoot = "Content/Editor";
+        auto font = std::make_unique<Slate::Font>();
+        if (font->LoadFromFile(*m_renderer, (editorRoot / "Fonts/RubikIso/RubikIso-Regular.ttf").string(), 52.0f)) {
+            m_pluginsBrandFont = std::move(font);
+        }
+    }
+    return m_pluginsBrandFont.get();
+}
+
+void EditorScreen::OpenCodeEditor() {
+    const std::string id = CodeEditor::kCodeEditorWindowId;
+    if (m_windows.Has(id)) {
+        m_windows.Focus(id);
+        return;
+    }
+    m_codeEditor.brandFont = BrandFont();
+    m_codeEditor.logo = m_icons.brandLogo;
+    if (m_project) m_codeEditor.SetProjectRoot(m_project->RootDir());
+    m_codeEditor.onDock = [this, id] { m_windows.Dock(id); };
+    m_codeEditor.onFloat = [this, id] { m_windows.Float(id); };
+    m_codeEditor.onMinimize = [this, id] { m_windows.Minimize(id); };
+    m_codeEditor.onClose = [this, id] { m_windows.RequestClose(id); };
+    Editor::AssetWindowDesc desc;
+    desc.id = id;
+    desc.title = "Code Editor";
+    desc.icon = m_icons.tabCode;
+    desc.draw = [this](Slate::Context& ui, const Rect& area) { m_codeEditor.Draw(ui, area); };
+    desc.requestClose = [] { return true; };
+    m_windows.Open(std::move(desc), m_windowWorkArea);
 }
 
 std::optional<std::filesystem::path> EditorScreen::PrefabFile(const std::string& prefab) const {
@@ -1876,13 +1953,8 @@ void EditorScreen::RegisterEditorUi() {
         return m_activePresentMode ? m_activePresentMode() : std::string{};
     }));
     reg.Add(Editor::Panels::RegisterRenderingPage(Editor::SettingsPages(), m_graphics.rendering));
-    EditorPlugins::RegisterPluginsWindow(
-        reg, menus, panels, m_pluginsWindow, m_plugins,
-        [this]() -> Project* { return m_project ? &*m_project : nullptr; },
-        [this]() -> const Scene* { return &m_authoringScene; },
-        [this] {
-            if (m_panelHost) m_panelHost->Open(EditorPlugins::kPluginsPanelId);
-        });
+    EditorPlugins::RegisterPluginsWindow(reg, menus, [this] { OpenPluginsWindow(); });
+    CodeEditor::RegisterCodeEditorWindow(reg, menus, [this] { OpenCodeEditor(); });
     m_pluginsWindow.openUrl = [](std::string_view url) { OpenExternal(std::string(url)); };
     reg.Add(Editor::Panels::RegisterMapsAndModesPage(
         Editor::SettingsPages(), m_mapsAndModes, [this] {

@@ -18,6 +18,7 @@
 #include "Luma/Profiling/FrameLimiter.h"
 #include "Luma/Profiling/Profiler.h"
 #include "Luma/Platform/Process.h"
+#include "Luma/Platform/Sound.h"
 #include "Luma/Platform/Window.h"
 #include "Luma/RHI/Renderer.h"
 #include "Luma/RHI/VulkanRenderer.h"
@@ -315,6 +316,13 @@ int main(int argc, char** argv) {
     type.bodyStrongSize = 18.0f; // increased from 16.0f
     type.headingSize = 18.0f;   // increased from 16.0f
     type.titleSize = 28.0f;     // increased from 26.0f
+    // Card titles (bold) and their secondary lines (semibold), e.g. the Plugins
+    // browser: the real Red Hat Display weights, sized above the 18px body.
+    type.headlineFont = firstExisting({FindEditorAsset("Fonts/RedHatDisplay/static/RedHatDisplay-Bold.ttf"), titleFont});
+    type.subtitleFont =
+        firstExisting({FindEditorAsset("Fonts/RedHatDisplay/static/RedHatDisplay-SemiBold.ttf"), uiFont});
+    type.headlineSize = 24.0f;
+    type.subtitleSize = 20.0f;
     type.displaySize = 38.0f;   // increased from 36.0f
     ui.SetClipboardHandlers([&window] { return window->GetClipboardText(); },
                             [&window](const std::string& text) { window->SetClipboardText(text); });
@@ -425,6 +433,15 @@ int main(int argc, char** argv) {
     ueIcons.tabViewport = loadIcon("Luma_Icons_V2/PNG/32x32/028_viewport_tab.png");
     ueIcons.tabContent = loadIcon("Luma_Icons_V2/PNG/32x32/029_content_browser_tab.png");
     ueIcons.tabOutputLog = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/142_output_log.png");
+    // The Luma plugin icon (Content/Editor/Luma_Icons/Plugin): the Plugins tab and
+    // the card icon of plugins without their own Resources/Icon128.png.
+    ueIcons.tabPlugins = loadIcon("Luma_Icons/Plugin/luma_plugin_32x32.png");
+    ueIcons.pluginCard = loadIcon("Luma_Icons/Plugin/luma_plugin_64x64.png");
+    // The Code Editor (Luma_Icons/CodeEditor): its tab and the Tools menu entry.
+    ueIcons.tabCode = loadIcon("Luma_Icons/CodeEditor/luma_code_32x32.png");
+    // The Luma logo (window headers, e.g. Plugins): full colour, never tinted.
+    ueIcons.brandLogo = loadIcon("luma_icon.png");
+    if (ueIcons.brandLogo) Slate::MarkFullColorTexture(ueIcons.brandLogo);
     ueIcons.save = loadIcon("Luma_Icons/PNG/32x32/01_Main_Editor_Toolbar/004_save.png");
     ueIcons.error = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/144_error.png");
     ueIcons.warning = loadIcon("Luma_Icons/PNG/32x32/10_Debugging_Engine_Systems/143_warning.png");
@@ -505,6 +522,8 @@ int main(int argc, char** argv) {
             {"ActorPointLight", olActorPointLight, Slate::Icon::Light},
             {"ActorSpotLight", olActorSpotLight, Slate::Icon::Light},
             {"ActorMesh", olActorMesh, Slate::Icon::Cube},
+            {"Plugins", ueIcons.tabPlugins, Slate::Icon::Gear},  // Edit > Plugins
+            {"CodeEditor", ueIcons.tabCode, Slate::Icon::Script},  // Tools > Code Editor
         };
         for (const NamedImage& image : images) {
             editorImages.Add(Editor::EditorImages().Register(image.name, image.texture,
@@ -688,6 +707,9 @@ int main(int argc, char** argv) {
         }
         if (!renderer->BeginFrame()) continue;
         Profiling::CpuScope uiScope("UI (Slate)");
+        // While the editor is still loading, every click is refused (with the
+        // system alert) instead of reaching half-initialised UI.
+        ui.SetInputLocked(editorMode && splashTime < kSplashDuration);
         ui.BeginFrame(static_cast<f32>(window->Width()),
                       static_cast<f32>(window->Height()), dt);
 
@@ -722,6 +744,8 @@ int main(int argc, char** argv) {
             LUMA_PROFILE_SCOPE("UI Record");
             renderer->DrawUI(ui.EndFrame());
         }
+        // A click a modal dialog (or loading) refused: the system alert.
+        if (ui.TakeBlockedClicks() > 0) PlayAlertSound();
         window->SetCursor(ui.RequestedCursor());
         // Spin-box scrubbing: hide + lock the pointer while a drag wants it;
         // when the drag ends, unlock and put the cursor back where it began.

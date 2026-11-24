@@ -21,5 +21,8 @@ bool IsLumaIconPath(std::string_view path);
 bool IconIsFullColor(Icon icon);
 void DrawIcon(Context& ctx, const Rect& box, Icon icon,
               Color color = Color::RGB(255, 255, 255), f32 rotationRadians = 0.0f);
+// The Add "+" for Add / Create buttons: a bold vector cross filling `box`
+// (the pack's Plus art is padded and reads as a speck at button sizes).
+void DrawAddGlyph(Context& ctx, const Rect& box, Color color);
 
 }  // namespace Luma::Slate

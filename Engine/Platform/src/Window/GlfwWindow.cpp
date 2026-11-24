@@ -69,6 +69,10 @@ GlfwWindow::GlfwWindow(const WindowProps& props) {
         glfwCreateStandardCursor(GLFW_HAND_CURSOR);
     m_cursors[static_cast<int>(CursorShape::IBeam)] =
         glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
+    m_cursors[static_cast<int>(CursorShape::ResizeNWSE)] =
+        glfwCreateStandardCursor(GLFW_RESIZE_NWSE_CURSOR);
+    m_cursors[static_cast<int>(CursorShape::ResizeNESW)] =
+        glfwCreateStandardCursor(GLFW_RESIZE_NESW_CURSOR);
 
     LUMA_LOG_INFO("Window", "created '{}' ({}x{})", m_data.title, m_data.width,
                   m_data.height);

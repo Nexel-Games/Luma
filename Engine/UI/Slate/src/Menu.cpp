@@ -223,8 +223,7 @@ std::vector<MenuSearchHit> SearchMenu(const std::vector<MenuEntry>& entries,
 // --- MenuHost ----------------------------------------------------------------
 
 void MenuHost::Open(u64 owner, const Rect& anchor, bool below,
-                    std::vector<MenuEntry> entries, const MenuOptions& options,
-                    bool rightButtonHeld) {
+                    std::vector<MenuEntry> entries, const MenuOptions& options) {
     Close();
     m_open = true;
     m_owner = owner;
@@ -235,7 +234,6 @@ void MenuHost::Open(u64 owner, const Rect& anchor, bool below,
     m_levels.emplace_back();
     m_rootPlaced = false;
     m_justOpened = true;
-    m_rightHeld = rightButtonHeld;
 }
 
 void MenuHost::Close() {
@@ -249,7 +247,6 @@ void MenuHost::Close() {
     m_activeLevel = 0;
     m_justOpened = false;
     m_pressInside = false;
-    m_rightHeld = false;
     m_intentLevel = m_intentRow = -1;
     m_tipEntry = nullptr;
 }
@@ -605,16 +602,10 @@ void MenuHost::Draw(Context& ctx) {
             if (ctx.mouseReleased(0) && m_pressInside) {
                 activate(hitLevel, hoveredRow);
                 if (!m_open) return;
-            } else if (ctx.mouseReleased(1) && m_rightHeld && !m_justOpened &&
-                       row.entry->kind == MenuEntry::Kind::Action) {
-                // Press-drag-release on a right-click context menu.
-                activate(hitLevel, hoveredRow);
-                if (!m_open) return;
             }
         }
     }
     if (ctx.mouseReleased(0)) m_pressInside = false;
-    if (ctx.mouseReleased(1)) m_rightHeld = false;
 
     // --- Keyboard ----------------------------------------------------------
     m_activeLevel = std::clamp(m_activeLevel, 0, LevelCount() - 1);
