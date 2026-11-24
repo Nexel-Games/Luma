@@ -92,6 +92,18 @@ void ConsolePanel::Pull() {
     while (m_entries.size() > m_source->Capacity()) m_entries.pop_front();
 }
 
+std::optional<LogEntry> ConsolePanel::LatestStatusEntry() {
+    Pull();
+    const LogEntry* latest = nullptr;
+    for (auto it = m_entries.rbegin(); it != m_entries.rend(); ++it) {
+        if (!Passes(*it, m_filter)) continue;
+        if (IsError(it->level)) return *it;
+        if (!latest) latest = &*it;
+    }
+    if (latest) return *latest;
+    return std::nullopt;
+}
+
 std::vector<Slate::MenuEntry> ConsolePanel::BuildFilterMenu() {
     Slate::MenuBuilder b;
     auto toggle = [&](const char* label, bool* flag, Color dot, const char* tip) {

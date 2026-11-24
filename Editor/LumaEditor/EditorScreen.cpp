@@ -2612,10 +2612,11 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
     }  // home
     if (covered) ui.WarpMouse(realMouse.x, realMouse.y);
     m_panelHost->Sync();  // follow panel (un)registrations; after the dock applied closes
-    // Status bar: background-task indicator on the right (Unreal-style).
+    // Status bar: the latest Output Log message and background tasks.
     const Rect statusBar{0, height - kStatusBarH, width, kStatusBarH};
     ui.Panel(statusBar, t.surface1);
     ui.Panel({0, statusBar.y, width, 1.0f}, t.separator);
+    f32 messageLeft = statusBar.x + 10.0f;
     if (m_plugins.RestartRequired()) {
         ui.LabelIn({statusBar.x + 10.0f, statusBar.y, width * 0.45f, statusBar.h},
                    "Restart required to apply plugin changes", t.warning);
@@ -2623,9 +2624,25 @@ void EditorScreen::Draw(Slate::Context& ui, f32 width, f32 height) {
         if (ui.Button(Slate::Context::ID("plugins.statusbar.restart"), now, "Restart Now")) {
             RequestRelaunch();
         }
+        messageLeft = now.Right() + 8.0f;
     }
     if (m_pluginsWindow.TakeRestartNow()) RequestRelaunch();
     if (m_tasks) m_backgroundTasks.DrawStatusIndicator(ui, statusBar, *m_tasks);
+    f32 messageRight = statusBar.Right() - 10.0f;
+    const Rect& taskIndicator = m_backgroundTasks.IndicatorRect();
+    if (taskIndicator.w > 0.0f) messageRight = taskIndicator.x - 8.0f;
+    if (messageRight > messageLeft + 40.0f) {
+        if (auto entry = m_consolePanel.LatestStatusEntry()) {
+            const bool error = entry->level == LogLevel::Error || entry->level == LogLevel::Fatal;
+            const Color color = error ? t.error : entry->level == LogLevel::Warning ? t.warning : t.textDim;
+            const std::string message = std::string(ToString(entry->level)) + "  " +
+                                        entry->category + ": " + entry->message;
+            const Rect messageRect{messageLeft, statusBar.y + 1.0f,
+                                   messageRight - messageLeft, statusBar.h - 1.0f};
+            ui.LabelIn(messageRect, message, color);
+            ui.Tooltip(Slate::Context::ID("statusbar.log"), messageRect, message);
+        }
+    }
     // Floating asset editor windows sit above the level editor.
     m_windows.DrawFloating(ui, m_windowWorkArea);
     // Editors closed this frame are freed now (ids: "mated:" / "instance:" / "material:" + path).

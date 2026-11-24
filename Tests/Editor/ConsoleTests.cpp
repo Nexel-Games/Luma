@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <memory>
+
 #include "Luma/Editor/Panels/Console.h"
 
 using Luma::LogEntry;
@@ -55,4 +57,31 @@ TEST_CASE("Output Log hides engine diagnostics unless enabled", "[console]") {
     f.engineLogs = true;
     CHECK(ConsolePanel::Passes(engine, f));
     CHECK(ConsolePanel::Passes(user, f));
+}
+
+TEST_CASE("Output Log footer keeps the newest visible error ahead of later messages", "[console]") {
+    auto history = std::make_shared<Luma::LogBuffer>(8);
+    ConsolePanel panel;
+    panel.SetSource(history);
+
+    auto write = [&](LogLevel level, const char* message, bool userFacing = true) {
+        Luma::LogRecord record{level, "Scene", message, {}, {}, userFacing};
+        history->Write(record);
+    };
+
+    CHECK_FALSE(panel.LatestStatusEntry());
+    write(LogLevel::Info, "Scene loaded");
+    REQUIRE(panel.LatestStatusEntry());
+    CHECK(panel.LatestStatusEntry()->message == "Scene loaded");
+
+    write(LogLevel::Warning, "Missing texture");
+    CHECK(panel.LatestStatusEntry()->message == "Missing texture");
+    write(LogLevel::Error, "Save failed");
+    write(LogLevel::Info, "Selection changed");
+    write(LogLevel::Error, "Import failed");
+    write(LogLevel::Warning, "Fallback applied");
+    CHECK(panel.LatestStatusEntry()->message == "Import failed");
+
+    write(LogLevel::Fatal, "Renderer stopped", false);
+    CHECK(panel.LatestStatusEntry()->message == "Import failed");
 }

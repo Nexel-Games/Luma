@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -37,6 +38,9 @@ public:
     }
 
     void Draw(Slate::Context& ui, const Slate::Rect& body, PanelContext& ctx);
+
+    // Newest visible error takes priority; otherwise return the newest visible log.
+    std::optional<LogEntry> LatestStatusEntry();
 
     // Severity buckets the Filters menu toggles (Unreal: Errors / Warnings /
     // Messages / Verbose).
